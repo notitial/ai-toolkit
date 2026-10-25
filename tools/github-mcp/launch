@@ -1,0 +1,28 @@
+#!/bin/sh -p
+set +x
+set -eu
+DIR=/usr/local/libexec/mcp-github
+TOOLS=get_me,pull_request_read,list_pull_requests,search_pull_requests,issue_read,list_issues,search_issues,get_file_contents,get_commit,list_commits,list_branches,actions_get,actions_list,get_job_logs,create_pull_request,add_issue_comment,add_reply_to_pull_request_comment,actions_run_trigger,update_pull_request
+if [ "${1:-}" != --clean-env ]; then
+  user=$(/usr/bin/id -un </dev/null)
+  home=$(/usr/bin/dscl . -read "/Users/$user" NFSHomeDirectory </dev/null | /usr/bin/sed -n 's/^NFSHomeDirectory: //p')
+  tmp=$(/usr/bin/getconf DARWIN_USER_TEMP_DIR </dev/null)
+  if [ -z "$home" ] || [ -z "$tmp" ]; then
+    echo "mcp-github: cannot resolve HOME or TMPDIR; refusing to start" >&2
+    exit 1
+  fi
+  exec /usr/bin/env -i HOME="$home" TMPDIR="$tmp" PATH=/usr/bin:/bin /bin/sh -p "$DIR/launch" --clean-env
+fi
+for v in $(/usr/bin/env | /usr/bin/sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p'); do
+  case $v in HOME|TMPDIR|PATH) ;; *) unset "$v" ;; esac
+done
+cd "$DIR"
+tok=$(/usr/bin/security find-generic-password -s mcp-github -a __GITHUB_KEYCHAIN_ACCOUNT__ -w </dev/null 2>/dev/null) || tok=
+if [ -z "$tok" ]; then
+  echo "mcp-github: keychain item mcp-github/__GITHUB_KEYCHAIN_ACCOUNT__ missing or locked; refusing to start" >&2
+  exit 1
+fi
+GITHUB_PERSONAL_ACCESS_TOKEN=$tok
+export GITHUB_PERSONAL_ACCESS_TOKEN
+unset tok
+exec "$DIR/github-mcp-server" stdio --lockdown-mode --tools "$TOOLS"
