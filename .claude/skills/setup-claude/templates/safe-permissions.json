@@ -1,0 +1,326 @@
+{
+  "_comment": "Safe global permissions, plugins, hooks, statusline, and migration rules. Git operations use the git-mcp server for structured input/output and per-tool permission scoping. Non-git Bash permissions cover shell utilities with no MCP equivalent.",
+  "_env_comment": "Global env policy. ENFORCED keys — added if missing, overwritten to the template value if different (unlike the additive allow/plugins merges). CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY and DISABLE_FEEDBACK_COMMAND opt out of the session-quality survey and the /feedback command upload; ENABLE_CLAUDEAI_MCP_SERVERS=false keeps claude.ai cloud MCP connectors off. Do NOT enforce purely cosmetic env prefs (e.g. flicker) here.",
+  "env": {
+    "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
+    "DISABLE_FEEDBACK_COMMAND": "1",
+    "ENABLE_CLAUDEAI_MCP_SERVERS": "false"
+  },
+  "_attribution_comment": "ENFORCED like env (added if missing, overwritten to this value if different). Disables the git commit Co-Authored-By trailer (commit), the PR 'Generated with Claude Code' footer (pr), and the session-URL trailer (sessionUrl) — the harness default a session re-applies even against a CLAUDE.md rule. commit/pr are STRINGS ('' = suppress), sessionUrl is a boolean (Claude Code v2.0.62+, deprecates includeCoAuthoredBy). This makes the global CLAUDE.md no-attribution rule mechanical instead of a manual reminder.",
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
+  "_autoCompactWindow_comment": "ENFORCED like env. Compact at 500k tokens, not the ~967k default of 1M-window models (Opus 5.x, Fable, Sonnet 5): every turn re-sends the context, so a full window costs money, speed and accuracy. A settings key, not the CLAUDE_CODE_AUTO_COMPACT_WINDOW env var, which is ignored in a settings.json env block on some versions (anthropics/claude-code#63186); where that env var IS set (for example by a session's own --settings file) it still wins. A modelSettings.<model>.autoCompactWindow (what /autocompact writes) beats this key for that model: see SKILL.md Step 10, Auto-compact window.",
+  "autoCompactWindow": 500000,
+  "_enableAllProjectMcpServers_comment": "ENFORCED like env. A project's .mcp.json servers each need an explicit approval: the github MCP rules key on the server name, so an auto-approved project server could expose the same tools under another name.",
+  "enableAllProjectMcpServers": false,
+  "_deniedMcpServers_comment": "ADDITIVE like permissions.deny: add missing entries, never remove live ones. GitHub's hosted MCP server (api.githubcopilot.com, OAuth, every toolset incl. merge and push), which the official github plugin and the org-synced engineering plugin ship. It bypasses the launcher, its --tools list and lockdown mode, so it must never connect; a denylist match is final (managed-mcp docs: 'Nothing overrides a denylist match'). The broad entries cover the other Copilot hosts, http and a missing trailing slash; the exact one stays in case `*` does not span a slash. Dedupe by serverUrl string.",
+  "deniedMcpServers": [
+    {
+      "serverUrl": "https://api.githubcopilot.com/*"
+    },
+    {
+      "serverUrl": "https://*githubcopilot.com*"
+    },
+    {
+      "serverUrl": "http://*githubcopilot.com*"
+    }
+  ],
+  "permissions": {
+    "allow": [
+      "Bash(ls *)",
+      "Bash(wc *)",
+      "Bash(pwd)",
+      "Bash(which *)",
+      "Bash(mkdir *)",
+      "Bash(~/.claude/tools/workspace-lock.sh status)",
+
+      "mcp__git-mcp__git_add",
+      "mcp__git-mcp__git_blame",
+      "mcp__git-mcp__git_diff",
+      "mcp__git-mcp__git_log",
+      "mcp__git-mcp__git_show",
+      "mcp__git-mcp__git_status",
+
+      "mcp__github__get_me",
+      "mcp__github__pull_request_read",
+      "mcp__github__list_pull_requests",
+      "mcp__github__search_pull_requests",
+      "mcp__github__issue_read",
+      "mcp__github__list_issues",
+      "mcp__github__search_issues",
+      "mcp__github__get_file_contents",
+      "mcp__github__get_commit",
+      "mcp__github__list_commits",
+      "mcp__github__list_branches",
+      "mcp__github__actions_get",
+      "mcp__github__actions_list",
+      "mcp__github__get_job_logs",
+
+      "mcp__plugin_context7_context7__query-docs",
+      "mcp__plugin_context7_context7__resolve-library-id"
+    ],
+    "_ask_comment": "Always prompt, in auto mode too (an explicit ask rule runs before the classifier). caffeinate holds a power assertion that keeps the Mac awake. Both the plain and the nohup form are listed, so the prompt does not depend on how the matcher treats the nohup wrapper; env, bash -c or ssh forms match neither. `pkill -x caffeinate` stops every caffeinate, and the workspace-lock guard lets a session without the lock run it, so it prompts too. The github MCP asks: re-running or cancelling a run and dispatching a workflow. Opening a PR, commenting, replying in a review thread and editing a PR's title, body or draft state have no rule: the guard returns allow for them in the write repos, and ask for a comment, title or body that mentions @claude and for draft false. They are on neither list on purpose: an ask rule would outrank the guard's allow, and an allow rule would pass them unchecked when the guard is missing; with no rule a missing guard falls back to the default prompt. The github MCP guard returns ask for the remaining writes itself, in the write repos only, denies log deletion and any update_pull_request key other than title, body and draft (a name rule cannot split arguments, so without the guard that tool is an unrestricted ask), and adds a cost warning when a comment mentions @claude; these rules are its fallback. The workspace-lock `clear` entries are a wildcard prefix and the literal `~` form (a live test showed the literal `$HOME/...` rule never prompted; the wildcard prompts for the `$HOME` and the absolute spelling; the `~` literal prompts for `~`, and is kept because the wildcard was not tested alone on `~`); they back the lock guard, which owns the clear prompt and shows the holder facts; they are best effort, since a wrapped spelling misses them and the guard denies those anyway (ADR 0012). Additive like allow; never remove a live ask entry.",
+    "ask": [
+      "Bash(caffeinate:*)",
+      "Bash(nohup caffeinate:*)",
+      "Bash(pkill -x caffeinate)",
+      "Bash(*/.claude/tools/workspace-lock.sh clear *)",
+      "Bash(~/.claude/tools/workspace-lock.sh clear *)",
+      "mcp__github__actions_run_trigger",
+      "Edit(//**/.mcp.json)",
+      "Bash(*install.conf*)"
+    ],
+    "_deny_comment": "github MCP write channel: a second git-write path on the shared credential; merging stays human-only. The server exposes only the allow and ask tools (the launcher's --tools list); these denies are the second layer, and the root-owned guard (/usr/local/libexec/mcp-github/guard.sh, source tools/github-mcp/guard.sh) denies any other github tool and splits actions_run_trigger by method. Every github rule, the guard's hook matcher included, keys on the server name `github`: the guard covers that server only, so the launcher registered under another name would bypass the rules and the guard alike. That is why agents may not run the `claude mcp` commands that add or remove a server (`claude mcp list` stays usable) or use the Edit and Write tools on ~/.claude.json, why each project .mcp.json server needs its own approval (enableAllProjectMcpServers false) and editing a .mcp.json prompts, and why the two plugin GitHub servers are denied here and blocked by URL in deniedMcpServers. The ~/.claude.json denies name the default user config only: with CLAUDE_CONFIG_DIR set, the active config is $CLAUDE_CONFIG_DIR/.claude.json, which a template rule cannot name (rules take no variables), so add Edit and Write denies for that path to the live settings by hand. Nor may the Edit and Write tools touch ~/.zshrc, ~/.zshenv or ~/.zprofile: rc files are the user's, and an agent-edited one runs in every new shell (a Bash write still reaches them; the denies close the plain tool route). These name-keyed denies are defence in depth, not a fence: tools/github-mcp/README.md lists the routes they miss. `security`, `gh auth token` and `gh` are denied as defence in depth only: a full path or another program can still read the mcp-github item, and the prefix rules miss a full-path, wrapped or quoted gh (the gh-block hook catches those, unless a repo's settings set disableAllHooks). `Bash(*mcp-github*)` is a tripwire: it denies any Bash command that names the keychain item or the root-installed launcher folder, which catches a full-path `security` read or a direct run of `launch`; it also denies a harmless `ls` or `stat` of that folder (use the Read tool, or `tools/install-copies.sh status` for ownership), and a run-time-built name passes it. ~/.claude/install.conf holds the install-time settings, among them the github MCP guard's write owners: the Edit and Write tools are denied on it and on its write temp (install.conf.*), and every Bash command naming it asks, since only /setup-claude's settings step writes it, on the user's go; a run-time-built name passes the ask, and the guard's root-owned copy changes only with the user's own sudo reinstall. Never remove existing live deny entries when merging.",
+    "deny": [
+      "mcp__github__merge_pull_request",
+      "mcp__github__push_files",
+      "mcp__github__create_or_update_file",
+      "mcp__github__delete_file",
+      "mcp__github__create_branch",
+      "mcp__github__fork_repository",
+      "mcp__github__create_repository",
+      "mcp__github__delete_repository",
+      "mcp__github__update_issue_comment",
+      "mcp__github__update_pull_request_branch",
+      "mcp__github__pull_request_review_write",
+      "mcp__github__add_comment_to_pending_review",
+      "mcp__github__issue_write",
+      "mcp__github__sub_issue_write",
+      "mcp__github__label_write",
+      "mcp__github__create_repository_ruleset",
+      "mcp__github__custom_properties_write",
+      "mcp__plugin_engineering_github",
+      "mcp__plugin_github_github",
+      "Bash(security:*)",
+      "Bash(*mcp-github*)",
+      "Bash(gh auth token:*)",
+      "Bash(gh:*)",
+      "Bash(claude mcp add:*)",
+      "Bash(claude mcp add-json:*)",
+      "Bash(claude mcp add-from-claude-desktop:*)",
+      "Bash(claude mcp remove:*)",
+      "Edit(~/.claude.json)",
+      "Write(~/.claude.json)",
+      "Edit(~/.claude/install.conf)",
+      "Write(~/.claude/install.conf)",
+      "Edit(~/.claude/install.conf.*)",
+      "Write(~/.claude/install.conf.*)",
+      "Edit(~/.zshrc)",
+      "Write(~/.zshrc)",
+      "Edit(~/.zshenv)",
+      "Write(~/.zshenv)",
+      "Edit(~/.zprofile)",
+      "Write(~/.zprofile)",
+      "Read(//**/.env)",
+      "Read(.env.*)",
+      "Read(!.env.example)",
+      "Read(!.env.sample)",
+      "Read(!.env.production)",
+      "Read(!.env.staging)",
+      "Read(!.env.test)",
+      "Read(//**/.env.*.*)",
+      "Read(//**/.env.local)",
+      "Read(//**/.env.prod)",
+      "Read(//**/.env.development)",
+      "Read(//**/.env.dev)",
+      "Read(//**/.env.preview)",
+      "Read(//**/.env.ci)",
+      "Read(//**/.env.keys)",
+      "Read(//**/.env.qa)",
+      "Read(//**/.env.uat)",
+      "Read(//**/.env.maestro)",
+      "Read(//**/.envrc)",
+      "Read(//**/*.pem)",
+      "Read(//**/*.key)",
+      "Read(~/.ssh/id_*)",
+      "Read(~/.aws/credentials)",
+      "Read(~/.aws/sso/cache/**)",
+      "Read(~/.kube/config)",
+      "Read(~/.gnupg/**)",
+      "Read(~/.netrc)",
+      "Read(~/.npmrc)",
+      "Read(~/.docker/config.json)",
+      "Read(~/.config/gh/hosts.yml)",
+      "Read(//**/*.keychain)",
+      "Read(//**/*.keychain-db)"
+    ],
+    "_deny_read_comment": "Secret files. A Read deny covers the Read, Grep and Glob tools (best effort), @-mentions, Edit/Write on the same path, and the file commands Claude Code recognises in Bash (cat, head, tail, sed, tee) and redirect targets; not grep -r or other programs that open files. `//` is absolute, `~/` is home. A `!` exception works only on an unanchored rule, after the rule it carves from, in the same file, so `.env.*` is unanchored (any depth under the session cwd) with its exceptions: .example and .sample, and .production, .staging and .test, which some web apps commit as public build config. Those stay readable; secret-detector.sh still blocks Write/Edit on them. Outside the cwd the `//**` names cover only the listed suffixes and every two-part name such as .env.local.prod; another single-suffix name there (.env.backup, .env.old, .env.bak) is not denied, because an anchored `//**/.env.*` would also deny the readable exceptions. Over-denies, accepted: *.pub beside id_*, public .pem files, Keynote .key bundles. Checked with a live session on stand-in files.",
+    "_deny_order": "Keep this order when merging: the `!` lines must follow `Read(.env.*)`."
+  },
+  "enabledPlugins": {
+    "context7@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true
+  },
+  "hooks": {
+    "_comment": "Safety and observability hooks. Scripts installed to ~/.claude/hooks/ by Step 3. NOTE: the merge in Step 10 is additive (keyed on the event key + matcher + script path triple — the event key is part of the identity, because one script registered under several event keys with the SAME matcher would otherwise collapse into one) — it can add a missing entry but can NEVER update a changed matcher string; changed matchers must be applied to live settings by explicit diff (see SKILL.md Step 10 drift assertion).",
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|mcp__git-mcp__git_commit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/secret-detector.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/destructive-blocker.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "_comment": "Blocks the gh CLI for every agent: any Bash command with gh as a word (any case, also with quotes and backslashes removed) is denied, and the reason says to read through the github MCP and hand the user gh commands in a markdown block for the rest (rules/security.md). Fail-closed without jq or on unparsable input. A text fence, not a sandbox: a name built at run time, an alias or a script gets past it (residuals in the hook header). Monitor is matched too: it runs its command in a shell.",
+        "matcher": "Bash|Monitor",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/gh-block.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/git-mcp-redirect.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__git-mcp__git_push|mcp__git-mcp__git_reset|mcp__git-mcp__git_clean|mcp__git-mcp__git_worktree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/git-mcp-guard.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__github__.*$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/libexec/mcp-github/guard.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "_comment": "Tells the user when the pinned github-mcp-server has a newer release or an applicable advisory: at most every 7 days a detached, tokenless curl compares them with the installed --version, and a pending notice shows as a systemMessage once a day. Never blocks (no permission decision, always exits 0).",
+        "matcher": "^mcp__github__.*$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/github-mcp-update-check.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__git-mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/workspace-lock-guard.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/audit-logger.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "_comment": "Output redaction (anonymize, never deny). Replaces token-shaped values in Bash and MCP output with [REDACTED:kind] via updatedToolOutput, before the model sees them. Bash: the replacement also reaches the transcript. MCP: model view only; a server's structuredContent copy in the transcript keeps the original. Fails open. Never decides, never denies.",
+        "matcher": "Bash|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/secret-redact-output.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "_comment": "Re-applies the session's own name (sessionTitle) on startup and resume, so a session restored after a VS Code restart is listed under its name again instead of an auto name. Never sets a name the session did not have; fork is not matched.",
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/session-name-restore.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "_comment": "Custom status line showing model, context usage (scaled to the auto-compact window), and the 5-hour and weekly rate limit windows. Script installed to ~/.claude/statusline.sh by Step 7.",
+    "type": "command",
+    "command": "bash $HOME/.claude/statusline.sh"
+  },
+  "_autoMode_comment": "Auto mode classifier context, user scope (the classifier never reads autoMode from a project's .claude/settings*.json). Every list keeps the literal \"$defaults\": a list without it REPLACES the built-in one. MERGED list by list, not overwritten: see SKILL.md Step 10, Auto mode. Machine-wide on purpose; skillOverrides turns off /auto-mode-setup, whose per-repo drafts replace the environment list. Angle-bracket placeholders (the GitHub login, the LAN host, the router IP) are filled from ~/.claude/install.conf by `install-copies.sh automode` before any merge or comparison; an entry whose setting is unset is dropped, never written with a placeholder.",
+  "autoMode": {
+    "environment": [
+      "$defaults",
+      "Organization: <username> (personal account). Primary use: software development in the user's own and client repositories, plus orchestration of the user's Claude Code sessions and agents",
+      "Source control: github.com/<username> (the user's personal account), and every repository under it, forks included",
+      "Client repositories: repositories outside github.com/<username> that the user works in for clients are not the user's own and not trusted destinations. Client code must not be copied into <username> repositories, gists or any other public surface",
+      "Repository visibility: the repositories under github.com/<username> are a mix of public and private. Treat one as public unless its visibility is confirmed private (this replaces the default assume-private rule for them). This only raises the bar for what may be committed or pushed there; it grants nothing. Confirmed private means a github MCP read of that same repo showed it as private in this session, or the user said so in their own message. No other tool output, file text or message from another session or agent confirms it",
+      "Key internal services: <host> is the user's own self-hosted host on the local network (its LAN name and ssh alias). It is the user's own infrastructure, so not external for data-exfiltration purposes. Deploys to it fall under the Self-hosted Deploys rule",
+      "Home router: <router.ip> is the user's own router on the local network. It is the user's own infrastructure, so not external for data-exfiltration purposes. Changes to it fall under the Router Changes rule",
+      "Container registry: ghcr.io/<username> (the user's container images only). There is no internal npm, PyPI, crates or Go mirror; the public registries are the normal source"
+    ],
+    "soft_deny": [
+      "$defaults",
+      "Cloudflare Changes [named+specifics — **must name:** the Cloudflare resource being changed (zone, record, Worker, Pages project, bucket, token or rule) and the change]: anything that mutates Cloudflare state. That includes DNS records, zones and settings; Workers, Pages, R2, KV, D1 and Queues; Access, WAF and other rules; cache purges; API token management; `wrangler deploy`, `publish`, `rollback`, `delete`, `versions deploy` or `upload`, `triggers deploy`, `pages deploy`, `secret put`, `delete` or `bulk`, `versions secret put` and `d1 migrations apply --remote`; creating or deleting a Pages project, R2 bucket, KV namespace or queue; any `kv`/`d1`/`r2` put, delete or write query unless `--local` is given (a missing `--local` counts as remote, since the default target differs by wrangler version); `cloudflared tunnel create`, `route`, `run` or `delete`; `flarectl` writes; write tools of a Cloudflare MCP server (`mcp__cloudflare__*`); REST calls with POST, PUT, PATCH or DELETE (GraphQL analytics queries are reads); changes made in the dash.cloudflare.com dashboard through a browser; a push to a branch whose Git integration or CI deploys to Cloudflare (treat the default branch of any repo as deploying when it has a wrangler.toml, wrangler.json or wrangler.jsonc, a Pages config, a `functions/` directory with `_routes.json`, or a `.github/workflows` file that uses `cloudflare/wrangler-action` or runs `wrangler deploy` or `wrangler pages deploy`; this overrides the Git Push Destination exception); and Terraform apply, destroy, import or state changes on the Cloudflare provider. Not covered: reads, SELECT-only queries, `--local` operations, `kv` and `d1` commands with `--preview` (the preview namespace; `deploy`, `pages deploy` and `versions upload` stay covered for preview targets), `terraform plan`, `wrangler whoami`, `tail` or a local `dev`, `--dry-run`, and local edits to wrangler.toml, wrangler.json, wrangler.jsonc or .tf files. For Cloudflare this rule applies in addition to the default DNS / Domain / Cert Changes, Secret-Store Writes and Production Deploy rules; the user's words must satisfy the must-name item of every rule that matches",
+      "Self-hosted Deploys [named+specifics — **must name:** the host and the service or change]: deploying, restarting or reconfiguring a service on <host>, or changing the host's own configuration. That includes any state-changing command over ssh to <host> (`ssh <host>`), such as `docker`, `systemctl`, `zfs` or `reboot`; its API calls with a method that changes state; changes made in its web UI through a browser; `scp` or `rsync` that changes files or config on it; and a workflow run, dispatch or push that triggers a job deploying to it (this overrides the Git Push Destination exception). Not covered: read-only commands on the host (status, logs, `ps`, `df`, and other read-only commands that print no secrets; keys, .env files and API keys stay under the default credential rules) and jobs that only build or test. This applies in addition to the default Production Deploy rule; the user's words must satisfy the must-name item of every rule that matches",
+      "Router Changes [named+specifics — **must name:** the change]: any state-changing command over ssh to <router.ip> or through its web UI, such as editing, adding or removing config, reloading or restarting a service, firewall or DNS changes, package installs or firmware upgrades. Not covered: read-only commands that print no secrets. This applies in addition to the default rules; the user's words must satisfy the must-name item of every rule that matches"
+    ]
+  },
+  "skillOverrides": {
+    "auto-mode-setup": "off"
+  },
+  "_migration": {
+    "_comment": "Bash git permissions replaced by MCP git. Remove these if found in existing settings.",
+    "removeBashGit": [
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(git remote -v*)",
+      "Bash(git tag*)",
+      "Bash(git stash list*)",
+      "Bash(git add *)",
+      "Bash(git branch*)"
+    ],
+    "_overbroad_comment": "Overbroad permissions replaced by dedicated tools. Bash(cat *) bypasses the workspace read boundary; the Read tool covers the need.",
+    "removeOverbroad": [
+      "Bash(cat *)"
+    ],
+    "removePlugins": []
+  }
+}
