@@ -21,7 +21,7 @@ input=$(cat)
 # Use -1 sentinel for missing numeric fields — bash read collapses empty TSV fields,
 # which shifts subsequent values when an interior field is null.
 # Both windows are rendered and kept in the readings file below.
-IFS=$'\t' read -r model ctx_used_pct ctx_window_size rate_pct resets_at week_pct week_resets_at session_id effort_level cache_warm cache_observed cache_ttl cache_expires < <(
+IFS=$'\t' read -r model ctx_used_pct ctx_window_size rate_pct resets_at week_pct week_resets_at session_id effort_level cache_warm cache_observed cache_ttl cache_expires transcript_path cost_usd < <(
   echo "$input" | jq -r '[
     ((.model.display_name // "Unknown") | gsub(" \\([^)]*context\\)"; "")),
     (.context_window.used_percentage // -1),
@@ -35,7 +35,9 @@ IFS=$'\t' read -r model ctx_used_pct ctx_window_size rate_pct resets_at week_pct
     (.prompt_cache.warm | tostring),
     (.prompt_cache.caching_observed | tostring),
     (.prompt_cache.ttl // "none"),
-    (.prompt_cache.expires_at // -1)
+    (.prompt_cache.expires_at // -1),
+    ((.transcript_path // "") | if . == "" then "none" else . end),
+    (.cost.total_cost_usd // -1)
   ] | @tsv'
 )
 
@@ -180,6 +182,81 @@ bar() {
     fi
   done
   printf "%s" "$result"
+}
+
+# --- API-key view ----------------------------------------------------------------
+# An API key has no subscription rate_limits, so the Limit/Weekly bars would sit empty. When
+# ANTHROPIC_API_KEY is set (presence only, the value is never read or printed) and the harness
+# sent no rate_limits, they give way to: Input <all input tokens> <bar of the hot share> <N>% hot,
+# Output <tokens>, Cost <$>. "Hot" is cache-read input, "cold" is fresh plus cache-creation input.
+# The statusline's stdin carries only the LAST response's tokens, so the totals are summed here
+# from the session's own transcript (one usage per assistant message id; the transcript repeats
+# it for every content block). The sum is cached by transcript size and redone by a detached
+# job when the file grows, so a render never waits for it. Cost is the harness's own figure.
+
+# Compact token count: 812, 9.5k, 297k, 1.2M, 62.9M.
+fmt_tok() {
+  local n="${1:-0}"
+  if [ "$n" -ge 1000000 ]; then printf "%d.%dM" $(( n / 1000000 )) $(( n % 1000000 / 100000 ))
+  elif [ "$n" -ge 10000 ]; then printf "%dk" $(( n / 1000 ))
+  elif [ "$n" -ge 1000 ]; then printf "%d.%dk" $(( n / 1000 )) $(( n % 1000 / 100 ))
+  else printf "%d" "$n"; fi
+}
+
+# api_sum_transcript <transcript> <size> <cache>: writes "size<TAB>fresh<TAB>create<TAB>read<TAB>output".
+# <size> is the size read BEFORE the sum, so a file that grew meanwhile is summed again next time.
+api_sum_transcript() {
+  local sums tmp="$3.$$"
+  # Per message id the largest figure of each field wins (output_tokens only grows while a response streams, the
+  # input fields repeat), a non-number counts 0, and a line without a message object is skipped.
+  sums=$(jq -nRr 'reduce (inputs | fromjson? | select(type == "object" and .type == "assistant"
+        and ((.message | type) == "object") and ((.message.usage | type) == "object"))) as $l ({};
+      ($l.message.id // $l.requestId // $l.uuid // "") as $k
+      | ($l.message.usage | [(.input_tokens | numbers // 0), (.cache_creation_input_tokens | numbers // 0),
+                             (.cache_read_input_tokens | numbers // 0), (.output_tokens | numbers // 0)]) as $u
+      | .[$k] = (if .[$k] then [.[$k], $u] | transpose | map(max) else $u end))
+    | [.[]] | (if length == 0 then [[0, 0, 0, 0]] else . end) | transpose | map(add) | @tsv' "$1" 2>/dev/null) || return 0
+  [ -n "$sums" ] || return 0
+  printf '%s\t%s\n' "$2" "$sums" > "$tmp" 2>/dev/null && mv -f "$tmp" "$3" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  return 0
+}
+
+# api_view_segment: prints the Input / Output / Cost segments. Fail-open and silent.
+api_view_segment() {
+  local dir="${STATUSLINE_CACHE_DIR:-$HOME/.cache/claude-statusline}" tp="$transcript_path"
+  local grey=$'\033[38;5;245m' teal=$'\033[38;5;73m' off=$'\033[0m'
+  local key size cache run c_size fresh create cread out total hot_pct run_m
+  # An id-less session would share one cache file with every other: no sum for it.
+  if [ "$tp" != none ] && [ "$session_id" != unknown ] && [ -r "$tp" ]; then
+    size=$(stat -f%z "$tp" 2>/dev/null || stat -c%s "$tp" 2>/dev/null) || size=
+    key=$(printf %s "$session_id" | tr -c 'A-Za-z0-9_-' _)
+    cache="$dir/$key.tsv"; run="$dir/$key.run"
+    if [ -n "$size" ]; then
+      c_size=-1
+      [ -r "$cache" ] && IFS=$'\t' read -r c_size fresh create cread out < "$cache" 2>/dev/null || true
+      # One job at a time: a marker younger than 60 s (compared in seconds, not find -mmin, which rounds up on BSD) means one runs.
+      run_m=$(stat -f%m "$run" 2>/dev/null || stat -c%Y "$run" 2>/dev/null) || run_m=0
+      if [ "$c_size" != "$size" ] && ! [ $(( $(date '+%s') - run_m )) -lt 60 ] 2>/dev/null; then
+        ( umask 077; mkdir -p "$dir"; : > "$run" ) 2>/dev/null || true
+        ( umask 077; api_sum_transcript "$tp" "$size" "$cache"; rm -f "$run"
+          find "$dir" -type f -mtime +7 -delete ) >/dev/null 2>&1 </dev/null &
+        disown 2>/dev/null || true
+      fi
+    fi
+  fi
+  if [ -n "${cread:-}" ] && [ "${fresh:-x}" -ge 0 ] 2>/dev/null && [ "${create:-x}" -ge 0 ] 2>/dev/null \
+    && [ "$cread" -ge 0 ] 2>/dev/null && [ "${out:-x}" -ge 0 ] 2>/dev/null; then
+    total=$(( fresh + create + cread ))
+    hot_pct=0
+    [ "$total" -gt 0 ] && hot_pct=$(( (cread * 100 + total / 2) / total ))
+    printf "  %sInput%s %s %s%s%s %s%3d%% hot%s" "$grey" "$off" "$(fmt_tok "$total")" "$teal" "$(bar "$hot_pct" 12)" "$off" "$teal" "$hot_pct" "$off"
+    printf "  %sOutput%s %s" "$grey" "$off" "$(fmt_tok "$out")"
+  else
+    printf "  %sInput%s \033[38;5;240m…%s" "$grey" "$off" "$off"
+  fi
+  if [ "$cost_usd" != "-1" ]; then
+    printf "  %sCost%s \$%s" "$grey" "$off" "$(LC_ALL=C printf '%.2f' "$cost_usd" 2>/dev/null || printf '0.00')"
+  fi
 }
 
 # Model segment (+ the model's reasoning-effort tag, when it reports one).
@@ -355,6 +432,13 @@ if [ "$week_live" -eq 0 ] && [ "$week_pct_eff" != "-1" ] 2>/dev/null; then
   fi
 fi
 
+# API-key session: ANTHROPIC_API_KEY is set, the harness sent no rate_limits, and the account has no stored
+# window either (so a subscription chat that only lacks a live reading keeps its bars, key or not). The
+# Input/Output/Cost view takes the place of the Limit and Weekly bars (the fi after the Weekly segment closes this if).
+if [ -n "${ANTHROPIC_API_KEY:-}" ] && [ "$rate_pct" = "-1" ] && [ "$week_pct" = "-1" ] \
+  && [ "$five_pct_eff" = "-1" ] && [ "$week_pct_eff" = "-1" ]; then
+  api_view_segment || true
+else
 # 5-hour rate limit segment. Driven by five_pct_eff / five_reset_eff / five_dim
 # from the per-account window store above: this session's live reading when it has
 # one, else the newest value another chat stored (dim when stale). Empty
@@ -409,6 +493,7 @@ if [ "$week_pct_eff" != "-1" ] 2>/dev/null; then
 else
   # No live reading and no fallback → dim empty bar, no digits, no reset marker.
   printf "  \033[38;5;245mWeekly\033[0m \033[38;5;240m%s\033[0m" "$(bar 0 12)"
+fi
 fi
 
 printf "\n"

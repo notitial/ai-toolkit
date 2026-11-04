@@ -3,6 +3,7 @@
 # maths against tools/pace-vectors.tsv. USAGE_WATCHER_DIR points the readings file at the sandbox.
 # Run: bash tools/test-statusline.sh   (STATUSLINE=<path> tests another copy.)
 set -u
+unset ANTHROPIC_API_KEY  # a key in the caller's environment would switch every render to the API view
 HERE=$(cd "$(dirname "$0")" && pwd -P)
 SL=${STATUSLINE:-$HERE/statusline.sh}
 VECTORS=${VECTORS:-$HERE/pace-vectors.tsv}
@@ -154,6 +155,91 @@ store_five 25000;  render "$IDLE";      check "5h absent, no weekly either: Limi
 check "5h absent, no weekly either: Weekly placeholder kept" 1 "$(seg_count Weekly)"
 store_five 25000;  render "$LIVE";      check "live 5h reading is always shown" 1 "$(seg_count Limit)"
 check "no stderr after the 5h-absent cases" "" "$(cat "$T/err.txt")"
+
+# ---- API-key view: with ANTHROPIC_API_KEY set and no rate_limits, Input/Output/Cost replace Limit/Weekly
+TR="$T/transcript.jsonl"
+KEY=sk-ant-TESTKEYVALUE
+msg() {  # msg <id> <fresh> <create> <read> <out>: one assistant line
+  printf '{"type":"assistant","requestId":"req_%s","message":{"id":"msg_%s","usage":{"input_tokens":%s,"cache_creation_input_tokens":%s,"cache_read_input_tokens":%s,"output_tokens":%s}}}\n' "$1" "$1" "$2" "$3" "$4" "$5"
+}
+{ msg A 100 200 700 50; msg A 100 200 700 50; printf 'not json\n{"type":"user","message":{"content":"x"}}\n'; msg B 0 0 1000 10; } > "$TR"
+API=$(printf '%s' "$IDLE" | jq -c --arg t "$TR" '. + {transcript_path: $t, cost: {total_cost_usd: 1.239}}')
+render_api() {  # render_api <json> [key]; the key defaults to KEY, "-" leaves it unset; wipes the window store unless KEEP is set
+  local k=${2:-$KEY}
+  [ -n "${KEEP:-}" ] || rm -rf "$T/uw"
+  if [ "$k" = - ]; then
+    printf '%s' "$1" | env -u ANTHROPIC_API_KEY HOME="$T/home" CLAUDE_CONFIG_DIR="$T/cfg" \
+      USAGE_WATCHER_DIR="$T/uw" STATUSLINE_CACHE_DIR="$T/apicache" bash "$SL" > "$T/out.txt" 2>"$T/err.txt"
+  else
+    printf '%s' "$1" | HOME="$T/home" CLAUDE_CONFIG_DIR="$T/cfg" \
+      USAGE_WATCHER_DIR="$T/uw" STATUSLINE_CACHE_DIR="$T/apicache" ANTHROPIC_API_KEY="$k" bash "$SL" > "$T/out.txt" 2>"$T/err.txt"
+  fi
+}
+wait_sum() {  # wait_sum: until the cached sum is for the transcript's current size
+  local want i; want=$(wc -c < "$TR" | tr -d ' ')
+  for i in $(seq 1 60); do [ "$(cut -f1 "$T/apicache/s1.tsv" 2>/dev/null)" = "$want" ] && return 0; sleep 0.1; done
+  return 1
+}
+render_api "$API"; check "API render exits 0" 0 $?
+check "first render: Input placeholder, no wait" 1 "$(plain | grep -c 'Input …')"
+wait_sum; check "the detached sum finishes" 0 $?
+render_api "$API"
+check "Input total (fresh + create + read, one usage per message id)" 1 "$(plain | grep -c 'Input 2.0k ')"
+check "hot share" 1 "$(plain | grep -c ' 85% hot')"
+check "Output total" 1 "$(plain | grep -c 'Output 60 ')"
+check "Cost from stdin" 1 "$(plain | grep -c 'Cost \$1.24$')"
+check "no Limit or Weekly in the API view" 0 "$(seg_count 'Limit\|Weekly')"
+check "the key value is never printed" 0 "$(cat "$T/out.txt" "$T/err.txt" | grep -c TESTKEYVALUE)"
+check "cache file is private" 600 "$(stat -f%Lp "$T/apicache/s1.tsv" 2>/dev/null || stat -c%a "$T/apicache/s1.tsv")"
+msg C 0 0 2000 40 >> "$TR"
+render_api "$API"; wait_sum; render_api "$API"
+check "a grown transcript is summed again" 1 "$(plain | grep -c 'Input 4.0k ')"
+check "hot share after growth" 1 "$(plain | grep -c ' 93% hot')"
+check "no stderr from the API view" "" "$(cat "$T/err.txt")"
+render_api "$LIVE"; check "rate_limits present: Limit shown even with a key" 1 "$(seg_count Limit)"
+check "rate_limits present: no Input segment" 0 "$(seg_count Input)"
+render_api "$API" -; check "no key: no Input segment" 0 "$(seg_count Input)"
+check "no key: Limit placeholder kept" 1 "$(seg_count Limit)"
+NOCOST=$(printf '%s' "$API" | jq -c 'del(.cost)')
+render_api "$NOCOST"; check "no cost field: no Cost segment" 0 "$(seg_count Cost)"
+NOTR=$(printf '%s' "$API" | jq -c '.transcript_path = "/nonexistent/x.jsonl"')
+render_api "$NOTR"; check "unreadable transcript: renders, exits 0" 0 $?
+check "unreadable transcript: Input placeholder" 1 "$(plain | grep -c 'Input …')"
+
+# a streamed message repeats with a growing (and once a stale, smaller) output_tokens; lines without a requestId and with
+# different uuids still belong to one message; a string-valued field counts 0 without losing the rest
+TR2="$T/transcript2.jsonl"
+{ msg D 10 0 90 2; msg D 10 0 90 90; msg D 10 0 90 5
+  printf '{"type":"assistant","uuid":"u1","message":{"id":"msg_E","usage":{"input_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":95,"output_tokens":7}}}\n'
+  printf '{"type":"assistant","uuid":"u2","message":{"id":"msg_E","usage":{"input_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":95,"output_tokens":7}}}\n'
+  printf '{"type":"assistant","requestId":"r","message":{"id":"msg_F","usage":{"input_tokens":"12","cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":3}}}\n'
+  printf '{"type":"assistant","message":"junk"}\n'; } > "$TR2"
+API2=$(printf '%s' "$API" | jq -c --arg t "$TR2" '.transcript_path = $t | .session_id = "s2"')
+render_api "$API2"
+for i in $(seq 1 60); do [ -s "$T/apicache/s2.tsv" ] && break; sleep 0.1; done
+render_api "$API2"
+check "streamed duplicates: the largest output wins; ids without requestId dedupe; strings count 0" 1 "$(plain | grep -c 'Input 200 .* Output 100 ')"
+check "an unreadable usage line does not stop the sum" 1 "$(plain | grep -c ' 93% hot')"
+# a fresh marker means a job is running: no second one starts
+printf '%s' "$API2" | jq -c '.session_id = "s3"' > "$T/api3.json"
+: > "$T/apicache/s3.run"
+render_api "$(cat "$T/api3.json")"; sleep 1
+[ ! -e "$T/apicache/s3.tsv" ] && ok || bad "a fresh .run marker still let a second sum start"
+touch -t 202001010000 "$T/apicache/s3.run"
+render_api "$(cat "$T/api3.json")"
+for i in $(seq 1 60); do [ -s "$T/apicache/s3.tsv" ] && break; sleep 0.1; done
+[ -s "$T/apicache/s3.tsv" ] && ok || bad "a stale .run marker blocked the sum"
+# an empty transcript_path must not shift the cost field
+NOPATH=$(printf '%s' "$API" | jq -c '.transcript_path = ""')
+render_api "$NOPATH"; check "empty transcript_path: Cost still read" 1 "$(plain | grep -c 'Cost \$1.24$')"
+# a subscription chat with a stored window keeps its bars even with a key in the environment and no live reading
+render "$LIVE"
+KEEP=1 render_api "$API"; check "stored window + key + no live rate_limits: Limit kept" 1 "$(seg_count Limit)"
+check "stored window + key + no live rate_limits: no Input segment" 0 "$(seg_count Input)"
+# an id-less session gets no shared cache file
+NOID=$(printf '%s' "$API" | jq -c 'del(.session_id)')
+render_api "$NOID"; check "no session id: renders" 0 $?
+[ ! -e "$T/apicache/unknown.tsv" ] && ok || bad "an id-less session wrote the shared unknown cache"
 
 # ---- colour maths against the vectors generated from the same function
 if [ -r "$VECTORS" ]; then
