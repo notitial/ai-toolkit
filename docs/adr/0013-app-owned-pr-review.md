@@ -3,7 +3,7 @@
 **Status:** accepted
 **Date:** 2026-10-23
 
-This repo's own review: its setup adds the workflow, and it is not part of the toolkit's shipped files.
+The toolkit ships this review as a kit, `tools/claude-review/`, and this repo runs its own copy of it.
 
 The automatic Claude PR review (`.github/workflows/claude-review.yml`) posts as a per-owner GitHub App, and that App
 submits APPROVE / REQUEST_CHANGES reviews as a signal. It replaced an earlier, unrecorded approach that posted a

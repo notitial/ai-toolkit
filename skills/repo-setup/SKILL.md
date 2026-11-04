@@ -80,8 +80,9 @@ ruleset's required checks only after the CI job names exist on `main`). Wait for
 2. Copy each missing file from the file model, changing only repo-specific values (app name, package jobs). A
    workflow or deploy-script change needs the user's live go (the repo's CLAUDE.md rule, and a risk topic): name
    each such file in the restated plan.
-3. For the automatic PR review, follow the setup guide of the review kit the user uses instead of copying its files
-   from the file model: the kit owns its pinned SHAs and replacement points. With no kit, report the step as open.
+3. For the automatic PR review, run `/add-claude-review` from the repo instead of copying its files from the file
+   model: the kit owns its pinned SHAs and replacement points. A repo that uses another review kit follows that
+   kit's setup guide.
 4. Commit and open the PR only on the user's go, title and description per the repo's own rules (doc steps 5–6).
    Normal PR, not a draft. Never merge.
 

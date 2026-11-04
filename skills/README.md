@@ -16,6 +16,10 @@ Creates and manages Architecture Decision Records. Scaffolds `docs/adr/` on firs
 
 Audits a named repo against the repo-setup checklist ([docs/07](../docs/07-new-repo-setup.md)): a read-only audit of each step (files through the github MCP, settings and rulesets from `gh` reads the user runs); an archived repo is reported and the run stops. In `setup` mode it then writes the missing files on a branch and opens a PR, on the user's go. Every repo setting, ruleset, App or secret change is printed as `gh` commands for the user; the skill changes none itself. Decided values live in [repo-setup/defaults.md](repo-setup/defaults.md); the rest is asked. `/repo-setup <owner/repo>` audits, `/repo-setup setup <owner/repo>` audits then fixes.
 
+### [/add-claude-review](add-claude-review/SKILL.md)
+
+Adds the automatic Claude PR review to the current repo from the kit in [tools/claude-review/](../tools/claude-review/README.md). Asks for the runner labels, the auth mode, the secret name and the reviewer GitHub App, applies only the documented replacement points, checks the SHAs and opens the PR; the user creates or installs the App, sets the variables and secrets, and merges. Also upgrades an existing copy. Run from the target repo.
+
 ### [/eta](eta/SKILL.md)
 
 Reports where the current task stands and a grounded ETA, backed by a global learning KB at `~/.claude/.eta/` that improves as real durations are recorded. Produces a progress overview, a completion table (mirrors the ticket's structure when one is in scope, else done/remaining), and an ETA with a range and its basis; `/eta close` reconciles the actual duration back into the record so estimates sharpen over time. Run from any session.

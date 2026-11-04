@@ -59,6 +59,7 @@ suites() {
   suite secret-redact-output 0 bash                                  'bash tools/secret-redact-output/test-secret-redact-output.sh'
   suite session-name         0 bash                                  'bash tools/session-name/test-restore.sh'
   suite cleanup-claude       0 jq                                    'bash tools/cleanup-claude/test-cleanup.sh'
+  suite claude-review        0 python3                               'python3 -I -B -m unittest discover -s tools/claude-review/tests'
   suite statusline           0 jq                                    'bash tools/test-statusline.sh'
   suite workspace-lock-guard 0 bash                                  'bash tools/workspace-lock/test-guard.sh'
   suite workspace-lock-wait  1 bash                                  'bash tools/workspace-lock/test-acquire.sh'
