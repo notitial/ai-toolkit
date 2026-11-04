@@ -1,5 +1,5 @@
-# Claude PR review, owned by a GitHub App. Runs this repo's review command, .claude/commands/claude-pr-review.md (a
-# fork of the code-review plugin's command, source SHA in its header). Claude only reads the PR and returns a
+# Claude PR review, owned by a GitHub App. Runs this repo's review command, .claude/commands/claude-pr-review.md (the
+# kit's command; canonical copies of both in ai-toolkit tools/claude-review/). Claude only reads the PR and returns a
 # structured result (findings, thread verdicts, a short overview). This workflow checks that result and posts all of
 # it as the repo's reviewer App: the inline findings, the thread replies, one overview comment edited on every run,
 # and an APPROVE or REQUEST_CHANGES review. Nothing is posted as claude[bot] or github-actions[bot].
@@ -262,8 +262,8 @@ jobs:
       # Claude's tools, the same in every mode: none of them can post. Read, Glob and Grep need no allow rule inside
       # the checkout and REVIEW_DIR, and must not get a bare one (that allows every path).
       TOOLS: 'Agent,Task'
-      # What every run returns (keep it byte-identical with the command's "Final result"): whether it found no issues,
-      # whether step 1 stopped it, the findings, one verdict per open thread it judged (comment runs), and a short
+      # What every run returns (keep it byte-identical with the command's "The result"): whether it found no issues,
+      # whether it stopped as ineligible, the findings, one verdict per open thread it judged (comment runs), and a short
       # overview. Kept out of the `${{ }}` below, where its braces could end the expression. The limits keep the
       # result well under the 1 MiB `publish` accepts.
       RESULT_SCHEMA: '{"type":"object","properties":{"no_issues":{"type":"boolean"},"stopped":{"type":"boolean"},"findings":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"path":{"type":"string","maxLength":512},"line":{"type":"integer"},"side":{"type":"string","enum":["LEFT","RIGHT"]},"start_line":{"type":"integer"},"start_side":{"type":"string","enum":["LEFT","RIGHT"]},"body":{"type":"string","maxLength":4000},"line_text":{"type":"string","maxLength":500},"reopens":{"type":"string","maxLength":200}},"required":["path","line","side","body","line_text"],"additionalProperties":false}},"threads":{"type":"array","maxItems":100,"items":{"type":"object","properties":{"thread_id":{"type":"string"},"verdict":{"type":"string","enum":["resolved","open"]},"reply":{"type":"string","maxLength":800}},"required":["thread_id","verdict","reply"],"additionalProperties":false}},"overview":{"type":"string","maxLength":600}},"required":["no_issues","stopped","findings","threads","overview"],"additionalProperties":false}'
@@ -501,8 +501,8 @@ jobs:
           github_token: ${{ github.token }}
           # The mode is REVIEW_MODE (one of three fixed strings), never comment text.
           prompt: "/claude-pr-review ${{ github.repository }}/pull/${{ env.PR_NUMBER }} --mode ${{ env.REVIEW_MODE }} --context ${{ env.REVIEW_DIR }}${{ github.event_name == 'issue_comment' && format(' --threads {0}/threads.json', env.REVIEW_DIR) || '' }}"
-          # The command's frontmatter doesn't reach the action's session or its subagents, so the tools are set here
-          # (TOOLS in the job env; keep it in sync with .claude/commands/claude-pr-review.md).
+          # The tools are set here, never in the command's frontmatter (it carries none; a test checks): TOOLS in the
+          # job env. Keep it in sync with the tools the command's "Ground rules" section names.
           # The deny list removes the shell, the web, file writes and the action's GitHub tools outright. It also denies
           # the reads that would reach a token: the checkout's .git (the action writes the job's token into
           # .git/config's remote URL), the runner's step-output files, SSH and gh config, /run/secrets, /proc,
@@ -569,8 +569,8 @@ jobs:
           COST_FILE: ${{ runner.temp }}/claude-review-cost.json
         run: |
           set -o pipefail
-          # How many subagents Claude launched (Agent/Task tool calls): an initial review launches at least 7 and a
-          # rereview at least 6, each plus one validator per candidate issue, so a lower count means the pipeline was
+          # How many subagents Claude launched (Agent/Task tool calls): a full review (initial or rereview) launches at
+          # least 7, plus one verifier per candidate issue and, in a rereview, its thread judges, so a lower count means the pipeline was
           # cut short. A followup launches none or a few. A count only, no text.
           agents=$(jq '[.. | objects | select(.type? == "tool_use" and ((.name? // "") | test("^(Agent|Task)$")))] | length' \
             "$EXECUTION_FILE") || agents=null
@@ -587,7 +587,7 @@ jobs:
                  mode: $mode,
                  event: $event,
                  head_sha: ($head | if test("^[0-9a-f]{40}$") then . else null end),
-                 reviewer: "claude-pr-review@db8834b",
+                 reviewer: "claude-pr-review@v3.0",
                  action: "anthropics/claude-code-action@f27be6b65a4652f08a2ba3cff79114829b588967",
                  total_cost_usd: ((.total_cost_usd | numbers) // null),
                  duration_ms: ((.duration_ms | numbers) // null),
@@ -604,7 +604,7 @@ jobs:
           jq -r '"Claude review (\(.mode)): $\(.total_cost_usd // "?"), \(if .duration_ms then "\(.duration_ms / 1000 | floor) s" else "? s" end), \(.num_turns // "?") turns, \(.agent_calls // "?") agents, \(.findings_returned // "?") findings, \(.threads_judged // "-") threads judged"' \
             "$COST_FILE" | tee -a "$GITHUB_STEP_SUMMARY"
           # Detection only: the command makes every step mandatory, but a model can still cut the pipeline short.
-          case "$MODE" in initial) min=7 ;; rereview) min=6 ;; *) min=0 ;; esac
+          case "$MODE" in initial | rereview) min=7 ;; *) min=0 ;; esac
           jq -r --argjson min "$min" 'select(.agent_calls != null and .stopped != true and .agent_calls < $min)
             | "::warning::Claude launched \(.agent_calls) agents; a full review (\(.mode)) launches at least \($min), so it may have skipped steps"' \
             "$COST_FILE"
@@ -1004,7 +1004,7 @@ jobs:
           def contradiction(mode, data):
               """Why a well-formed result can't be used in this mode, or None."""
               if data["stopped"] and (mode != "initial" or data["findings"]):
-                  return "stopped outside step 1"
+                  return "a stop outside an initial review, or a stop with findings"
               if mode != "followup" and not data["stopped"] and not data["no_issues"] and not data["findings"]:
                   return "issues reported without findings"
               return None
@@ -1711,7 +1711,7 @@ jobs:
               n_found = len(inline) + len(in_body)
 
               if data is not None and data["stopped"]:
-                  decision, result, line = "none", "stopped", "Review stopped at step 1: this PR isn't eligible. No verdict."
+                  decision, result, line = "none", "stopped", "Review stopped (eligibility): nothing to review. No verdict."
               elif full:
                   if n_found:
                       decision, result, line = "changes+findings", "issues", f"{n_found} finding{'s' if n_found != 1 else ''}."
