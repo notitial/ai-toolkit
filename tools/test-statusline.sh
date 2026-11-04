@@ -206,6 +206,40 @@ NOTR=$(printf '%s' "$API" | jq -c '.transcript_path = "/nonexistent/x.jsonl"')
 render_api "$NOTR"; check "unreadable transcript: renders, exits 0" 0 $?
 check "unreadable transcript: Input placeholder" 1 "$(plain | grep -c 'Input …')"
 
+# subagent transcripts (<transcript minus .jsonl>/subagents/agent-*.jsonl) count too: the session's Cost includes them
+TR4="$T/transcript4.jsonl"; SUB="$T/transcript4/subagents"; mkdir -p "$SUB"
+msg M1 100 0 900 20 > "$TR4"
+msg S1 0 0 1000 100 > "$SUB/agent-a.jsonl"
+printf '%s' "$(msg S2 0 0 500 30)" > "$SUB/agent-b.jsonl"
+msg S9 9999 0 0 9999 > "$SUB/agent-a.meta.json"
+API4=$(printf '%s' "$API" | jq -c --arg t "$TR4" '.transcript_path = $t | .session_id = "s4"')
+size4() { cat "$TR4" "$SUB"/agent-*.jsonl | wc -c | tr -d ' '; }
+wait_key() {  # wait_key <session> <size>: until that session's cached sum is for this total size
+  local i; for i in $(seq 1 60); do [ "$(cut -f1 "$T/apicache/$1.tsv" 2>/dev/null)" = "$2" ] && return 0; sleep 0.1; done
+  return 1
+}
+render_api "$API4"; wait_key s4 "$(size4)"; check "the sum covers the subagent files" 0 $?
+render_api "$API4"
+check "Input includes subagent transcripts (a last line without a newline, a .meta.json ignored)" 1 "$(plain | grep -c 'Input 2.5k ')"
+check "Output includes subagent transcripts" 1 "$(plain | grep -c 'Output 150 ')"
+check "hot share includes subagent transcripts" 1 "$(plain | grep -c ' 96% hot')"
+msg S3 0 0 1500 20 >> "$SUB/agent-a.jsonl"
+render_api "$API4"; wait_key s4 "$(size4)"; check "growth in a subagent file alone is summed again" 0 $?
+render_api "$API4"
+check "Input after subagent growth" 1 "$(plain | grep -c 'Input 4.0k ')"
+check "Output after subagent growth" 1 "$(plain | grep -c 'Output 170 ')"
+check "hot share after subagent growth" 1 "$(plain | grep -c ' 98% hot')"
+check "no stderr with subagent transcripts" "" "$(cat "$T/err.txt")"
+# a path with spaces; an unreadable subagent file is left out, the rest still summed
+mkdir -p "$T/sp ace/t5/subagents"; TR5="$T/sp ace/t5.jsonl"
+msg N1 10 0 90 5 > "$TR5"; msg N2 0 0 100 7 > "$T/sp ace/t5/subagents/agent-a.jsonl"; msg N3 0 0 800 9 > "$T/sp ace/t5/subagents/agent-b.jsonl"
+chmod 000 "$T/sp ace/t5/subagents/agent-b.jsonl"
+API5=$(printf '%s' "$API" | jq -c --arg t "$TR5" '.transcript_path = $t | .session_id = "s5"')
+render_api "$API5"; wait_key s5 "$(cat "$TR5" "$T/sp ace/t5/subagents/agent-a.jsonl" | wc -c | tr -d ' ')"; check "spaces in the path, unreadable subagent file skipped" 0 $?
+render_api "$API5"; check "spaces in the path: Input" 1 "$(plain | grep -c 'Input 200 ')"
+check "unreadable subagent file: Output without it" 1 "$(plain | grep -c 'Output 12 ')"
+chmod 644 "$T/sp ace/t5/subagents/agent-b.jsonl"
+
 # a streamed message repeats with a growing (and once a stale, smaller) output_tokens; lines without a requestId and with
 # different uuids still belong to one message; a string-valued field counts 0 without losing the rest
 TR2="$T/transcript2.jsonl"
