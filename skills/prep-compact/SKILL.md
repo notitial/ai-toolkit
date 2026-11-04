@@ -57,7 +57,7 @@ Outside minimal mode, use the `AskUserQuestion` tool with both questions in one 
 Recommend **`/compact`** when the next step continues the current work (same files, same problem), when the loaded
 state would be costly to rebuild, or when a task boundary was just crossed and the durable state is on disk:
 compacting then clears spent reasoning before the context fills up (rationale:
-`docs/19-orchestrator-context-discipline.md`).
+`docs/13-orchestrator-context-discipline.md`).
 
 Recommend a **handover** when the context is near its limit or already degraded, the next task is a different
 phase, the conversation has drifted across many topics, or the work moves to another session or agent.
@@ -88,7 +88,7 @@ Do not redo: {finished work the resumed session might repeat}.
   file first (Step 1).
 - **At most 3 reads, with ranges.** Right after compaction a session tends to re-read large files whole to recover
   detail the summary dropped; naming the ranges prevents that (rationale:
-  `docs/19-orchestrator-context-discipline.md`).
+  `docs/13-orchestrator-context-discipline.md`).
 - **Carry the constraints forward.** After compaction the session no longer remembers the ones agreed in chat;
   restate only those that still bind.
 - **Check every path exists** before naming it. If an expected file is missing, say so; never invent a path.

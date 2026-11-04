@@ -55,7 +55,7 @@ Evaluation criteria distilled from the knowledge base in `docs/`. Each check pro
 | 4.5 | Stop conditions defined | For iterative skills: check for iteration cap, convergence criteria, or explicit "when to stop" |
 | 4.6 | `disable-model-invocation: true` set (or exception documented) | Check frontmatter — prevents token cost when a user-only skill is idle. `false` is acceptable only when the workflow requires model invocation and the exception is documented in the skill description or CLAUDE.md |
 
-## Category 5: Permissions and Safety (doc 10)
+## Category 5: Permissions and Safety (doc 05)
 
 | # | Check | How to verify |
 |---|-------|---------------|
@@ -68,7 +68,7 @@ Evaluation criteria distilled from the knowledge base in `docs/`. Each check pro
 | 5.7 | Git MCP server configured when available | Check `~/.claude/mcp.json` or project `.mcp.json` for a git MCP server (e.g., `git-mcp`). If present, verify MCP git permissions exist in `permissions.allow`. If absent, recommend as improvement — do not penalize |
 | 5.8 | No Bash git permissions when MCP available | If a git MCP server is configured, flag any remaining `Bash(git *)` entries in `permissions.allow` as migrable to MCP equivalents. N/A if no git MCP is configured |
 
-## Category 6: Git Safety (docs 01, 10)
+## Category 6: Git Safety (docs 01, 05)
 
 | # | Check | How to verify |
 |---|-------|---------------|
@@ -77,7 +77,7 @@ Evaluation criteria distilled from the knowledge base in `docs/`. Each check pro
 | 6.3 | Secret-checking guidance present | Check for pre-commit hook references, gitleaks, or manual secret-check instructions |
 | 6.4 | One-commit-per-task policy | For multi-agent setups: check orchestrator instructions for per-task commit guidance |
 
-## Category 7: Context Efficiency (docs 08, 19)
+## Category 7: Context Efficiency (docs 08, 13)
 
 | # | Check | How to verify |
 |---|-------|---------------|
@@ -86,9 +86,9 @@ Evaluation criteria distilled from the knowledge base in `docs/`. Each check pro
 | 7.3 | Total always-loaded token estimate reasonable | Estimate: CLAUDE.md lines + sum of always-on rule lines. Flag if >300 total lines always-loaded |
 | 7.4 | No directive duplication across files | Grep for common repeated phrases across CLAUDE.md, rules, agent definitions |
 | 7.5 | No verbose content in always-loaded positions | Check for long code examples, full API specs, or reference tables in CLAUDE.md or always-on rules |
-| 7.6 | Orchestrator context discipline present | If the project runs orchestrators: check for guidance that treats extended thinking as garbage-collectable (compact on task/state boundaries), delegates heavy self-contained legwork to subagents that return evidence not a verdict, and guards resume specs against wholesale re-reads. This is usually **inherited from the global install** (`~/.claude/skills/{prep-compact,handover}` + the global CLAUDE.md "Subagents & Delegation" line), which project-local discovery does not glob — check there before concluding it is absent, and report MISSING only if the project defines its OWN orchestrator/resume machinery that lacks it. Grep for a `19-orchestrator-context-discipline` reference or the phrase "re-read only specific ranges, never wholesale". N/A for non-orchestrator projects. See docs/19 |
+| 7.6 | Orchestrator context discipline present | If the project runs orchestrators: check for guidance that treats extended thinking as garbage-collectable (compact on task/state boundaries), delegates heavy self-contained legwork to subagents that return evidence not a verdict, and guards resume specs against wholesale re-reads. This is usually **inherited from the global install** (`~/.claude/skills/{prep-compact,handover}` + the global CLAUDE.md "Subagents & Delegation" line), which project-local discovery does not glob — check there before concluding it is absent, and report MISSING only if the project defines its OWN orchestrator/resume machinery that lacks it. Grep for a `13-orchestrator-context-discipline` reference or the phrase "re-read only specific ranges, never wholesale". N/A for non-orchestrator projects. See docs/13 |
 
-## Category 8: Orchestration Readiness (docs 05, 06, 07, 19) — Level C only
+## Category 8: Orchestration Readiness (docs 12, 11, 10, 13) — Level C only
 
 | # | Check | How to verify |
 |---|-------|---------------|
@@ -100,15 +100,15 @@ Evaluation criteria distilled from the knowledge base in `docs/`. Each check pro
 | 8.6 | Commit verification step exists | Check for post-completion git verification (git log check after agent reports PASS) |
 | 8.7 | Severity rubric defined | Check for CRITICAL/HIGH/MEDIUM/LOW or equivalent severity scale in review agents or rules |
 | 8.8 | Spec quality gate present | Check for pre-implementation validation of requirements completeness |
-| 8.9 | Reviewer/generator separation | Check that code-review agents are defined as subagents with their own context (not inline self-review in the implementing agent). Reviewer agents should have read-only tool scope — no Write/Edit/Bash for modifying code. See `docs/07-reviews.md#adversarial-review-and-reviewer-failure-modes` |
-| 8.10 | Reviewers are grounded and skeptical | Read each review agent. PASS if it can see test/lint/build output AND is told to assume issues exist; PARTIAL if one holds; MISSING if neither. See `docs/07-reviews.md#adversarial-review-and-reviewer-failure-modes` |
-| 8.11 | Re-review / fix-loop cap has ONE loaded source of truth | The cap number is the same everywhere, lives in an always-loaded file (CLAUDE.md or rules), and doesn't grow with the loop it bounds (no "+1 per wave"). See `docs/06-convergence.md` |
-| 8.12 | Review loop's terminal state is a decision, not just "escalate" | At the cap, a 2nd consecutive NO-GO or a regression, the rule names a decision (ship with filed follow-ups, revert, or one scoped question). MISSING if the only exit is escalating to a human. See `docs/06-convergence.md` |
-| 8.13 | Findings have a deferred path; reviewers classify reachability | Reviewers give a reachability verdict per finding, and a defect no released client can reach can be filed as deferred instead of blocking. See `docs/07-reviews.md` |
-| 8.14 | Required verifications are feasibility-checked before the loop | Before the first round, every REQUIRED check is confirmed runnable at this point in the release chain; one that can't run must not force a NO-GO. See `docs/07-reviews.md#verification-gate` |
-| 8.15 | Post-compaction read discipline in resume specs | The project's own handover/continuation templates say to re-read only specific ranges of large files, never whole files. A project relying on the global `prep-compact`/`handover` skills inherits this: PASS. See `docs/19-orchestrator-context-discipline.md` |
+| 8.9 | Reviewer/generator separation | Check that code-review agents are defined as subagents with their own context (not inline self-review in the implementing agent). Reviewer agents should have read-only tool scope — no Write/Edit/Bash for modifying code. See `docs/10-reviews.md#adversarial-review-and-reviewer-failure-modes` |
+| 8.10 | Reviewers are grounded and skeptical | Read each review agent. PASS if it can see test/lint/build output AND is told to assume issues exist; PARTIAL if one holds; MISSING if neither. See `docs/10-reviews.md#adversarial-review-and-reviewer-failure-modes` |
+| 8.11 | Re-review / fix-loop cap has ONE loaded source of truth | The cap number is the same everywhere, lives in an always-loaded file (CLAUDE.md or rules), and doesn't grow with the loop it bounds (no "+1 per wave"). See `docs/11-convergence.md` |
+| 8.12 | Review loop's terminal state is a decision, not just "escalate" | At the cap, a 2nd consecutive NO-GO or a regression, the rule names a decision (ship with filed follow-ups, revert, or one scoped question). MISSING if the only exit is escalating to a human. See `docs/11-convergence.md` |
+| 8.13 | Findings have a deferred path; reviewers classify reachability | Reviewers give a reachability verdict per finding, and a defect no released client can reach can be filed as deferred instead of blocking. See `docs/10-reviews.md` |
+| 8.14 | Required verifications are feasibility-checked before the loop | Before the first round, every REQUIRED check is confirmed runnable at this point in the release chain; one that can't run must not force a NO-GO. See `docs/10-reviews.md#verification-gate` |
+| 8.15 | Post-compaction read discipline in resume specs | The project's own handover/continuation templates say to re-read only specific ranges of large files, never whole files. A project relying on the global `prep-compact`/`handover` skills inherits this: PASS. See `docs/13-orchestrator-context-discipline.md` |
 
-## Category 9: Cross-Platform Parity (doc 13) — multi-platform only
+## Category 9: Cross-Platform Parity (doc 17) — multi-platform only
 
 | # | Check | How to verify |
 |---|-------|---------------|

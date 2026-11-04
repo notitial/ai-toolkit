@@ -29,7 +29,7 @@ Agent Team) coordinated access to all of them.
 
 Default to the **file bus + subagents**; reach for **Agent Teams** only when teammates
 genuinely need to discuss and self-claim work. See [03-agents.md](03-agents.md),
-[05-orchestrator.md](05-orchestrator.md), [07-reviews.md](07-reviews.md).
+[12-orchestrator.md](12-orchestrator.md), [10-reviews.md](10-reviews.md).
 
 ## Granting Cross-Repo File Access
 
@@ -138,9 +138,9 @@ independently and had been coordinated via a manual file bus across four per-rep
 
 ## See Also
 
-- [05-orchestrator.md](05-orchestrator.md) — the autonomous-pipeline coordinator (the
+- [12-orchestrator.md](12-orchestrator.md) — the autonomous-pipeline coordinator (the
   *how-to-run-work* pattern this composes with).
-- [03-agents.md](03-agents.md), [07-reviews.md](07-reviews.md) — subagents and
+- [03-agents.md](03-agents.md), [10-reviews.md](10-reviews.md) — subagents and
   multi-agent review.
 - [04-skills-and-commands.md](04-skills-and-commands.md) — packaging orchestrator steps
   as skills.

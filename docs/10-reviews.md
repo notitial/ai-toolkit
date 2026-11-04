@@ -7,7 +7,7 @@ Multi-agent review architecture — layered gates for catching different classes
 Code review in AI-assisted development works best as multiple specialized passes rather than one monolithic review. Each layer catches a different class of issue:
 
 1. **Design review** (before code) — validates the implementation plan against architecture constraints. Catches misaligned domain models, wrong layer placement, missing error handling before any code is written.
-2. **Self-review** (after code, before commit) — the implementing agent reviews its own work against a checklist. Catches mechanical issues: hardcoded strings, magic numbers, missing test scenarios, wrong state types. See [Convergence](06-convergence.md).
+2. **Self-review** (after code, before commit) — the implementing agent reviews its own work against a checklist. Catches mechanical issues: hardcoded strings, magic numbers, missing test scenarios, wrong state types. See [Convergence](11-convergence.md).
 3. **Platform code review** (after commit) — specialized reviewers examine platform-specific quality: architectural compliance, security patterns, concurrency, dependency injection correctness, naming conventions.
 4. **Cross-platform parity review** (after both platforms commit) — compares implementations across targets. Catches divergence: different error handling, missing test scenarios on one platform, inconsistent naming.
 5. **Comprehensive review** (milestone gates) — full multi-agent sweep at phase boundaries. Expensive in tokens but catches systemic issues that individual reviews miss.
@@ -130,7 +130,7 @@ The self-review pattern earlier in this document is useful for catching mechanic
 | **Confirmation bias** | Framing code as "bug-free" or "reviewed" drops defect detection 16–93% | Strip commit messages, PR descriptions, and author assertions before presenting code to the reviewer. Metadata redaction restores most of the lost detection. |
 | **Critique collapse** | Generator accepts all criticism blindly, introducing regressions to appease the reviewer | Require the generator to rebut each finding before conceding. Route findings through a moderator/gatekeeper agent that filters and deduplicates (see Gatekeeper Pattern above). |
 | **Trivial-issue crowding** | Reviewer front-loads naming/formatting observations and misses deep bugs | Force correctness-first ordering in the reviewer's report format: correctness → error handling → performance → security → maintainability → testing gaps. Exclude style unless it masks a bug. |
-| **Non-convergence** | Review loop runs indefinitely; fixes introduce new issues that trigger new reviews | Hard iteration limits per the [canonical iteration caps](06-convergence.md#canonical-iteration-caps). Fresh context per iteration. Explicit stopping criteria. See [Convergence](06-convergence.md) for plateau and regression detection. |
+| **Non-convergence** | Review loop runs indefinitely; fixes introduce new issues that trigger new reviews | Hard iteration limits per the [canonical iteration caps](11-convergence.md#canonical-iteration-caps). Fresh context per iteration. Explicit stopping criteria. See [Convergence](11-convergence.md) for plateau and regression detection. |
 | **Over-correction** | Detailed chain-of-thought prompts inflate false-positive rates — reviewer rejects correct code | Frame the verdict as "approve with suggestions" rather than binary pass/fail. Require evidence (file:line) for every rejection. |
 
 ### Verdict values and re-review tracking
@@ -138,7 +138,7 @@ The self-review pattern earlier in this document is useful for catching mechanic
 Three conventions keep multi-round review legible:
 
 - **INCONCLUSIVE is a first-class verdict.** Every reviewer's verdict enum carries an INCONCLUSIVE value (with a one-line reason) alongside its pass/revise values. A reviewer that cannot ground a claim — no test/build/lint output available, or the change depends on code outside the diff — records INCONCLUSIVE rather than being forced to pick a side. A forced binary verdict on an ungroundable change is noise, not signal.
-- **Stable finding IDs across re-reviews.** On any re-review, tag each finding with a stable ID and mark it resolved / persisting / new. Without stable IDs a lead cannot distinguish a plateau (the same findings recurring — stop) from real progress. Re-reviews per ticket are capped by the [canonical iteration caps](06-convergence.md#canonical-iteration-caps).
+- **Stable finding IDs across re-reviews.** On any re-review, tag each finding with a stable ID and mark it resolved / persisting / new. Without stable IDs a lead cannot distinguish a plateau (the same findings recurring — stop) from real progress. Re-reviews per ticket are capped by the [canonical iteration caps](11-convergence.md#canonical-iteration-caps).
 - **Report overflow, never silent truncation.** When findings exceed a reasonable length, rank by severity (correctness first) and state explicitly that lower-severity findings were omitted for brevity — never silently drop a finding.
 
 ### Budget allocation
@@ -153,7 +153,7 @@ The `code-reviewer` and `security-auditor` agents in this repo embody this patte
 
 ## Design Review Gate
 
-The cheapest place to catch architecture mistakes is before code exists. A design review agent validates the implementation brief (see [Orchestrator](05-orchestrator.md)) against:
+The cheapest place to catch architecture mistakes is before code exists. A design review agent validates the implementation brief (see [Orchestrator](12-orchestrator.md)) against:
 
 1. **Domain model alignment** — do the proposed models match the cross-platform contract?
 2. **Layer placement** — are responsibilities in the right architecture layer?
@@ -168,7 +168,7 @@ The cheapest place to catch architecture mistakes is before code exists. A desig
 
 ## Spec Quality Gate
 
-Before implementation begins, validate the specification against six common underspecification gaps. Specification problems are the largest category of multi-agent failures ([Failure Patterns](12-run-history.md#error-taxonomy)).
+Before implementation begins, validate the specification against six common underspecification gaps. Specification problems are the largest category of multi-agent failures ([Failure Patterns](15-failure-patterns.md#error-taxonomy)).
 
 Verify the spec addresses:
 
@@ -188,7 +188,7 @@ A review verdict that rests on a test, oracle, or live/E2E check is only as good
 1. **Oracle discrimination.** Trust a passing check only if it was demonstrated to **fail on the known-bad state** first. A check green on both the buggy and the fixed build — or keyed on the same instrumentation as the fix hypothesis — is non-discriminating and proves nothing. For user-visible symptoms, gate on the observed symptom, not on unit/instrumentation greens; state which symptom paths were exercised and which were not.
 2. **Ground-truth pre-flight before a NO-GO.** Do not block on a live/integration failure until you confirm the artifact under test is the current build, the client targets the intended host/env, and the process/infra is healthy — a live failure that looks like a code defect is often an env/build artifact. An unconfirmed live failure is *inconclusive*, not a NO-GO.
 
-These guard the two verification failure modes — false-green (a wrong fix that passes every check) and false-blocker (a NO-GO that stalls authorized work). See [12-run-history.md](12-run-history.md) for the failure-mode detail and the `review-gate` skill for the verdict template that enforces them.
+These guard the two verification failure modes — false-green (a wrong fix that passes every check) and false-blocker (a NO-GO that stalls authorized work). See [15-failure-patterns.md](15-failure-patterns.md) for the failure-mode detail and the `review-gate` skill for the verdict template that enforces them.
 
 ## Choosing Review Scale
 

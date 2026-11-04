@@ -8,7 +8,7 @@ Agents are reusable role definitions that an AI coding tool can assume when spaw
 
 The most important architectural decision is the coordinator/subagent split. A coordinator (orchestrator) decides what to do and in what order. Subagents do the actual work. Three factors drive this separation:
 
-1. **Context efficiency.** A coordinator that also reads code, runs builds, and writes features exhausts its context window on 3-4 tasks. A thin coordinator that only reads progress checkpoints and dispatches work managed about 8-10 tasks in the same window in measured runs, with 12-15 the target once checkpoints and reports are trimmed (see [Failure Patterns](12-run-history.md#case-study-lessons-from-four-autonomous-runs)).
+1. **Context efficiency.** A coordinator that also reads code, runs builds, and writes features exhausts its context window on 3-4 tasks. A thin coordinator that only reads progress checkpoints and dispatches work managed about 8-10 tasks in the same window in measured runs, with 12-15 the target once checkpoints and reports are trimmed (see [Failure Patterns](15-failure-patterns.md#case-study-lessons-from-four-autonomous-runs)).
 2. **Blast radius.** A subagent that misunderstands a task can only damage its own scope. A monolithic agent that coordinates and implements can corrupt progress tracking, skip tasks, or commit to the wrong branch.
 3. **Parallelism.** Independent subagents (e.g., two platform implementers) can run in parallel. A single agent doing both must serialize.
 
@@ -184,7 +184,7 @@ Three design choices are worth noting:
 2. **No command chaining.** The `&&`, `||`, and `;` prohibition prevents agents from combining commands into opaque one-liners that are hard to audit and easy to get wrong.
 3. **Fail-safe default.** "If a task needs an unlisted tool, SKIP and report why" prevents agents from improvising with unauthorized tools.
 
-Keep this block short: the allowed categories and the key prohibitions. Enforcement of the full list lives in `settings.json` permissions (allow and deny) and hooks, which bind every subagent; a rule file holding the list is reference only. See [Permissions and Safety](10-permissions-and-safety.md#case-study-whitelist-consolidation).
+Keep this block short: the allowed categories and the key prohibitions. Enforcement of the full list lives in `settings.json` permissions (allow and deny) and hooks, which bind every subagent; a rule file holding the list is reference only. See [Permissions and Safety](05-permissions-and-safety.md#case-study-whitelist-consolidation).
 
 ## The Report Format Pattern
 

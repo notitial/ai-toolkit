@@ -48,7 +48,7 @@ Reports cross into the orchestrator's context, so cap them at about 500 tokens o
 
 ## Brief Trimming
 
-The implementation brief (see [05-orchestrator.md](05-orchestrator.md)) is consumed by subagents, not the orchestrator. But if the orchestrator generates or passes it through, unnecessary sections waste tokens.
+The implementation brief (see [12-orchestrator.md](12-orchestrator.md)) is consumed by subagents, not the orchestrator. But if the orchestrator generates or passes it through, unnecessary sections waste tokens.
 
 **Remove from briefs that pass through the orchestrator:**
 - Dependency verification details (pass/fail is sufficient)
@@ -137,7 +137,7 @@ The agent gets full context on recent work and a one-line summary of older work.
 ## Anti-Patterns
 
 ### Duplicating instructions across files
-The same list copied into agents, rules, skills and the orchestrator's context costs its tokens once per copy, every session. Define it once and reference it ([whitelist case study](10-permissions-and-safety.md#case-study-whitelist-consolidation)).
+The same list copied into agents, rules, skills and the orchestrator's context costs its tokens once per copy, every session. Define it once and reference it ([whitelist case study](05-permissions-and-safety.md#case-study-whitelist-consolidation)).
 
 ### Reading docs in the orchestrator context
 The orchestrator does not need to understand architecture docs, API specs, or code. Subagents do. Reading a 500-line architecture doc into the orchestrator's context wastes tokens that could have processed 2 more tasks.
@@ -150,4 +150,4 @@ Store commit hashes, not commit messages. If the orchestrator needs to verify a 
 
 ## Case Study: Multi-Platform Orchestration
 
-One mobile project's runs went from about 8 to a projected 12–15 tasks per session with these techniques: checkpoint compaction gave the most (+3–4 tasks), report trimming +1–2, and keeping briefs out of the orchestrator +1. The run-by-run history is in [Failure Patterns](12-run-history.md#case-study-lessons-from-four-autonomous-runs).
+One mobile project's runs went from about 8 to a projected 12–15 tasks per session with these techniques: checkpoint compaction gave the most (+3–4 tasks), report trimming +1–2, and keeping briefs out of the orchestrator +1. The run-by-run history is in [Failure Patterns](15-failure-patterns.md#case-study-lessons-from-four-autonomous-runs).

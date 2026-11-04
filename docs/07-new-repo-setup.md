@@ -6,7 +6,7 @@ The checklist every new repo in a GitHub org gets on day one, with what each ste
 
 - **What:** the GitHub-side setup of a repo that agents work in: settings, the `main` ruleset, CI, secret scanning, the PR title and description rules, an automatic PR review if the repo uses one, and the repo's own CLAUDE.md conventions.
 - **Why:** each repo set up by hand drifts. Within a week of moving four repos into one org, they disagreed on the PR title types, the title length, whether a PR template exists and which repos have the review. A missed step is invisible until it fails: a `[skip ci]` PR that can never merge, a stale branch with no Update button, a secret in history.
-- **Scope:** this document lists the steps and links to the source of each value. It never restates a value that lives elsewhere: the AI side of a repo (CLAUDE.md, rules, skills) is [11-repo-initialization.md](11-repo-initialization.md); the org's values (runner labels, org secrets, ruleset contents) are the reference deployment's (below).
+- **Scope:** this document lists the steps and links to the source of each value. It never restates a value that lives elsewhere: the AI side of a repo (CLAUDE.md, rules, skills) is [06-repo-initialization.md](06-repo-initialization.md); the org's values (runner labels, org secrets, ruleset contents) are the reference deployment's (below).
 - **Who does what:** an agent writes files and opens the PR. Every repo setting, ruleset, secret, variable and App install is the owner's, run as `gh` commands from their own turn (`rules/security.md`). The `/repo-setup` skill walks these steps (audit only, or audit then fix) and changes no setting itself; the values already decided are in `skills/repo-setup/defaults.md`.
 
 ## The Checklist
@@ -21,7 +21,7 @@ Do the steps in order: later ones assume earlier ones (the ruleset names the CI 
 | 4 | Secret scanning in CI (gitleaks, pinned) | files | an existing app repo's `ci.yml` "Secret Scan" job |
 | 5 | PR title check | files | an existing app repo's `pr-title.yml` |
 | 6 | PR description template | files | an existing app repo's `.github/pull_request_template.md` |
-| 7 | CLAUDE.md conventions and a Review section | files | [01](01-project-instructions.md), [11](11-repo-initialization.md), this toolkit's CLAUDE.md ("Git Conventions") |
+| 7 | CLAUDE.md conventions and a Review section | files | [01](01-project-instructions.md), [06](06-repo-initialization.md), this toolkit's CLAUDE.md ("Git Conventions") |
 | 8 | Ruleset `main protection` | owner | reference deployment, "GitHub plan" |
 | 9 | Automatic PR review, if the repo uses one | files + owner | the review tool's own setup |
 | 10 | Deploy workflow (apps only) | files + ops | the app template; deploy request to ops |
@@ -64,7 +64,7 @@ Do the steps in order: later ones assume earlier ones (the ruleset names the CI 
 
 - A **Git** or **Conventions** section with: the commit and PR title types (step 5's list) and limits; squash merges only; only the owner merges or pushes `main`; workflow and deploy-script changes need the owner's live go; stale branches get `main` merged in. The CLAUDE.md of the repo that holds this checklist ("Git Conventions") is the worked example.
 - A **Review** section listing quotable rules for the automatic review, or a `REVIEW.md` (step 9).
-- Build, test and lint commands, per [11-repo-initialization.md](11-repo-initialization.md) Universal Targets.
+- Build, test and lint commands, per [06-repo-initialization.md](06-repo-initialization.md) Universal Targets.
 
 ### 8. Ruleset `main protection`
 

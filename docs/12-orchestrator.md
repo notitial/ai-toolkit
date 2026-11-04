@@ -24,7 +24,7 @@ A typical story pipeline with **embedded per-task verification**:
    - `exports` — symbols the task must expose.
    - `must_call_from` — call sites that must use those symbols.
    - `must_not_touch` — boundaries the task must not cross.
-5. **Per-task verify**: a **separate verifier agent** (different context, read-only tools) checks contract satisfaction and call-graph connectivity. Do not rely on the implementer's self-assessment — agents report "done" when work is incomplete ([Verification Failures](12-run-history.md#verification-failures)).
+5. **Per-task verify**: a **separate verifier agent** (different context, read-only tools) checks contract satisfaction and call-graph connectivity. Do not rely on the implementer's self-assessment — agents report "done" when work is incomplete ([Verification Failures](15-failure-patterns.md#verification-failures)).
 6. **Commit check**: orchestrator checks **git reality** (log, branch), not the subagent's verbal claim.
 7. **Parity or quality review** when multiple implementations must match.
 8. **Update checkpoint** and advance the wave.
@@ -61,7 +61,7 @@ For unattended runs:
 - **No** interactive questions; unknowns become **tickets** or "blocked" states.
 - **Allowlisted** shell commands and tools per agent ([Agents](03-agents.md)); reject or skip unknown operations.
 - **Caps**: max turns per subagent, wall-clock timeout, **token/budget** ceiling.
-- **Failure policy**: fix loops respect the headless fix-loop cap in the [canonical iteration caps](06-convergence.md#canonical-iteration-caps), then log and continue or halt the wave.
+- **Failure policy**: fix loops respect the headless fix-loop cap in the [canonical iteration caps](11-convergence.md#canonical-iteration-caps), then log and continue or halt the wave.
 
 ## Structured Reports and File-Based Messaging
 
@@ -88,13 +88,13 @@ One orchestration run caught a subagent that reported success **without** a comm
 | Dependency blocking | Skip task; unblock in later wave. |
 | Tool/MCP errors | Classify transient vs permanent; backoff vs ticket. |
 
-**Converge loops** (self-review, fix) respect the [canonical iteration caps](06-convergence.md#canonical-iteration-caps) — then stop with explanation.
+**Converge loops** (self-review, fix) respect the [canonical iteration caps](11-convergence.md#canonical-iteration-caps) — then stop with explanation.
 
 **Retry queue:** At wave end, re-evaluate skipped/failed items once dependencies or infra have changed.
 
 ## Integration Wiring Failures
 
-The most common structural failure is **code written but never connected**: unit tests green, end-to-end red. Contract fields, a per-task integration check and a dedicated repair task prevent it; see [Integration Failures](12-run-history.md#integration-failures).
+The most common structural failure is **code written but never connected**: unit tests green, end-to-end red. Contract fields, a per-task integration check and a dedicated repair task prevent it; see [Integration Failures](15-failure-patterns.md#integration-failures).
 
 ## One Commit Per Story Per Platform
 
@@ -127,11 +127,11 @@ With one branch per agent and hotspot files serialized, a run can use many agent
 
 ## Case Study
 
-Three of one multi-platform project's four autonomous runs each exposed one failure class (the second had none): no execution policy, then a reviewer run inline that collapsed the coordinator, then a false PASS caught by commit verification. Thin coordination, briefs and trimmed reports took it from about 8 to a target of 12–15 stories per session. The run-by-run account is in [Failure Patterns](12-run-history.md#case-study-lessons-from-four-autonomous-runs).
+Three of one multi-platform project's four autonomous runs each exposed one failure class (the second had none): no execution policy, then a reviewer run inline that collapsed the coordinator, then a false PASS caught by commit verification. Thin coordination, briefs and trimmed reports took it from about 8 to a target of 12–15 stories per session. The run-by-run account is in [Failure Patterns](15-failure-patterns.md#case-study-lessons-from-four-autonomous-runs).
 
 ## See Also
 
 - [Skills and Commands](04-skills-and-commands.md) for packaging repeated orchestration steps.
-- [Convergence](06-convergence.md) for fix-loop caps and self-review patterns.
-- [Multi-Repo Coordination](15-multi-repo-coordination.md) for spanning separate repos (`--add-dir` / Agent Teams) — distinct from this autonomous-pipeline pattern.
+- [Convergence](11-convergence.md) for fix-loop caps and self-review patterns.
+- [Multi-Repo Coordination](16-multi-repo-coordination.md) for spanning separate repos (`--add-dir` / Agent Teams) — distinct from this autonomous-pipeline pattern.
 - Research sources: CooperBench (arXiv:2601.13295), MAST taxonomy (arXiv:2503.13657), Anthropic engineering (2025).

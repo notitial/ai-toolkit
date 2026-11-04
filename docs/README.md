@@ -2,34 +2,36 @@
 
 ## Reading Order
 
-Start here. Documents are numbered for sequential reading, but each is standalone.
+Start here. Documents are numbered in reading order, but each is standalone.
 
-### Foundations (start here)
+### Foundations: what you configure
 - **01** [Project Instructions](01-project-instructions.md) — How to write CLAUDE.md files that shape every AI response
 - **02** [Rules](02-rules.md) — Rule authoring patterns: scoping, sizing, when to create
 - **03** [Agents](03-agents.md) — Subagent architecture: taxonomy, tool/model scoping, execution policies
-
-### Workflows
 - **04** [Skills and Commands](04-skills-and-commands.md) — Reusable workflow design: categories, parallel spawning, meta-skills
-- **05** [Orchestrator](05-orchestrator.md) — Autonomous pipeline: thin coordinator, wave execution, checkpoint recovery
-- **06** [Convergence](06-convergence.md) — Intelligent loop termination: plateau detection, regression sensing
+- **05** [Permissions and Safety](05-permissions-and-safety.md) — Command whitelists, sandbox patterns, secrets safety
 
-### Quality
-- **07** [Reviews](07-reviews.md) — Multi-agent review: layered gates, severity rubrics, readiness verdicts
+### Setting up a repo
+- **06** [Repo Initialization](06-repo-initialization.md) — Bootstrap prompts, AI maturity model (Level A/B/C)
+- **07** [New Repo Setup](07-new-repo-setup.md) — The GitHub-side checklist every new repo gets: settings, `main` ruleset, CI, secret scanning, PR title and description rules, PR review; run by `/repo-setup`
+
+### Context
 - **08** [Context Management](08-context-management.md) — Token optimization: checkpoints, compaction, session degradation
 - **09** [Structural Context](09-structural-context.md) — Repo maps, code graphs, and structural indexing for agent navigation
-- **10** [Permissions and Safety](10-permissions-and-safety.md) — Command whitelists, sandbox patterns, secrets safety
 
-### Setup
-- **11** [Repo Initialization](11-repo-initialization.md) — Bootstrap prompts, AI maturity model (Level A/B/C)
-- **12** [Failure Patterns and Recovery](12-run-history.md) — Error taxonomy, recovery strategies, and run lessons
+### Quality
+- **10** [Reviews](10-reviews.md) — Multi-agent review: layered gates, severity rubrics, readiness verdicts
+- **11** [Convergence](11-convergence.md) — Intelligent loop termination: plateau detection, regression sensing
+
+### Orchestration
+- **12** [Orchestrator](12-orchestrator.md) — Autonomous pipeline: thin coordinator, wave execution, checkpoint recovery
+- **13** [Orchestrator Context Discipline](13-orchestrator-context-discipline.md) — The live coordinator's own window: thinking as the dominant, legitimate consumer to GC; delegate the legwork and own the judgment; compact on state boundaries, not token ceilings
+- **14** [Prompt Engineering](14-prompt-engineering.md) — Prompt patterns that worked in practice: orchestrator and headless prompts
+- **15** [Failure Patterns and Recovery](15-failure-patterns.md) — Error taxonomy, recovery strategies, and run lessons
+- **16** [Multi-Repo Coordination](16-multi-repo-coordination.md) — Coordinating agent work across separate repos: add-dir/additionalDirectories, Agent Teams, orchestrator workspace
 
 ### Specialized
-- **13** [Cross-Platform Parity](13-cross-platform-parity.md) — Parity enforcement for multi-target projects
-- **14** [Prompt Engineering](14-prompt-engineering.md) — Prompt patterns that worked in practice
-- **15** [Multi-Repo Coordination](15-multi-repo-coordination.md) — Coordinating agent work across separate repos: add-dir/additionalDirectories, Agent Teams, orchestrator workspace
-- **19** [Orchestrator Context Discipline](19-orchestrator-context-discipline.md) — The live coordinator's own window: thinking as the dominant, legitimate consumer to GC; delegate the legwork and own the judgment; compact on state boundaries, not token ceilings
-- **22** [New Repo Setup](22-new-repo-setup.md) — The GitHub-side checklist every new repo gets: settings, `main` ruleset, CI, secret scanning, PR title and description rules, PR review; run by `/repo-setup`
+- **17** [Cross-Platform Parity](17-cross-platform-parity.md) — Parity enforcement for multi-target projects
 
 Decisions are recorded in [adr/](adr/README.md).
 

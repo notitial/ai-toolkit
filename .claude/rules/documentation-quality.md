@@ -41,8 +41,6 @@ These standards apply when creating or editing documents in `docs/`.
 
 ## Adding New Documents
 
-- Assign the next sequential number (e.g., `15-topic-name.md`).
-- Place in the appropriate category: Foundations, Workflows, Quality, Setup, or Specialized.
-- Update both indexes when adding or renaming documents:
-  - `docs/README.md` — reading order and category placement
-  - `README.md` — docs table in repo overview
+- Assign the next sequential number (e.g., `18-topic-name.md`).
+- Place in the appropriate group: Foundations, Setting up a repo, Context, Quality, Orchestration, or Specialized.
+- Update the index when adding or renaming documents: `docs/README.md` — reading order and group placement.

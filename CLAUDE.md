@@ -24,7 +24,7 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 
 ## Document Structure
 
-- `docs/` — Numbered knowledge base (01–22, with gaps): numbers keep their original order, and a gap is a document not published here. Read in order; each stands alone but builds on earlier ones. Organized by category: Foundations (01–03), Workflows (04–06), Quality (07–10), Setup (11–12), Specialized (13–22). See `docs/README.md` for the full index.
+- `docs/` — Numbered knowledge base (01–17, no gaps) in reading order; each stands alone but builds on earlier ones. Organized in six groups: Foundations (01–05), Setting up a repo (06–07), Context (08–09), Quality (10–11), Orchestration (12–16), Specialized (17). See `docs/README.md` for the full index.
 - `agents/` — Global agent definitions (symlinked to `~/.claude/agents/` via `/setup-claude`).
 - `hooks/` — Global hook scripts (symlinked to `~/.claude/hooks/` via `/setup-claude`).
 - `rules/` — Global always-on rule files (symlinked to `~/.claude/rules/` via `/setup-claude`; no frontmatter — distinct from project-scoped `.claude/rules/`).
@@ -39,7 +39,7 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 - Prefer concrete case studies over abstract advice. Show the pattern, then explain why it works.
 - Keep documents focused on one topic. Cross-reference instead of duplicating.
 - When adding knowledge: check the existing documents before creating a new one (`docs/README.md` is the index).
-- When adding an agent, hook, skill, or rule: update the README install table — the roster of global installs. Project-scoped skills are listed in the README Skills section.
+- When adding an agent, hook, skill, or rule: update the README install table — the roster of global installs. Describe a skill in `skills/README.md` (project-scoped ones are listed only there) and a tool in `tools/README.md`.
 - Lead with the generic, reusable pattern. Illustrate with a case study. Cite the source (project, file, run).
 - Sizing: CLAUDE.md under 200 lines. Rules under 300 lines. See docs 01 and 02 for detailed guidance.
 - For detailed writing standards when editing `docs/`, see `.claude/rules/documentation-quality.md`.
@@ -63,7 +63,7 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 | `docs/README.md` | Document index and reading order |
 | `docs/01-project-instructions.md` | CLAUDE.md design guidance (this repo follows it) |
 | `docs/02-rules.md` | Rule authoring patterns |
-| `docs/11-repo-initialization.md` | Bootstrap prompts and AI maturity model |
+| `docs/06-repo-initialization.md` | Bootstrap prompts and AI maturity model |
 | `agents/` | Global agent definitions (roster: README install table) |
 | `hooks/` | Global hook scripts (roster: README install table) |
 | `rules/` | Global always-on rules installed to `~/.claude/rules/` (see ADR 0009) |
@@ -75,4 +75,7 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 | `tools/ait.zsh` | zsh helpers: `ait`, `ait-status`, `ghm-status`, `ghm-test`, `ghm-install` (installs the GitHub MCP launcher and guard as root-owned copies agents can't edit) |
 | `.claude/settings.json` | Project-level permissions allowlist (no hooks) |
 | `.claude/rules/` | Path-scoped rules (loaded on demand) |
-| `README.md` | Repo overview and docs table |
+| `.claude/commands/` | Project command claude-pr-review (a fork of the code-review command from Anthropic's Claude Code plugins) |
+| `.github/workflows/` | Automatic Claude PR review workflow (ADR 0013) |
+| `assets/icon/` | The project icon (SVG, mono variant, PNGs from 16 to 1024 px) |
+| `README.md` | Repo overview, install table and links |
