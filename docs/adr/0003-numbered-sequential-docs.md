@@ -22,8 +22,12 @@ The numbering solves two problems: it gives newcomers a clear reading path (star
 
 ## Consequences
 
-- Adding a new document means assigning the next number and updating two indexes (`docs/README.md` and `README.md`)
+- Adding a new document means assigning the next number and updating two indexes (`docs/README.md` and `README.md`; one index since the 2026-11-04 amendment below)
 - One document per topic — if a document covers two concerns, it must be split
 - Documents are standalone (can be read in isolation) but build on earlier concepts (reading in order is recommended)
 - The category grouping is informational only — it appears in the index, not in the file paths
 - Capped at ~20 documents before the sequential model becomes unwieldy
+- Amended 2026-11-04: the docs were renumbered once into a gap-free reading order (01–17) in six groups: Foundations,
+  Setting up a repo, Context, Quality, Orchestration, Specialized. The earlier numbers were kept from earlier history, so the
+  gaps read as missing documents. `docs/README.md` is now the only docs index (the top-level
+  `README.md` links to it), so a new document updates one index, not two. New documents still take the next number.

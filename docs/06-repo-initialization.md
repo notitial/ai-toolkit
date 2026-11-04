@@ -133,7 +133,7 @@ Every project at Level A should have:
 
 These five elements prevent the most common AI-assisted development mistakes: committing secrets, violating project conventions, not knowing how to build, and inconsistent error handling.
 
-The GitHub side of a new repo (settings, the `main` ruleset, CI, secret scanning, PR title and description rules, the Claude review) is a separate checklist: [22-new-repo-setup.md](22-new-repo-setup.md).
+The GitHub side of a new repo (settings, the `main` ruleset, CI, secret scanning, PR title and description rules, the Claude review) is a separate checklist: [07-new-repo-setup.md](07-new-repo-setup.md).
 
 ## Category-Specific Additions
 

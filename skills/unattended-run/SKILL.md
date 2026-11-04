@@ -58,7 +58,7 @@ Everything here happens before the user leaves. After the final "go", no human i
    nothing armable remains, stop and say which tasks blocked arming.
 5. **Commands and allowlist.** Capture each repo's build / test / e2e commands as allowlistable aliases
    (`project-build`, `project-test`, `project-e2e`); raw tools like `xcodebuild` are not auto-approved
-   ([doc 10](../../docs/10-permissions-and-safety.md)). The run must never hit a prompt. The allowlist is the MCP
+   ([doc 05](../../docs/05-permissions-and-safety.md)). The run must never hit a prompt. The allowlist is the MCP
    git tools (`mcp__git-mcp__git_checkout`, `mcp__git-mcp__git_add`, `mcp__git-mcp__git_commit`,
    `mcp__git-mcp__git_status`), the aliases and
    `Bash($HOME/.claude/tools/workspace-lock.sh *)`. Show the user this list and add nothing broader. (The
@@ -119,7 +119,7 @@ For each armed task:
    step 1.9 settings edit, when STATE.md records it). Otherwise don't discard anything: release the lock, run
    Step 4's handover noting why, then stop. A human cleans the tree.
 3. **Branch and work.** `git_checkout` a `<ticket>-<domain>` branch off `main` in each repo. Work directly or
-   through workers ([doc 05](../../docs/05-orchestrator.md)). At each phase boundary, heartbeat with the
+   through workers ([doc 12](../../docs/12-orchestrator.md)). At each phase boundary, heartbeat with the
    remaining ETA and checkpoint STATE.md (current task, holder id, workers in flight): a resumed session
    reorients from that, not from memory.
 4. **Worker spawn prompts carry the run.** Each worker's prompt gets: the team slug (join with
@@ -129,7 +129,7 @@ For each armed task:
    calls fall back to its own `$PWD` and fork a second lock. **Workers heartbeat only and never release**: an
    early release denies the whole team until the arming session re-acquires.
 5. **Build / test / e2e** through the aliases. An oracle counts only if it was shown to fail on the broken state
-   ([doc 07](../../docs/07-reviews.md)); nobody is there to catch a false green.
+   ([doc 10](../../docs/10-reviews.md)); nobody is there to catch a false green.
 6. **Check the diff, then commit locally.** A task that should have changed files but shows no diff has
    **failed**: record it, never make an empty commit. Stage only the task's declared `Outputs` with
    `git_add -- <paths>` (never `-A` or `.`), check that the staged set matches, and flag anything else in
@@ -152,7 +152,7 @@ continue; re-acquiring with the team slug is reentrant. Never act on remembered 
 - **Whole-run ceiling:** past the total armed ETA × 1.5 since the acquire, wind down: WIP-commit, checkpoint
   STATE.md, wait for any worker's phase boundary, `release --id <team-slug>`, and hand over. A looping holder
   never looks wedged, so this ceiling is what frees the lock.
-- At the [iteration caps](../../docs/06-convergence.md#canonical-iteration-caps), log and move on.
+- At the [iteration caps](../../docs/11-convergence.md#canonical-iteration-caps), log and move on.
 
 ## Step 4: Morning handover
 

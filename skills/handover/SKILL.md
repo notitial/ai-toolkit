@@ -114,7 +114,7 @@ Write `.archive/<slug>-handover.md`:
 ```
 
 Guidelines:
-- Be specific with file paths — the next session needs to know exactly where to look. For large files already covered here or in on-disk state, tell the next session to re-read only specific ranges, never wholesale (rationale: `docs/19-orchestrator-context-discipline.md`).
+- Be specific with file paths — the next session needs to know exactly where to look. For large files already covered here or in on-disk state, tell the next session to re-read only specific ranges, never wholesale (rationale: `docs/13-orchestrator-context-discipline.md`).
 - Include "why" for decisions — without it, the next session may re-litigate them.
 - Next steps must be actionable, not vague ("update setup-claude SKILL.md to add the rules/ symlink loop", not "finish the setup work").
 - Keep the whole document under 150 lines.

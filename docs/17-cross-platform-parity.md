@@ -18,7 +18,7 @@ These divergences are invisible in per-platform reviews. Each implementation loo
 
 The cheapest way to prevent divergence: define the implementation once, before any platform starts coding.
 
-The **Implementation Brief** (see [05-orchestrator.md](05-orchestrator.md)) serves as a shared contract:
+The **Implementation Brief** (see [12-orchestrator.md](12-orchestrator.md)) serves as a shared contract:
 - Same acceptance criteria for both platforms
 - Same domain model fields and types
 - Same error cases to handle
@@ -146,7 +146,7 @@ Automated parity checking scans for divergence:
 
 ## Architecture Review as Early Parity Catch
 
-The design review gate (see [07-reviews.md](07-reviews.md)) validates the Implementation Brief against cross-platform constraints **before code is written**:
+The design review gate (see [10-reviews.md](10-reviews.md)) validates the Implementation Brief against cross-platform constraints **before code is written**:
 
 - Does the proposed domain model match the canonical definition?
 - Does the error handling cover all cases in the error hierarchy?

@@ -63,7 +63,7 @@ Operational failures stem from missing infrastructure. The agents are capable of
 
 **No repository boundaries means cross-repo contamination.** In polyrepo setups, each agent must be told which repository it operates in. Crossing boundaries silently corrupts unrelated codebases.
 
-These are first-session failures. They surface immediately and are fully preventable with operational guardrails. See [05-orchestrator.md](05-orchestrator.md) for thin coordinator design that enforces these boundaries.
+These are first-session failures. They surface immediately and are fully preventable with operational guardrails. See [12-orchestrator.md](12-orchestrator.md) for thin coordinator design that enforces these boundaries.
 
 ## Context Failures
 
@@ -73,7 +73,7 @@ Context failures occur when the orchestrator consumes tokens on work that belong
 
 **Quantified impact:** in that project, about 2,000 tokens per task of unnecessary inline context, work that should have happened in a subagent. It compounds: each task carries the leftovers of the ones before it, which is why degradation shows after 2-3 tasks.
 
-**The rule:** Every token that enters the orchestrator should be essential for coordination — checkpoint reads, status updates, delegation decisions. Everything else belongs in a subagent that returns a compact report. See the thin coordinator principle in [05-orchestrator.md](05-orchestrator.md).
+**The rule:** Every token that enters the orchestrator should be essential for coordination — checkpoint reads, status updates, delegation decisions. Everything else belongs in a subagent that returns a compact report. See the thin coordinator principle in [12-orchestrator.md](12-orchestrator.md).
 
 **Detection:** Context collapse manifests as the orchestrator producing confused or contradictory delegation instructions, skipping tasks in the checkpoint, or repeating work already completed. Monitor for these signals rather than waiting for total session failure.
 
@@ -96,7 +96,7 @@ Agents claim completion without evidence. This is a documented systemic problem:
 3. If verification fails, mark the task as `FAILED` regardless of the agent's self-report
 4. Re-dispatch to a fresh agent with the verification failure as context
 
-**Verification itself fails in two directions** (the rules are in the [Verification Gate](07-reviews.md#verification-gate)):
+**Verification itself fails in two directions** (the rules are in the [Verification Gate](10-reviews.md#verification-gate)):
 
 - **False-green:** an oracle never shown to fail on the broken state proves nothing. In one run a wrong fix passed four checks keyed on the same wrong instrumentation and reached `main`.
 - **False-blocker:** a live failure blamed on code before checking the build, the target host and the infra. One run spent three live rounds on a "defect" that was a build pointing at the wrong backend.
@@ -135,7 +135,7 @@ Give every task contract four fields: `outputs` (files it produces), `exports` (
 
 ## Specification Failures
 
-Underspecification causes the largest share of autonomous agent failures (see the [Error Taxonomy](#error-taxonomy)). Without a spec that says otherwise, agents invent schemas, skip auth checks, touch shared modules and write happy-path code. Every such gap is preventable before agents run: the [spec quality gate](07-reviews.md#spec-quality-gate) lists the six to check.
+Underspecification causes the largest share of autonomous agent failures (see the [Error Taxonomy](#error-taxonomy)). Without a spec that says otherwise, agents invent schemas, skip auth checks, touch shared modules and write happy-path code. Every such gap is preventable before agents run: the [spec quality gate](10-reviews.md#spec-quality-gate) lists the six to check.
 
 ## Improvement Methodology
 

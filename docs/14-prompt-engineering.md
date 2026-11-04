@@ -10,7 +10,7 @@ Spend the majority of orchestration effort on specification before unattended ex
 - Harness improvements alone — not model changes — have produced 36-point improvements on coding benchmarks (CORE-Bench). Better prompts beat better models.
 - Treat the launch prompt as the primary deliverable of planning. If you spend 30 minutes writing the prompt and 4 hours running the pipeline, the ratio is right.
 
-See [05-orchestrator.md](05-orchestrator.md) for the pipeline architecture these prompts support.
+See [12-orchestrator.md](12-orchestrator.md) for the pipeline architecture these prompts support.
 
 ## The Context Handoff Prompt
 
@@ -69,7 +69,7 @@ PROHIBITED: web_search, curl, npm, raw build tools, command chaining (&&, ||, ;)
 ONE COMMAND AT A TIME. No exceptions.
 ```
 
-**Why inline:** a subagent may not load rule files, so the policy it must follow belongs in its own prompt. On one project, moving the full whitelist inline into each agent's prompt took violations from about three per run to zero. A short form (about 50 tokens of allowed categories and key prohibitions) is lighter but untested against that result; either way, enforcement of the full list belongs in `settings.json` permissions and hooks ([Permissions and Safety](10-permissions-and-safety.md#case-study-whitelist-consolidation)).
+**Why inline:** a subagent may not load rule files, so the policy it must follow belongs in its own prompt. On one project, moving the full whitelist inline into each agent's prompt took violations from about three per run to zero. A short form (about 50 tokens of allowed categories and key prohibitions) is lighter but untested against that result; either way, enforcement of the full list belongs in `settings.json` permissions and hooks ([Permissions and Safety](05-permissions-and-safety.md#case-study-whitelist-consolidation)).
 
 ## The Structured Report Pattern
 

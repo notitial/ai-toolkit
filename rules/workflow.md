@@ -49,7 +49,7 @@ Validate changes. Run the most relevant checks available (build/typecheck, unit/
 When a PR branch falls behind `main`, update it by merging `main` into the branch. Never rebase and force-push. If your PRs are squash-merged, the branch's history is discarded and the merge commit costs nothing; the git guard denies agents a force push (`hooks/git-mcp-guard.sh`), so a rebase strands the work until the user pushes it by hand.
 
 ## Convergence and Review Termination
-A review/fix loop needs a terminal state that is not "escalate." This is load-bearing, so it lives in this loaded rule; full rationale is in the toolkit's `docs/06-convergence.md` and `docs/07-reviews.md`, which nothing loads at session start.
+A review/fix loop needs a terminal state that is not "escalate." This is load-bearing, so it lives in this loaded rule; full rationale is in the toolkit's `docs/11-convergence.md` and `docs/10-reviews.md`, which nothing loads at session start.
 
 - **Re-review cap: 2 cycles per ticket, flat** — it never scales with waves or sub-tasks (a bigger ticket mints no extra budget). Plan and code reviews counted separately. This is the single canonical number; skills and project `CLAUDE.md` reference it, never restate a different one.
 - **A regression stops the loop** — more or worse findings after a fix than before it → stop; do not give the same class a third chance. By the 3rd round on one class, name the generator, don't patch the next instance.

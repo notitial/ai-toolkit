@@ -37,7 +37,7 @@ Zero issues remaining. The ideal outcome — the task is complete.
 ### Plateau
 The same number and type of issues remain for two or more consecutive passes. The agent is unable to make further progress. Continuing will only consume tokens without fixing anything.
 
-**Detection:** Compare `issues_remaining` and the **stable finding IDs** across passes (on re-review, mark each resolved/persisting/new — see [07-reviews.md](07-reviews.md#verdict-values-and-re-review-tracking)). Same count alone isn't sufficient — the agent might fix one issue but introduce another.
+**Detection:** Compare `issues_remaining` and the **stable finding IDs** across passes (on re-review, mark each resolved/persisting/new — see [10-reviews.md](10-reviews.md#verdict-values-and-re-review-tracking)). Same count alone isn't sufficient — the agent might fix one issue but introduce another.
 
 ### Regression
 More issues after a pass than before it. The fixes are making things worse. Stop immediately and report.
@@ -112,12 +112,12 @@ and take it from this table. Never exceed the cap regardless of analysis: contex
 
 | Loop | Cap | Where it applies |
 |------|-----|------------------|
-| Headless fix-loop (unattended) | **2** passes | orchestrator self-review / fix loops in headless mode ([05-orchestrator.md](05-orchestrator.md#headless-mode)) |
+| Headless fix-loop (unattended) | **2** passes | orchestrator self-review / fix loops in headless mode ([12-orchestrator.md](12-orchestrator.md#headless-mode)) |
 | Interactive converge (self-review) | **3** passes | the default converge loop for most tasks |
-| Thorough review | **5** passes | review-convergence at milestone / full-review gates ([07-reviews.md](07-reviews.md#choosing-review-scale)) |
-| Re-reviews per ticket | **2**, flat | REVISE → re-review cycles at the review gate; never scales with waves or sub-tasks ([07-reviews.md](07-reviews.md#adversarial-review-and-reviewer-failure-modes)) |
+| Thorough review | **5** passes | review-convergence at milestone / full-review gates ([10-reviews.md](10-reviews.md#choosing-review-scale)) |
+| Re-reviews per ticket | **2**, flat | REVISE → re-review cycles at the review gate; never scales with waves or sub-tasks ([10-reviews.md](10-reviews.md#adversarial-review-and-reviewer-failure-modes)) |
 
-The design-review gate is stricter still — one revision round (see [07-reviews.md](07-reviews.md#design-review-gate)).
+The design-review gate is stricter still — one revision round (see [10-reviews.md](10-reviews.md#design-review-gate)).
 
 ### No confirmation between iterations
 In headless/unattended mode, the loop must not pause for human input. If the agent can't decide whether to continue, it should stop with an explanation rather than block. Interactive confirmation between passes defeats the purpose of automation.
@@ -148,6 +148,6 @@ The outer skill (implement-story) does not need to understand convergence mechan
 
 ## Case Study: Self-Review Convergence
 
-One project's self-review converge loop ran the 10-point self-review checklist (canonical list in [07-reviews.md](07-reviews.md#the-self-review-pattern)) on every pass — not just re-checking previous failures. This catches regressions where fixing one issue introduces another (e.g., extracting a magic number into a constant but placing the constant in the wrong layer).
+One project's self-review converge loop ran the 10-point self-review checklist (canonical list in [10-reviews.md](10-reviews.md#the-self-review-pattern)) on every pass — not just re-checking previous failures. This catches regressions where fixing one issue introduces another (e.g., extracting a magic number into a constant but placing the constant in the wrong layer).
 
 In practice, most stories converged in 1-2 passes. The 3-pass interactive-converge cap was rarely hit. When it was, the remaining issues were typically unfixable in context (e.g., a naming conflict with an existing pattern that would require a broader refactor). The plateau detection caught these within 2 passes and stopped cleanly.

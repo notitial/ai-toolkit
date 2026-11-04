@@ -153,4 +153,4 @@ The tradeoff: the MCP server added ~20 tools to the tool list (~4,000 tokens of 
 
 - [01-project-instructions.md](01-project-instructions.md) — covers the key paths table (Tier 1) and instruction file structure
 - [08-context-management.md](08-context-management.md) — covers token budgeting and context window optimization
-- [10-permissions-and-safety.md](10-permissions-and-safety.md) — covers MCP server permissions and the MCP-over-Bash pattern
+- [05-permissions-and-safety.md](05-permissions-and-safety.md) — covers MCP server permissions and the MCP-over-Bash pattern

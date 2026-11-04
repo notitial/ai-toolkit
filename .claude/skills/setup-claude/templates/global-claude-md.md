@@ -34,7 +34,7 @@ Your preferred tone, format, and verbosity. Prefer a one-line pointer to communi
 
 These earn their always-on slot for users doing multi-agent or multi-session work:
 
-- **Subagents & Delegation** — model/agent selection policy (cheapest model that fits), when to resume an existing agent vs spawn fresh, and the delegation-judgment boundary: delegate heavy, self-contained legwork (code tracing, audits, large-file reads) to subagents that return **evidence — the quoted lines — not just a verdict**, and keep the judgment (routing, authorization, anything on the risk list) in the orchestrator. See `docs/19-orchestrator-context-discipline.md`.
+- **Subagents & Delegation** — model/agent selection policy (cheapest model that fits), when to resume an existing agent vs spawn fresh, and the delegation-judgment boundary: delegate heavy, self-contained legwork (code tracing, audits, large-file reads) to subagents that return **evidence — the quoted lines — not just a verdict**, and keep the judgment (routing, authorization, anything on the risk list) in the orchestrator. See `docs/13-orchestrator-context-discipline.md`.
 - **Multi-session / orchestrator work** — kickoff/handover/review-gate skill pointers, session-splitting policy.
 
 ## Sizing

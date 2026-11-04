@@ -67,7 +67,7 @@ Every step should be copy-pasteable or directly executable. If a step says "upda
 Structure SKILL.md files as imperative instructions, not descriptive documentation. Include explicit do/don't guardrails ("Do NOT quote YAML values", "Always build skeleton before populating"). A well-written SKILL.md doubles as both an instruction document and a specification — an evaluated skill pack demonstrated this pattern with classification skills whose SKILL.md files served as both agent instructions and complete classification specs.
 
 ### Include stop conditions
-Without explicit stop conditions, an agent will loop forever on a "fix all issues" instruction. Every skill that iterates needs: max passes, what constitutes success, when to stop and report instead of continuing. See [06-convergence.md](06-convergence.md).
+Without explicit stop conditions, an agent will loop forever on a "fix all issues" instruction. Every skill that iterates needs: max passes, what constitutes success, when to stop and report instead of continuing. See [11-convergence.md](11-convergence.md).
 
 Stop conditions vary by skill category:
 - **Iterative skills** (self-review, fix loops) — use convergence criteria: stop on plateau (same issues remaining for 2+ passes), regression (issues increased), or iteration cap (default 3).
@@ -134,7 +134,7 @@ Utility skills are the easiest to write and the highest-ROI starting point. If y
 Generic patterns that other skills compose. They define _how_ to iterate, not _what_ to iterate on.
 
 Examples:
-- **Converge** — run a task repeatedly with intelligent stop analysis (see [06-convergence.md](06-convergence.md))
+- **Converge** — run a task repeatedly with intelligent stop analysis (see [11-convergence.md](11-convergence.md))
 - **Self-review** — apply a checklist to recently changed code, flag issues by severity
 
 Meta skills are parameterized — the converge loop does not know about your lint rules; it just knows how to run something, measure progress, and decide when to stop.

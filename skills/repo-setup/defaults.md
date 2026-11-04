@@ -1,7 +1,7 @@
 # Repo Setup Defaults
 
 The values `/repo-setup` uses without asking, and the ones it asks for. Rationale for each is in
-`docs/22-new-repo-setup.md`; this file only records what the user has decided. Change a value here, in a PR, when the
+`docs/07-new-repo-setup.md`; this file only records what the user has decided. Change a value here, in a PR, when the
 decision changes.
 
 ## Decided (use as written)

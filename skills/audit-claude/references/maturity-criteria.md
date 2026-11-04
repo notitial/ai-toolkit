@@ -9,10 +9,10 @@ Classify the project's AI-assisted development maturity based on which artifacts
 - No rules directory
 - No settings.json with AI tool permissions
 
-**Recommendation:** Start with doc 11 (Repo Initialization). The bootstrapping path is:
+**Recommendation:** Start with doc 06 (Repo Initialization). The bootstrapping path is:
 1. Create CLAUDE.md with the six-section anatomy (doc 01)
 2. Add a git safety rule (doc 02)
-3. Create settings.json with minimal permissions (doc 10)
+3. Create settings.json with minimal permissions (doc 05)
 
 ## Level A — Rules Only
 
