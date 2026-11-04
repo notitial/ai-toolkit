@@ -156,6 +156,10 @@ Documents illustrate patterns with case studies from real projects, with project
 - **For AI agents:** Read `CLAUDE.md` for project context, then `docs/README.md`
 - **For new projects:** Start with docs 01, 02, 11 to set up AI tooling in a fresh repo
 
+## Security
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md). Please don't open a public issue.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
