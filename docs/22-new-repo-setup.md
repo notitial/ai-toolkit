@@ -75,7 +75,7 @@ Do the steps in order: later ones assume earlier ones (the ruleset names the CI 
 
 ### 9. Automatic PR review
 
-- If the repo uses an automatic PR review (this toolkit's own repo runs one, added by its repo setup rather than shipped with the toolkit: [ADR 0013](adr/0013-app-owned-pr-review.md)), install it after the ruleset, keep its jobs out of the required checks (step 8), and treat its verdict as a signal.
+- If the repo uses an automatic PR review (this toolkit ships one, [tools/claude-review/](../tools/claude-review/README.md), which `/add-claude-review` installs: [ADR 0013](adr/0013-app-owned-pr-review.md)), install it after the ruleset, keep its jobs out of the required checks (step 8), and treat its verdict as a signal.
 - For a review that posts as a GitHub App, the App's installation must cover the repo, and GitHub-hosted runners must be allowed.
 - Optional: a `REVIEW.md` at the repo root, the owner's review brief (failure modes to hunt, a nit cap, paths to skip).
 

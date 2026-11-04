@@ -17,6 +17,7 @@ No repo-wide build or lint — `docs/` is markdown only. `bash tools/test-all.sh
 - `tools/statusline.sh` — `bash tools/test-statusline.sh` after changing it; it also checks `rate_color_for` against `tools/pace-vectors.tsv` (regenerate with `bash tools/gen-pace-vectors.sh > tools/pace-vectors.tsv` when the colour maths changes).
 - `tools/session-name/` — `bash tools/session-name/test-restore.sh` after changing `hooks/session-name-restore.sh`.
 - `tools/cleanup-claude/` — `bash tools/cleanup-claude/test-cleanup.sh` after changing `cleanup.sh` or what `/setup-claude` and the installers put on a machine (needs jq).
+- `tools/claude-review/` — `python3 -I -B -m unittest discover -s tools/claude-review/tests` after changing the workflow's inline scripts, the kit's files or this repo's installed copies (`.github/workflows/claude-review.yml`, `.claude/commands/claude-pr-review.md`).
 - `tools/audit-logger/`, `tools/destructive-blocker/`, `tools/git-mcp-guard/`, `tools/git-mcp-redirect/`, `tools/secret-detector/`, `tools/secret-redact-output/` — `bash tools/<name>/test-<name>.sh` after changing the matching `hooks/<name>.sh`.
 - `tools/workspace-lock/` — `bash tools/workspace-lock/test-guard.sh` and `bash tools/workspace-lock/test-acquire.sh` (about 1.5 min) after changing the lock script or its guard.
 
@@ -70,6 +71,7 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 | `skills/` | Global skills (roster: README install table) |
 | `tools/` | Reusable tooling (statusline, scripts) |
 | `tools/workspace-lock/` | Advisory lock serializing independent unattended orchestrators (used by the `unattended-run` skill) |
+| `tools/claude-review/` | The Claude PR review kit: the canonical workflow and review command other repos copy (this repo runs the same copies), its setup guide, tests and reviewer cases; `/add-claude-review` installs it |
 | `tools/github-mcp/` | Optional guarded GitHub MCP setup: a launcher plus a hook limiting which GitHub writes agents may make, installed root-owned so agents can't edit them; its README covers install and token rotation |
 | `tools/shell-init.zsh` | The one line `~/.zshrc` sources (`source ~/.claude/tools/shell-init.zsh`): loads `tools/ait.zsh` |
 | `tools/ait.zsh` | zsh helpers: `ait`, `ait-status`, `ghm-status`, `ghm-test`, `ghm-install` (installs the GitHub MCP launcher and guard as root-owned copies agents can't edit) |

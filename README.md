@@ -36,7 +36,7 @@ Once set up, go to any project and run `/audit-claude` to evaluate its AI config
 |----------|-------|-------------|
 | Agents | code-reviewer, security-auditor, adr-advisor, plan-reviewer, plan-author, payments-reviewer | `~/.claude/agents/` |
 | Hooks | secret-detector, secret-redact-output, destructive-blocker, gh-block, git-mcp-redirect, git-mcp-guard, workspace-lock-guard, audit-logger, session-name-restore, github-mcp-update-check | `~/.claude/hooks/` |
-| Skills | adr, audit-claude, feature-kickoff, fable-plan, handover, review-gate, archive-index, prep-compact, unattended-run, workspace-lock-protocol, eta, repo-setup | `~/.claude/skills/` |
+| Skills | adr, audit-claude, feature-kickoff, fable-plan, handover, review-gate, archive-index, prep-compact, unattended-run, workspace-lock-protocol, eta, repo-setup, add-claude-review | `~/.claude/skills/` |
 | Rules | workflow, communication, engineering-defaults, security, model-discipline (always-on); workspace-lock (conditional — no-op unless a repo arms the lock) | `~/.claude/rules/` |
 | MCP server | git-mcp (structured git tools replacing Bash git): the pinned binary (`npm i -g`, v2.15.1), registered by you with `claude mcp add --scope user` | `~/.claude.json` (user scope) |
 | Status line | Context and rate-limit display | `~/.claude/statusline.sh` |
@@ -54,7 +54,7 @@ agents/                 Global agent definitions installed to ~/.claude/agents/
 hooks/                  Global hook scripts installed to ~/.claude/hooks/
 skills/                 Global skills installed to ~/.claude/skills/
 rules/                  Global always-on rules installed to ~/.claude/rules/
-tools/                  Statusline, workspace-lock, github-mcp, and helper scripts and tests
+tools/                  Statusline, workspace-lock, github-mcp, claude-review, and helper scripts and tests
 assets/icon/            The project icon (SVG, mono variant, PNGs from 16 to 1024 px)
 .claude/skills/         Project-scoped skills (setup-claude, cleanup-claude, audit-practices, audit-tooling)
 .claude/commands/       Project command claude-pr-review (a fork of the code-review command from Anthropic's Claude Code plugins)
@@ -80,6 +80,10 @@ Creates and manages Architecture Decision Records. Scaffolds `docs/adr/` on firs
 ### /repo-setup
 
 Audits a named repo against the repo-setup checklist ([docs/22](docs/22-new-repo-setup.md)): a read-only audit of each step (files through the github MCP, settings and rulesets from `gh` reads the user runs); an archived repo is reported and the run stops. In `setup` mode it then writes the missing files on a branch and opens a PR, on the user's go. Every repo setting, ruleset, App or secret change is printed as `gh` commands for the user; the skill changes none itself. Decided values live in `skills/repo-setup/defaults.md`; the rest is asked. `/repo-setup <owner/repo>` audits, `/repo-setup setup <owner/repo>` audits then fixes.
+
+### /add-claude-review
+
+Adds the automatic Claude PR review to the current repo from the kit in [tools/claude-review/](tools/claude-review/README.md). Asks for the runner labels, the auth mode, the secret name and the reviewer GitHub App, applies only the documented replacement points, checks the SHAs and opens the PR; the user creates or installs the App, sets the variables and secrets, and merges. Also upgrades an existing copy. Run from the target repo.
 
 ### /eta
 
@@ -112,6 +116,7 @@ These live in `.claude/skills/` and are available only within this repo:
 - **statusline.sh** — Custom Claude Code status line showing model, context window usage (scaled to the `autoCompactWindow` setting, 500k with the `/setup-claude` template; 250k if unset), and both the 5-hour and weekly rate limit windows. With `ANTHROPIC_API_KEY` set and no `rate_limits` (an API-key session) the two bars give way to `Input <total> <bar> <N>% hot`, `Output` and `Cost`, summed from the session's transcript and cached by size (a changed transcript is re-summed by a detached job, so the figures lag one render). Also writes this account's rate-limit windows to a readings file another tool can turn into meters
 - **workspace-lock** — Advisory JSON lock that serializes the mutating work (edits, builds, tests) of independent overnight orchestrators on one machine, over a shared working copy. See the `unattended-run` skill
 - **github-mcp** — An optional, guarded setup of GitHub's MCP server: a launcher plus a hook that limits which GitHub writes agents may make, both installed root-owned so agents can't edit them, with their tests; its README covers install and token rotation. See [tools/github-mcp/README.md](tools/github-mcp/README.md)
+- **claude-review** — Automatic Claude PR review for GitHub Actions, posted by a per-owner reviewer App: inline findings, an overview comment, an APPROVE / REQUEST_CHANGES signal, thread follow-up on `@claude review`, auto-resolve of fixed threads; Claude only reads and posts nothing. The canonical workflow and command other repos copy byte for byte, except the runner and auth lines; this repo runs the same copies. See [tools/claude-review/README.md](tools/claude-review/README.md)
 - **cleanup-claude** — `bash tools/cleanup-claude/cleanup.sh [--apply] [--config-dir DIR] [--purge-ask] [--keep-ambiguous] [--include-security] [--verbose]`: removes what the repo installed on this machine (links that resolve into the checkout, the toolkit's settings.json keys and hook entries after a backup (the security entries stay unless `--include-security`), the plain rc `source` lines, runtime state). Dry run by default. Never touches login, Keychain, transcripts or CLAUDE.md; sudo, `claude mcp remove`, npm and Keychain steps are printed, never run. Driven by the project-scoped `/cleanup-claude` skill
 - **ait** — `tools/ait.zsh` zsh helpers, loaded by `~/.zshrc` through `source ~/.claude/tools/shell-init.zsh`: `ait` (cd to the checkout), `ait-status` (what `/setup-claude` checks), `ghm-status`, `ghm-test` and `ghm-install`, which installs the GitHub MCP launcher and guard as root-owned copies from `main`'s committed files, with `main` clean and equal to `origin/main`: it shows the GitHub owners whose repos agents may write to, the Keychain account the token is read from and the diff, asks, then runs `sudo install`
 
