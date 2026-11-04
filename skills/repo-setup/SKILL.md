@@ -1,11 +1,11 @@
 ---
-description: "Audit a named GitHub repo against ai-toolkit's repo-setup checklist (docs/22-new-repo-setup.md), or set it up: audit what it has against each step, read-only; in setup mode, on the user's go, write the missing files on a branch and open the PR, and print every repo setting, ruleset, App or secret step as gh commands for the user to run. Never changes a GitHub setting itself. '/repo-setup <owner/repo>' audits; '/repo-setup setup <owner/repo>' audits then fixes."
+description: "Audit a named GitHub repo against ai-toolkit's repo-setup checklist (docs/07-new-repo-setup.md), or set it up: audit what it has against each step, read-only; in setup mode, on the user's go, write the missing files on a branch and open the PR, and print every repo setting, ruleset, App or secret step as gh commands for the user to run. Never changes a GitHub setting itself. '/repo-setup <owner/repo>' audits; '/repo-setup setup <owner/repo>' audits then fixes."
 disable-model-invocation: true
 ---
 
 # Repo Setup
 
-Audit, or set up, one repo against the checklist in `<ai-toolkit>/docs/22-new-repo-setup.md`. That document is the
+Audit, or set up, one repo against the checklist in `<ai-toolkit>/docs/07-new-repo-setup.md`. That document is the
 source of truth for the steps and why each exists; `defaults.md` beside this file holds the values the user has
 already decided. This skill applies them and never restates them. Read both first.
 
@@ -29,7 +29,7 @@ branch.
 
 1. This SKILL.md is symlinked from ai-toolkit: `readlink -f ~/.claude/skills/repo-setup/SKILL.md`, then walk up two
    levels to the toolkit's root. If the link is broken, ask for the ai-toolkit path.
-2. Read `docs/22-new-repo-setup.md` and `skills/repo-setup/defaults.md` from ai-toolkit's `main` (git MCP `git_show`
+2. Read `docs/07-new-repo-setup.md` and `skills/repo-setup/defaults.md` from ai-toolkit's `main` (git MCP `git_show`
    with `path`), not the working tree.
 3. Resolve the values `defaults.md` marks **ask**: the reference deployment (the repo that holds the org's runner
    labels, org secret and variable names, ruleset contents and the app template), and the existing repo to use as

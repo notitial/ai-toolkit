@@ -147,7 +147,7 @@ Check the root `CLAUDE.md` against doc 01 criteria:
 | # | Check | How to verify |
 |---|-------|---------------|
 | 7.1 | setup-claude discovery covers all artifact dirs | Steps 2–5 discovery globs cover `agents/`, `hooks/`, `skills/`, `rules/` — no artifact directory is missed |
-| 7.2 | README install table matches filesystem | Compare the README "What Gets Installed" rows against `ls agents/ hooks/ skills/ rules/` — the table is the repo's only enumerated roster (CLAUDE.md convention); FLAG any drift in either direction |
+| 7.2 | README install table matches filesystem | Compare the README "What Gets Installed" rows against `ls agents/ hooks/ skills/ rules/` (ignore `skills/README.md`) — the table is the repo's only enumerated roster (CLAUDE.md convention); FLAG any drift in either direction |
 | 7.3 | Report step stays discovery-based | setup-claude's Report step (Step 11) contains no hardcoded artifact rosters — one row per discovered artifact |
 
 ## Step 3: Produce the report

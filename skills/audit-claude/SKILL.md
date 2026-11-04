@@ -86,11 +86,11 @@ For each PARTIAL or MISSING finding, read the relevant document from the knowled
 | 2 (Rules) | `$AI_TOOLING_DOCS/02-rules.md` |
 | 3 (Agents) | `$AI_TOOLING_DOCS/03-agents.md` |
 | 4 (Skills) | `$AI_TOOLING_DOCS/04-skills-and-commands.md` |
-| 5 (Permissions) | `$AI_TOOLING_DOCS/10-permissions-and-safety.md` |
-| 6 (Git Safety) | `$AI_TOOLING_DOCS/01-project-instructions.md`, `$AI_TOOLING_DOCS/10-permissions-and-safety.md` |
-| 7 (Context Efficiency) | `$AI_TOOLING_DOCS/08-context-management.md`, `$AI_TOOLING_DOCS/19-orchestrator-context-discipline.md` |
-| 8 (Orchestration) | `$AI_TOOLING_DOCS/05-orchestrator.md`, `$AI_TOOLING_DOCS/06-convergence.md`, `$AI_TOOLING_DOCS/07-reviews.md`, `$AI_TOOLING_DOCS/19-orchestrator-context-discipline.md` |
-| 9 (Cross-Platform) | `$AI_TOOLING_DOCS/13-cross-platform-parity.md` |
+| 5 (Permissions) | `$AI_TOOLING_DOCS/05-permissions-and-safety.md` |
+| 6 (Git Safety) | `$AI_TOOLING_DOCS/01-project-instructions.md`, `$AI_TOOLING_DOCS/05-permissions-and-safety.md` |
+| 7 (Context Efficiency) | `$AI_TOOLING_DOCS/08-context-management.md`, `$AI_TOOLING_DOCS/13-orchestrator-context-discipline.md` |
+| 8 (Orchestration) | `$AI_TOOLING_DOCS/12-orchestrator.md`, `$AI_TOOLING_DOCS/11-convergence.md`, `$AI_TOOLING_DOCS/10-reviews.md`, `$AI_TOOLING_DOCS/13-orchestrator-context-discipline.md` |
+| 9 (Cross-Platform) | `$AI_TOOLING_DOCS/17-cross-platform-parity.md` |
 | 10 (Structural Context) | `$AI_TOOLING_DOCS/09-structural-context.md` |
 
 Only read the docs needed for actual findings — do not read every doc on every audit.
