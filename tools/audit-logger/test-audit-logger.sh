@@ -105,6 +105,10 @@ redact_case "github pat"     "github_""pat_abcdefghijklmnop"     "[REDACTED_GHTO
 redact_case "gitlab token"   "glp""at-abcdefghijklmnopqrst"      "[REDACTED_GLPAT]"
 redact_case "api key"        "sk-""ant-api03-ABCDEFGHIJKLMNOP"   "[REDACTED_APIKEY]"
 redact_case "project key"    "sk-""proj-ABCDEFGHIJKLMNOPQRSTUV"  "[REDACTED_APIKEY]"
+redact_case "api key after a literal backslash-n" "a\\nsk-""ant-api03-ABCDEFGHIJKLMNOP" "[REDACTED_APIKEY]"
+redact_case "api key after a literal backslash-t" "a\\tsk-""ant-api03-ABCDEFGHIJKLMNOP" "[REDACTED_APIKEY]"
+redact_case "api key after an underscore"         "KEY_sk-""ant-api03-ABCDEFGHIJKLMNOP"  "[REDACTED_APIKEY]"
+redact_case "api key after a hyphen"              "x-sk-""ant-api03-ABCDEFGHIJKLMNOP"    "[REDACTED_APIKEY]"
 newdir
 run_hook "$(input Bash '{"command":"pip install flask-cors && npm run task-build-and-deploy"}')"
 log=$(log_of "$D")
