@@ -49,11 +49,13 @@ gh read below into one markdown code block for the user to run, and continue fro
   `admin:org`, ask the user to check which org secrets and variables the repo can see.
   Grep the repo's other workflows and config for `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN`.
 - The repo's `.claude/settings.json`: the review loads it (`--setting-sources project`, hooks off), so its
-  `permissions.allow` rules, `additionalDirectories` and `defaultMode` widen what Claude reads in the review. Report
+  `permissions.allow` rules, `additionalDirectories` and `defaultMode` widen what Claude reads in the review, and
+  `enableAllProjectMcpServers` or `enabledMcpjsonServers` would let a `.mcp.json` from the PR start a server. Report
   any and ask the user whether to narrow them first.
 - Required reviews on the default branch (read-only): `gh api repos/<owner/repo>/rulesets` and
   `gh api repos/<owner/repo>/branches/<default>/protection` (a 404 means none, or no access to see it). The App's
-  review must never satisfy a required review (README prerequisite).
+  review must never satisfy a required review (README prerequisite). Note the required status checks too: with
+  checks from other workflows required, a `[skip ci]` PR can never merge (Step 6).
 - Repo conventions: its CLAUDE.md git section (branch naming, commit prefixes, PR rules), whether CLAUDE.md has a
   "Review" section (README prerequisite: recommended), and whether a workspace lock is armed.
 
@@ -92,8 +94,9 @@ Actions minutes per review for `appcheck` and `publish`; the recommended CLAUDE.
    line numbers; the others match once). A count that differs means the canonical file changed: stop.
    - header secret line → the chosen name and what it is;
    - both `preflight` and `review` `runs-on` lines → the chosen labels (no change for `ubuntu-latest`);
-   - the `anthropic_api_key` line → `anthropic_api_key: ${{ secrets.<NAME> }}`, or for OAuth the README's
-     `claude_code_oauth_token` line **with its secret name replaced by the chosen `<NAME>`**;
+   - both credential input lines (`anthropic_api_key` and `claude_code_oauth_token` under it) → the one line for
+     the chosen mode: `anthropic_api_key: ${{ secrets.<NAME> }}`, or `claude_code_oauth_token: ${{ secrets.<NAME> }}`
+     for OAuth;
    - only if Step 3 chose it: `CHANGES_EVENT` and `APPROVE_EVENT` → `COMMENT`.
    Leave `appcheck`'s and `publish`'s `runs-on: ubuntu-latest` and every other line unchanged, header comments
    included.
@@ -133,10 +136,12 @@ gh secret set <NAME> -R <owner/repo>
 
 1. Commit both files in **one** commit and one PR: `.claude/` is read from the default branch, so the command only
    works once both land. Title per the repo's conventions; end the commit message with `[skip ci]`, so the PR doesn't
-   run its own copy of the workflow.
+   run its own copy of the workflow, unless Step 2 found required status checks from other workflows: then leave it
+   out (the checks would never report), and the PR runs its own copy, so the local review in item 3 comes before
+   anything is pushed, and only the user pushes.
 2. The PR description says whether it adds, upgrades or reconfigures the Claude review, names the kit's version and
-   ai-toolkit commit, lists the replacement values applied, and notes that the PR isn't reviewed by its own copy
-   (`[skip ci]`).
+   ai-toolkit commit, lists the replacement values applied, and notes whether the PR runs its own copy
+   (without `[skip ci]`) or isn't reviewed by it.
 3. Review it locally instead: `code-reviewer` and `security-auditor`, giving them the kit path, the SHAs and the
    expected replacement diff.
 4. (user) Merge.

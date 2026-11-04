@@ -12,12 +12,15 @@ copies equal to these (`tests/test_install.py` checks).
 
 | File | Install path in the target repo | SHA-256 |
 |---|---|---|
-| [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` | `70a6274a348682d76ea972a0575c922b8dce3223022df769712dfd438211f074` |
-| claude-pr-review.md | `.claude/commands/claude-pr-review.md` | pending: the command's clean-room rewrite |
+| [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` | `45006e89e23a87233c2c7a18b17feb47b18f881ff90856388f6cbabb8fa687f9` |
+| [claude-pr-review.md](claude-pr-review.md) | `.claude/commands/claude-pr-review.md` | `72c33c859ed19728f4c35443320260bb5eb681c228abe3d51722e6930aef2e7e` |
 
-**Version:** v2.5 (2026-10-24): a full `@claude review` reopens the thread of a fixed finding whose issue is back,
-instead of dropping it and approving. v2.4 (2026-10-23) made the review App-owned. Tested end to end on a throwaway
-repo with `ubuntu-latest` runners. The [tests/](tests/) folder runs the workflow's inline scripts against a fake
+**Version:** v3.0 (2026-11-04): a new review command, written from the kit's interface alone. It keeps v2.5's result
+format and modes, and an incomplete review now posts no verdict instead of approving. v2.5 (2026-10-24): a full
+`@claude review` reopens the thread of a fixed finding whose issue is back, instead of dropping it and approving.
+v2.4 (2026-10-23) made the review App-owned. v2.4 and v2.5 were tested end to end on a throwaway repo with
+`ubuntu-latest` runners; v3.0's command has had no live run yet (run the [Test protocol](#test-protocol) before
+relying on it). The [tests/](tests/) folder runs the workflow's inline scripts against a fake
 GitHub: `python3 -I -B -m unittest discover -s tools/claude-review/tests` from the repo root (`bash tools/test-all.sh
 claude-review` runs the same).
 
@@ -44,13 +47,15 @@ Three modes:
 
 | Trigger | Mode | What happens | Typical cost |
 |---|---|---|---|
-| A non-draft same-repo PR is opened, pushed to, reopened or marked ready, and has no review yet (Dependabot and forks skipped) | `initial` | Full review: CLAUDE.md compliance and bug agents, then one validator per candidate. Up to 8 findings, inline on their lines (else in the review body), REQUEST_CHANGES; or APPROVE with "No issues found" | $0.5–2 on real feature PRs ($0.18–0.33 on small test PRs) |
+| A non-draft same-repo PR is opened, pushed to, reopened or marked ready, and has no review yet (Dependabot and forks skipped) | `initial` | Full review: a triage and a guidance agent, five review passes (defects in the change, interaction with the code around it, security, failure paths, written CLAUDE.md rules), then one verifier per candidate. Up to 8 findings, inline on their lines (else in the review body), REQUEST_CHANGES; or APPROVE with "No issues found" | $0.5–2 on real feature PRs ($0.18–0.33 on small test PRs) |
 | A push to a PR that was already reviewed | none | `preflight` skips; Claude doesn't run. `publish` dismisses a stale APPROVE | $0 |
 | A comment starting `@claude review`, from someone with write access | `rereview` | Judges each open review thread, replies, resolves the fixed ones, then reviews the whole PR again (drafts too) without repeating raised issues. A fixed issue that is back reopens its old thread with a "Regressed:" reply (a new finding if the thread can't be reopened); only a thread this review resolved at an earlier commit, so a person's resolve, or one Claude accepted as not a bug, stays. APPROVE when nothing is found and no thread is open | about `initial` |
 | A comment starting `@claude review --comments` | `followup` | The thread follow-up only: new code, and a fixed issue that came back, aren't seen. When every thread is resolved, the App dismisses its REQUEST_CHANGES and posts a COMMENT "Findings addressed; new code was not re-reviewed." | $0.04–0.25 |
 | `--comments` again with no push and no new thread reply | none | One follow-up per branch state; Claude doesn't run | $0 |
 | `@claude review` again with no push and no new thread reply | `rereview` or none | Skipped when every open thread already has a rereview reply for this head or, with no open thread, when this head already has a clean overview | $0 or about `initial` |
 
+- **A stopped run:** an `initial` review of a PR with nothing to review (an automated bump, a trivial change) stops
+  early; the overview says "Review stopped (eligibility)" and there is no verdict.
 - **The overview comment:** one issue comment from the App, edited on every run. It shows the head, the mode, the
   result (`clean`, `issues`, `stopped` or `followup`) with numbered links to the findings, Claude's 2–3 sentence
   overview, the open threads with links, and the last 10 runs.
@@ -62,8 +67,11 @@ Three modes:
   `@claude review` checks them.
 - **Requests are top-level PR comments.** `@claude review` typed as a reply inside a review thread triggers
   nothing.
-- **Reports:** code that won't compile or parse, logic wrong for every input, bugs with a concrete reachable
+- **Reports:** code that won't build, parse or load, logic wrong for every input, bugs with a concrete reachable
   trigger, security issues and unhandled error paths in the changed code, clear breaks of a quoted CLAUDE.md rule.
+- **An incomplete review gives no verdict:** when a review pass or a verifier fails twice, the result carries the
+  verified findings only, and with none `publish` rejects it, so a review that reports itself unfinished never approves. A
+  review that cut the pipeline short without saying so still can (Known limitations).
 - **Doesn't report:** style, nitpicks, pre-existing issues, what the compiler or linter catches, test coverage, docs.
 - **Threads it touches:** only threads the review started. A thread is judged fixed when the code handles it, or a
   reply's "not a bug" argument holds up. A claimed fix the code doesn't show stays open.
@@ -162,7 +170,7 @@ Change only these lines of `claude-review.yml`. Everything else, `claude-pr-revi
 | 48 | `#   secret    ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN   Claude credential (...)` (2 lines) | the Claude secret names and what they are |
 | 106 (`preflight`) | `    runs-on: ubuntu-latest` | the repo's runner labels, if not GitHub-hosted |
 | 236 (`review`) | `    runs-on: ubuntu-latest` | the same labels |
-| 497 (+1) | `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}` and the `claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}` line under it | the secret names, if the repo uses other ones |
+| 497 (+1) | `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}` and the `claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}` line under it | the one line for the chosen credential, with its secret name (what `/add-claude-review` does), or both lines with the repo's names |
 
 Optional, only for a repo whose required reviews could count the App: lines 644–645 (`CHANGES_EVENT`,
 `APPROVE_EVENT`) → `COMMENT`. Never change `appcheck`'s and `publish`'s `runs-on: ubuntu-latest` (lines 194, 636). A
@@ -189,7 +197,9 @@ between them by changing which secret is set, with no workflow edit.
    unless the repo's ruleset requires status checks from other workflows (see Quirks): `[skip ci]` would stop them
    from reporting and the PR could not merge.
 4. Check the target repo's `.claude/settings.json` (loaded by `--setting-sources project`): `permissions.allow`
-   rules, `additionalDirectories` and `defaultMode` can widen what Claude reads in the review (hooks are off).
+   rules, `additionalDirectories` and `defaultMode` can widen what Claude reads in the review (hooks are off), and
+   `enableAllProjectMcpServers` or `enabledMcpjsonServers` would let a `.mcp.json` the PR adds start a server: keep
+   them out.
 5. Review the PR locally (code-reviewer, plus security-auditor), checking the SHAs and the replacement diff.
 6. (user) Merge, then run the test protocol.
 
@@ -217,7 +227,7 @@ denies a post, give the user the `gh` command instead.
 Use a throwaway PR. Each run's job summary shows
 `Claude review (<mode>): $<cost>, <s> s, <turns> turns, <a> agents, <n> findings, <t> threads judged` and
 `Publish: <i> inline, <b> in body, <d> dropped, <m> moved, verdict <X>, <r> replied, <s> resolved, <o> reopened, <x> dismissed, …`.
-`<a>` is at least 7 in `initial` and 6 in `rereview`, plus one per issue found; below that the step warns.
+`<a>` is at least 7 in `initial` and `rereview`, plus one per candidate issue (and the thread judges in `rereview`); below that the step warns.
 
 | # | Do | Pass when |
 |---|---|---|
@@ -251,7 +261,8 @@ A thread a person starts must never get a reply or be resolved.
   checks from other workflows, `[skip ci]` skips those workflows too, so the required checks never report and the PR
   hangs. Install and upgrade PRs there go without it, and run their own copy of the workflow: review the diff and
   SHAs locally first (step 5), and only the owner pushes.
-- **CLAUDE.md and `.claude/` are read from the default branch,** never the PR's.
+- **The root CLAUDE.md and `.claude/` are read from the default branch,** never the PR's. A `CLAUDE.md` the PR
+  adds or edits elsewhere is reviewed as changed content, never used as rules (see Security model).
 - **The transcript is hidden.** Only `show_full_output: true` shows it, which this workflow never sets.
 - **Green, nothing posted, "agents still running":** upstream anthropics/claude-code-action#1499. The workflow sets
   `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` for it; remove that once the issue is fixed.
@@ -267,6 +278,8 @@ A thread a person starts must never get a reply or be resolved.
 
 - **Green but nothing posted:** did `preflight` skip it (already reviewed, fork, draft)? Did "Save the result" warn
   "no structured result"? What does `publish` print ("No verdict: …", "No-op: …")?
+- **"No verdict: Claude's result has issues reported without findings":** a review pass or a verifier failed twice,
+  so the review didn't finish (the command fails closed). Comment `@claude review` to run it again.
 - **Fails in under a second, `$0`, "did not return structured_output":** the Claude credential is out of usage or
   invalid. Re-run the failed jobs once it's back.
 - **`appcheck` fails:** the key doesn't match the Client ID, the App isn't installed on the repo, or
@@ -317,7 +330,9 @@ Don't loosen any of this when adapting the files.
   Bump deliberately, in every repo.
 - **Residual risk (accepted under a sole-pusher assumption):** a same-repo PR can edit the workflow and so read the
   App key (one App per owner: the key reaches every repo it is installed on; one key per repo limits rotation, not
-  reach); a self-hosted runner shared with CI jobs that run PR code can carry planted files into a review; a prompt
+  reach); a self-hosted runner shared with CI jobs that run PR code can carry planted files into a review; a
+  `CLAUDE.md` the PR adds or edits in a subdirectory is not used as rules, but Claude Code itself loads it into an
+  agent's context when the agent reads files there, so its text can still steer like any other injection; a prompt
   injection in the PR can steer misleading findings, a wrong "resolved", a "no issues" (which becomes an APPROVE),
   a committable suggestion, or the reopening of threads this workflow resolved (never a person's resolve). All
   visible and attributed to the App; the verdict is never a required review.
@@ -339,8 +354,9 @@ Don't loosen any of this when adapting the files.
 
 ## Upkeep
 
-- Keep `RESULT_SCHEMA` in the workflow byte-identical with the schema in the command's "Final result" (a test checks).
-- Keep the cost record's `reviewer` string (`claude-pr-review@db8834b`) in step with the command's version.
+- Keep `RESULT_SCHEMA` in the workflow byte-identical with the schema in the command's "The result" section (a test
+  checks).
+- Keep the cost record's `reviewer` string (`claude-pr-review@v3.0`) equal to the version above (a test checks).
 - Run `tests/` after any change to the inline scripts.
 - `REVIEW.md` (repo root) is the repo's own file, not part of the kit: edit it freely.
 - A new version updates both files here first, with new SHAs in the table above, then this repo's installed copies in

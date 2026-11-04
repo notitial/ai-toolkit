@@ -6,7 +6,7 @@ API = "https://api.github.test"
 GRAPHQL = API + "/graphql"
 WEB = "https://github.test/o/r/pull/7"
 REPO, NUMBER = "o/r", 7
-APP = "notitial"
+APP = "review-app"
 APP_TOKEN, GH_TOKEN = "app-token", "gh-token"
 
 

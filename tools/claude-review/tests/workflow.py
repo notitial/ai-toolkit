@@ -7,10 +7,10 @@ import json, pathlib, re, shutil, subprocess
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parents[2]   # the repo root: tools/claude-review/tests -> .
 WORKFLOW = HERE.parent / "claude-review.yml"
-# The canonical command joins the kit with the clean-room prompt; until then the tests read the installed copy.
-COMMAND = ROOT / ".claude" / "commands" / "claude-pr-review.md"
+COMMAND = HERE.parent / "claude-pr-review.md"
 # This repo's own install: the files the kit says to copy, at their install paths.
-INSTALLED = {WORKFLOW: ROOT / ".github" / "workflows" / "claude-review.yml"}
+INSTALLED = {WORKFLOW: ROOT / ".github" / "workflows" / "claude-review.yml",
+             COMMAND: ROOT / ".claude" / "commands" / "claude-pr-review.md"}
 
 
 def heredocs():
@@ -62,7 +62,7 @@ def parse_yaml():
 
 
 def command_schema():
-    """The one-line schema in the command's "Final result"."""
+    """The one-line schema in the command's "The result" section."""
     text = COMMAND.read_text(encoding="utf-8")
     return re.search(r'^(\{"type":"object".*\})$', text, re.M).group(1)
 

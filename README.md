@@ -57,7 +57,7 @@ rules/                  Global always-on rules installed to ~/.claude/rules/
 tools/                  Statusline, workspace-lock, github-mcp, claude-review, and helper scripts and tests
 assets/icon/            The project icon (SVG, mono variant, PNGs from 16 to 1024 px)
 .claude/skills/         Project-scoped skills (setup-claude, cleanup-claude, audit-practices, audit-tooling)
-.claude/commands/       Project command claude-pr-review (a fork of the code-review command from Anthropic's Claude Code plugins)
+.claude/commands/       Project command claude-pr-review: this repo's installed copy of the review kit's command (tools/claude-review/)
 .claude/rules/          Path-scoped rules for this repo (documentation-quality)
 .github/workflows/      Automatic Claude PR review workflow (ADR 0013)
 CLAUDE.md               Project instructions for AI agents working in this repo

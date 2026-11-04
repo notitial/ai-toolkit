@@ -121,7 +121,7 @@ class Verdicts(PublishCase):
         self.run_publish(result(no_issues=False, stopped=True))
         self.assertEqual(self.new_reviews(), [])
         self.assertIn("result=stopped", self.overview())
-        self.assertIn("Review stopped at step 1", self.overview())
+        self.assertIn("Review stopped (eligibility)", self.overview())
 
 
 class TransitionTable(PublishCase):
@@ -408,12 +408,16 @@ class ResultChecks(PublishCase):
                 self.assert_nothing_posted()
 
     def test_contradictions(self):
-        for res, env in ((result(no_issues=False), {}), (result(no_issues=False, stopped=True), {"MODE": "rereview"})):
-            with self.subTest(env=env):
+        # An incomplete full review fails closed: no_issues false with no findings is rejected in both full modes,
+        # so nothing is posted and nothing approves.
+        for res, env in ((result(no_issues=False), {}), (result(no_issues=False), {"MODE": "rereview"}),
+                         (result(no_issues=False, stopped=True), {"MODE": "rereview"})):
+            with self.subTest(res=str(res)[:40], env=env):
                 self.setUp()
                 self.run_publish(res, **env)
                 self.assertIn("No verdict: Claude's result has", self.log)
                 self.assert_nothing_posted()
+                self.assertEqual(self.new_reviews(), [])
 
     def test_head_moved(self):
         self.gh.head = OLD
