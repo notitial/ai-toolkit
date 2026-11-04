@@ -128,7 +128,7 @@ printf '%s\n' "$(jq -n -c \
     | gsub("gh[pousr]_[A-Za-z0-9]+"; "[REDACTED_GHTOKEN]")
     | gsub("github_pat_[A-Za-z0-9_]+"; "[REDACTED_GHTOKEN]")
     | gsub("glpat-[A-Za-z0-9_-]+"; "[REDACTED_GLPAT]")
-    | gsub("(?<![A-Za-z0-9_-])sk-(ant-)?[A-Za-z0-9_-]+"; "[REDACTED_APIKEY]")
+    | gsub("(?:(?<![A-Za-z0-9])|(?<=\\\\[nrt]))sk-(ant-)?[A-Za-z0-9_-]+"; "[REDACTED_APIKEY]")
     | gsub("(sk|rk)_live_[A-Za-z0-9_-]+"; "[REDACTED_STRIPE]")
     | gsub("AIza[A-Za-z0-9_-]+"; "[REDACTED_GOOGLE]")
     | gsub("xox[bpasr]-[A-Za-z0-9-]+"; "[REDACTED_SLACK]")

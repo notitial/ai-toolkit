@@ -475,12 +475,26 @@ lock_call() {  # LOCK_DIR: the lock this call acts on (set by handle_bash)
   elif [ "$SUB" = release ] && [ -n "$SID" ]; then
     # Only a release the script carries out (its --id is the holder's): a refused one must not
     # drop the registration, or a holder that mistyped its id is locked out of its own lock.
-    # The id as the script gets it: quotes and backslashes removed (as all_reads does), else
-    # WORKSPACE_LOCK_ID. The script refuses --id=x, so that spelling keeps the registration.
-    _rid=""; _prev=""
-    for _w in $(printf '%s' "$CMD_WORDS" | tr -d "'\"\\"); do [ "$_prev" = --id ] && { _rid=$_w; break; }; _prev=$_w; done
-    [ -n "$_rid" ] || _rid=${WORKSPACE_LOCK_ID:-}
-    [ -n "$_rid" ] && [ "$_rid" = "$(holder)" ] && rm -f "$LOCK_DIR/sessions/$SID" 2>/dev/null
+    # Read the words after `release` the way cmd_release does: --id <value> pairs only, the last
+    # one wins, quotes and backslashes removed, else WORKSPACE_LOCK_ID. Any other word (--id=x,
+    # --bogus) or a --id with no value makes the script refuse, so the registration stays. Redirects
+    # the guard already allows (2>&1, > scratch log) are not words to the script: strip them first.
+    # An id the shell expands ($VAR, backticks) cannot be read here, so the registration is dropped
+    # (a change: the old code compared the unexpanded text, which never matched, and kept it).
+    _rid=""; _prev=""; _seen=0; _bad=0; _dyn=0
+    for _w in $(strip_redirects "$CMD" | tr -d "'\"\\\\"); do
+      if [ "$_seen" = 0 ]; then [ "$_w" = "release" ] && _seen=1; continue; fi
+      case "$_w" in *'$'*|*'`'*) _dyn=1 ;; esac
+      if [ "$_prev" = "--id" ]; then _rid="$_w"; _prev=""; continue; fi
+      case "$_w" in --id) _prev="--id" ;; *) _bad=1 ;; esac
+    done
+    [ -z "$_prev" ] || _bad=1
+    [ -n "$_rid" ] || _rid="${WORKSPACE_LOCK_ID:-}"
+    if [ "$_dyn" = 1 ]; then
+      rm -f "$LOCK_DIR/sessions/$SID" 2>/dev/null
+    elif [ "$_bad" = 0 ] && [ -n "$_rid" ] && [ "$_rid" = "$(holder)" ]; then
+      rm -f "$LOCK_DIR/sessions/$SID" 2>/dev/null
+    fi
   fi
   exit 0
 }

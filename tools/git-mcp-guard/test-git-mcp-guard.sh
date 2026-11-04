@@ -68,6 +68,7 @@ push deny "empty path"                           '{"path":"","branch":"feature"}
 push deny "dot-slash path"                       '{"path":"./","branch":"feature"}'
 push deny "parent path"                          '{"path":"..","branch":"feature"}'
 push deny "relative subfolder"                   '{"path":"subdir","branch":"feature"}'
+push deny "tilde path"                           '{"path":"~/repo","branch":"feature"}'
 push pass "feature branch"                       "{\"path\":\"$T/feat\",\"branch\":\"feature\"}"
 push pass "feature via remoteBranch"             "{\"path\":\"$T/feat\",\"remoteBranch\":\"feature\"}"
 push pass "no branch, current branch is feature" "{\"path\":\"$T/feat\"}"

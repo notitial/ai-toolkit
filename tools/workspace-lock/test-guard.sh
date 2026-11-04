@@ -213,6 +213,27 @@ EXTRA_ENV="WORKSPACE_LOCK_ID=solo-e"
 run allow "lock script: release by WORKSPACE_LOCK_ID" "$(bashjson "$W2" "$LS release" sessE)"
 EXTRA_ENV=""
 [ -e "$W2/$LOCKNAME/sessions/sessE" ] && { echo "FAIL  an env-id release removes the registration"; FAIL=$((FAIL + 1)); } || PASS=$((PASS + 1))
+# The script refuses a release with any argument but --id <value>, and takes the last --id: the guard reads it alike.
+# Each case has its own workspace, so one dropped registration cannot decide the next case.
+rel_case() {  # rel_case <keep|drop> <label> <command> [env assignment]
+  local want=$1 label=$2 cmd=$3 renv=${4:-} wsr
+  REL_N=$((${REL_N:-0} + 1))
+  wsr=$(mkws "armed_rel_$REL_N" solo-x sessZ)
+  EXTRA_ENV="$renv"
+  run allow "lock script: release $label" "$(bashjson "$wsr" "$cmd" sessZ)"
+  EXTRA_ENV=""
+  if [ "$want" = keep ]; then
+    [ "$(cat "$wsr/$LOCKNAME/sessions/sessZ" 2>/dev/null)" = solo-x ] && PASS=$((PASS + 1)) || { echo "FAIL  a release $label keeps the registration"; FAIL=$((FAIL + 1)); }
+  else
+    [ -e "$wsr/$LOCKNAME/sessions/sessZ" ] && { echo "FAIL  a release $label drops the registration"; FAIL=$((FAIL + 1)); } || PASS=$((PASS + 1))
+  fi
+}
+rel_case keep "with an unknown argument"                 "$LS release --id solo-x --bogus"
+rel_case keep "with --id and no value (env id is the holder's)" "$LS release --id" "WORKSPACE_LOCK_ID=solo-x"
+rel_case keep "with --id=x (env id is the holder's)"     "$LS release --id=solo-x" "WORKSPACE_LOCK_ID=solo-x"
+rel_case drop "with an id the shell expands (the old guard kept it)" "$LS release --id solo-\${CLAUDE_CODE_SESSION_ID:0:1}"
+rel_case drop "where the last --id is the holder's"      "$LS release --id wrong --id solo-x"
+rel_case drop "redirected to a scratch log"              "$LS release --id solo-x > /tmp/rel.log 2>&1"
 run allow "lock script: status > /dev/null"      "$(bashjson "$W" "$LS status > /dev/null")"
 run allow "lock script: acquire > scratch log"   "$(bashjson "$W" "$LS acquire --id solo-abc --eta 30m > /tmp/acq.log 2>&1")"
 run allow "lock script: via ~ and \${HOME}"      "$(bashjson "$W" "~/.claude/tools/workspace-lock.sh status")"
