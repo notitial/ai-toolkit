@@ -1,10 +1,16 @@
+<p align="center">
+  <img src="assets/icon/toolkit-icon.svg" alt="ai-toolkit: a round navy badge showing a cream tower of eight windows with a gold bookmark ribbon at its foot" width="160">
+</p>
+
 # ai-toolkit
 
-Personal AI development toolkit — rules, agents, orchestration, and reusable patterns.
+A documentation-first knowledge base of AI-assisted development patterns, plus the Claude Code agents, hooks, skills and rules installed from it.
+
+> **Status:** a personal toolkit, not a product. The install steps assume macOS (zsh, Homebrew, Keychain); the docs are plain markdown and read anywhere.
 
 ## What This Is
 
-A documentation-first knowledge base capturing everything I've learned about AI-assisted software development. Patterns, methodologies, and lessons distilled from real projects — organized by topic, written for both humans and AI agents to consume.
+Patterns, methodologies, and lessons I've distilled from real projects — organized by topic, written for both humans and AI agents to consume. Alongside the docs, the repo ships the working setup they describe: global agents, hooks, skills and rules, a status line, and the scripts and tests behind them. `/setup-claude` installs it all into `~/.claude/`.
 
 ## Getting Started
 
@@ -14,7 +20,7 @@ Prerequisites (`/setup-claude` checks them first and stops with these hints if o
 |------|-----------|-----------------|
 | `jq` | every hook parses its input with it | recent macOS ships `/usr/bin/jq`; otherwise `brew install jq` (it must then be on the PATH Claude Code starts with: the guards fall back to `/usr/bin` only) |
 | `node` + `npm` | git-mcp-server | `brew install node` |
-| `gh` | PR reads and your own commands; a missing login only warns | `brew install gh`, then `gh auth login`, answering **No** to "Authenticate Git with your GitHub credentials?" |
+| `gh` | your own commands (agents are blocked from it, `hooks/gh-block.sh`); a missing login only warns | `brew install gh`, then `gh auth login`, answering **No** to "Authenticate Git with your GitHub credentials?" |
 
 1. Clone this repo (https or ssh)
 2. Open it in Claude Code and run `/setup-claude`
@@ -35,7 +41,9 @@ Once set up, go to any project and run `/audit-claude` to evaluate its AI config
 | MCP server | git-mcp (structured git tools replacing Bash git): the pinned binary (`npm i -g`, v2.15.1), registered by you with `claude mcp add --scope user` | `~/.claude.json` (user scope) |
 | Status line | Context and rate-limit display | `~/.claude/statusline.sh` |
 | Tool scripts | workspace-lock.sh; shell-init.zsh (your `~/.zshrc` sources it with `source ~/.claude/tools/shell-init.zsh`; it loads the `ait` zsh helpers) | `~/.claude/tools/` |
-| Permissions | Safe defaults, plugin config | `~/.claude/settings.json` |
+| Permissions | Safe defaults, hook wiring, plugin config | `~/.claude/settings.json` |
+
+The guarded GitHub MCP setup ([tools/github-mcp/](tools/github-mcp/README.md)) is optional and not installed by `/setup-claude`: its root-owned copies come from the `ghm-install` helper.
 
 ## Structure
 
@@ -47,6 +55,7 @@ hooks/                  Global hook scripts installed to ~/.claude/hooks/
 skills/                 Global skills installed to ~/.claude/skills/
 rules/                  Global always-on rules installed to ~/.claude/rules/
 tools/                  Statusline, workspace-lock, github-mcp, and helper scripts and tests
+assets/icon/            The project icon (SVG, mono variant, PNGs from 16 to 1024 px)
 .claude/skills/         Project-scoped skills (setup-claude, cleanup-claude, audit-practices, audit-tooling)
 .claude/commands/       Project command claude-pr-review (a fork of the code-review command from Anthropic's Claude Code plugins)
 .claude/rules/          Path-scoped rules for this repo (documentation-quality)
@@ -105,6 +114,9 @@ These live in `.claude/skills/` and are available only within this repo:
 - **github-mcp** — An optional, guarded setup of GitHub's MCP server: a launcher plus a hook that limits which GitHub writes agents may make, both installed root-owned so agents can't edit them, with their tests; its README covers install and token rotation. See [tools/github-mcp/README.md](tools/github-mcp/README.md)
 - **cleanup-claude** — `bash tools/cleanup-claude/cleanup.sh [--apply] [--config-dir DIR] [--purge-ask] [--keep-ambiguous] [--include-security] [--verbose]`: removes what the repo installed on this machine (links that resolve into the checkout, the toolkit's settings.json keys and hook entries after a backup (the security entries stay unless `--include-security`), the plain rc `source` lines, runtime state). Dry run by default. Never touches login, Keychain, transcripts or CLAUDE.md; sudo, `claude mcp remove`, npm and Keychain steps are printed, never run. Driven by the project-scoped `/cleanup-claude` skill
 - **ait** — `tools/ait.zsh` zsh helpers, loaded by `~/.zshrc` through `source ~/.claude/tools/shell-init.zsh`: `ait` (cd to the checkout), `ait-status` (what `/setup-claude` checks), `ghm-status`, `ghm-test` and `ghm-install`, which installs the GitHub MCP launcher and guard as root-owned copies from `main`'s committed files, with `main` clean and equal to `origin/main`: it shows the GitHub owners whose repos agents may write to, the Keychain account the token is read from and the diff, asks, then runs `sudo install`
+
+- **install-copies.sh** — `bash tools/install-copies.sh status`: reports what is installed outside the checkout (the root-owned github MCP copies, install-time settings, the `~/.zshrc` line); `/setup-claude check` runs it
+- **test-all.sh** — `bash tools/test-all.sh [--quick] [NAME…]`: runs every tool and hook test suite and prints a pass/fail table. Each hook (`secret-detector`, `destructive-blocker`, `git-mcp-guard`, …) has its suite under `tools/<name>/`; see [CLAUDE.md](CLAUDE.md) for which to run after a change
 
 ## Docs Overview
 
