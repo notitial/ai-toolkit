@@ -377,12 +377,14 @@ against the model's full window, so it reads low at compaction time.
 Read the top-level `promptCacheTtl` and `subagentPromptCacheTtl` from `templates/safe-permissions.json`. Each takes
 `"5m"` or `"1h"` and needs Claude Code v2.1.242 or later. `promptCacheTtl` sets how long the main conversation's cache
 survives an idle gap; `subagentPromptCacheTtl` does the same for everything else (subagents, workflows, teammates,
-forks, compaction). Neither is a security control.
+forks, compaction). Neither is a security control. Run `claude --version` first: on a version older than 2.1.242,
+skip this whole section (the override check too), report `Skipped` in Step 11, and leave any live key as it is.
 
 - **The template carries a key:** it is **enforced** like `autoCompactWindow`: add it when absent, overwrite a different
   live value and report the change.
 - **The template does not carry it (the default here): ask first.** Do this only for a key the live settings lack: a
-  live value of either kind is the user's choice, so report it and leave it. Before asking, say:
+  live value of that key is the user's choice, so report it and leave it. Run the override check below first, and
+  name in the question any override that applies to the key, since a yes would change nothing. Before asking, say:
   - on a Claude subscription the main conversation already gets one hour within the plan's included usage, so
     `promptCacheTtl: "1h"` only changes what happens after that usage runs out into usage credits; with an API key or
     a cloud provider the default is five minutes;
@@ -394,12 +396,24 @@ forks, compaction). Neither is a security control.
     those are short-lived, so recommend leaving it off unless the user's sessions regularly resume after five minutes.
 
   Ask for each key on its own and write `"1h"` only on a yes typed in this run. A no writes nothing (never `"5m"`, which
-  would lower a subscription's default), and the question comes back on the next run while the key is absent.
+  would lower a subscription's default), and the question comes back on the next run while the key is absent. Tell
+  the user that `/cleanup-claude` removes a `"1h"` in either key by default.
 
-**Override check (every run, the opt-in case too):** `CLAUDE_CODE_PROMPT_CACHE_TTL` and
-`CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` (in the live `env` or the shell) beat the setting, and `FORCE_PROMPT_CACHING_5M=1`
-beats both. Report each one found as `NOTE: <variable> overrides promptCacheTtl`; write the setting anyway only if
-the user asks for it after hearing that.
+**Override check (every run, the opt-in case too; skipped with the section on an old version):** each variable beats
+the setting it names. Look for them in the live `env` object, and in the shell by testing that the name is set without
+printing it (`[ -n "${CLAUDE_CODE_PROMPT_CACHE_TTL:-}" ] && echo set`; never a bare `printenv`, which would print every
+secret in the shell):
+
+| Variable | Overrides |
+|----------|-----------|
+| `CLAUDE_CODE_PROMPT_CACHE_TTL` | `promptCacheTtl` |
+| `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` | `subagentPromptCacheTtl` |
+| `FORCE_PROMPT_CACHING_5M` | both keys, but only when it equals `1` |
+
+Report `NOTE: <variable> overrides <key>` (for `FORCE_PROMPT_CACHING_5M`, once per key) only for a key that is live,
+about to be written or offered; never print a value. Write an overridden key anyway only if the user asks for it
+after hearing that. `ENABLE_PROMPT_CACHING_1H=1` ranks below both keys and asks for one hour in both buckets, so
+with it set subagents already get an hour: mention it, and skip the subagent question.
 
 ### Permissions
 
@@ -646,7 +660,7 @@ Status: Created / Up to date / Updated (with user approval) / Skipped (user chos
 Settings backup: <path> mode 600 / none (no settings.json, or nothing written)
 Env vars enforced: <list of keys set or overwritten, or "none — already up to date">
 Auto-compact window: Added / Overwritten (<old> → 500000) / Already configured; per-model overrides: <DRIFT list (removed on go | left), or "none">
-Prompt cache TTL (promptCacheTtl, subagentPromptCacheTtl), per key: Added 1h (asked) / Enforced (<old> → <new> | already set) / Declined / Already set (<value>, left as is); overrides: <NOTE list, or "none">
+Prompt cache TTL (promptCacheTtl, subagentPromptCacheTtl), per key: Added 1h (asked) / Enforced (<old> → <new> | already set) / Declined / Not asked (no answer) / Already set (<value>, left as is) / Skipped (Claude Code older than 2.1.242); overrides: <NOTE list, or "none">
 Permissions added: <list, or "none — already up to date">
 Permissions removed (migration): <list, or "none — already clean">
 Deny entries added: <list, or "none — already up to date"> (live-only deny entries: <list, or "none">)
