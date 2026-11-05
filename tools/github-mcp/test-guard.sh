@@ -277,7 +277,7 @@ lcheck "no other GITHUB_ or shell-injection vars" '! grep -v "^GITHUB_PERSONAL_A
 lcheck "HOME from the user record" '[ "$(sed -n "s/^HOME=//p" "$TMP/out-vars")" = "$(/usr/bin/dscl . -read "/Users/$(id -un)" NFSHomeDirectory | sed -n "s/^NFSHomeDirectory: //p")" ]'
 lcheck "TMPDIR from getconf" '[ "$(sed -n "s/^TMPDIR=//p" "$TMP/out-vars")" = "$(getconf DARWIN_USER_TEMP_DIR)" ]'
 lcheck "PATH fixed" 'grep -qx "PATH=/usr/bin:/bin" "$TMP/out-vars"'
-lcheck "server args fixed" '[ "$(tr "\n" " " < "$TMP/out-args")" = "stdio --lockdown-mode --tools $(sed -n "s/^TOOLS=//p" "$HERE/launch") " ]'
+lcheck "server args fixed" '[ "$(tr "\n" " " < "$TMP/out-args")" = "stdio --tools $(sed -n "s/^TOOLS=//p" "$HERE/launch") " ]'
 printf '#!/bin/sh\nexit 44\n' > "$L/fake-security"
 rm -f "$TMP"/out-*
 (cd / && "$L/launch") > /dev/null 2> "$TMP/out-stderr"

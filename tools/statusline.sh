@@ -190,9 +190,10 @@ bar() {
 # sent no rate_limits, they give way to: Input <all input tokens> <bar of the hot share> <N>% hot,
 # Output <tokens>, Cost <$>. "Hot" is cache-read input, "cold" is fresh plus cache-creation input.
 # The statusline's stdin carries only the LAST response's tokens, so the totals are summed here
-# from the session's own transcript (one usage per assistant message id; the transcript repeats
-# it for every content block). The sum is cached by transcript size and redone by a detached
-# job when the file grows, so a render never waits for it. Cost is the harness's own figure.
+# from the session's own transcript plus its subagents' transcripts (<transcript minus .jsonl>/subagents/
+# agent-*.jsonl; their usage is in the session's Cost too). One usage per assistant message id; the transcript
+# repeats it for every content block. The sum is cached by the total size of those files and redone by a
+# detached job when it grows, so a render never waits for it. Cost is the harness's own figure.
 
 # Compact token count: 812, 9.5k, 297k, 1.2M, 62.9M.
 fmt_tok() {
@@ -203,19 +204,45 @@ fmt_tok() {
   else printf "%d" "$n"; fi
 }
 
+# api_list <transcript>: sets the array API_FILES to the readable transcript and subagent transcripts (no subshell,
+# so a render pays no fork for it). A glob with no match stays literal and fails the -r test.
+api_list() {
+  local f
+  API_FILES=()
+  for f in "$1" "${1%.jsonl}"/subagents/agent-*.jsonl; do
+    if [ -r "$f" ] && [ -f "$f" ]; then API_FILES[${#API_FILES[@]}]=$f; fi
+  done
+  [ "${#API_FILES[@]}" -gt 0 ]
+}
+
+# api_size <transcript>: the total bytes of API_FILES from one stat call; fails (no size, no sum job) when stat
+# does not report every file, e.g. one vanished meanwhile.
+api_size() {
+  local out s total=0
+  api_list "$1" || return 1
+  out=$(stat -f%z "${API_FILES[@]}" 2>/dev/null) || out=$(stat -c%s "${API_FILES[@]}" 2>/dev/null) || return 1
+  set -- $out
+  [ "$#" -eq "${#API_FILES[@]}" ] || return 1
+  for s in "$@"; do total=$(( total + s )); done
+  printf '%s' "$total"
+}
+
 # api_sum_transcript <transcript> <size> <cache>: writes "size<TAB>fresh<TAB>create<TAB>read<TAB>output".
-# <size> is the size read BEFORE the sum, so a file that grew meanwhile is summed again next time.
+# <size> is the api_size read BEFORE the sum, so a file that grew meanwhile is summed again next time.
 api_sum_transcript() {
   local sums tmp="$3.$$"
+  api_list "$1" || return 0
   # Per message id the largest figure of each field wins (output_tokens only grows while a response streams, the
-  # input fields repeat), a non-number counts 0, and a line without a message object is skipped.
-  sums=$(jq -nRr 'reduce (inputs | fromjson? | select(type == "object" and .type == "assistant"
+  # input fields repeat), a non-number counts 0, and a line without a message object is skipped. awk ends
+  # a last line that has no newline, which jq -R would join to the next file's first line; a file that
+  # vanished meanwhile loses only its own usage.
+  sums=$({ awk 1 "${API_FILES[@]}" 2>/dev/null || true; } | jq -nRr 'reduce (inputs | fromjson? | select(type == "object" and .type == "assistant"
         and ((.message | type) == "object") and ((.message.usage | type) == "object"))) as $l ({};
       ($l.message.id // $l.requestId // $l.uuid // "") as $k
       | ($l.message.usage | [(.input_tokens | numbers // 0), (.cache_creation_input_tokens | numbers // 0),
                              (.cache_read_input_tokens | numbers // 0), (.output_tokens | numbers // 0)]) as $u
       | .[$k] = (if .[$k] then [.[$k], $u] | transpose | map(max) else $u end))
-    | [.[]] | (if length == 0 then [[0, 0, 0, 0]] else . end) | transpose | map(add) | @tsv' "$1" 2>/dev/null) || return 0
+    | [.[]] | (if length == 0 then [[0, 0, 0, 0]] else . end) | transpose | map(add) | @tsv' 2>/dev/null) || return 0
   [ -n "$sums" ] || return 0
   printf '%s\t%s\n' "$2" "$sums" > "$tmp" 2>/dev/null && mv -f "$tmp" "$3" 2>/dev/null || rm -f "$tmp" 2>/dev/null
   return 0
@@ -228,7 +255,7 @@ api_view_segment() {
   local key size cache run c_size fresh create cread out total hot_pct run_m
   # An id-less session would share one cache file with every other: no sum for it.
   if [ "$tp" != none ] && [ "$session_id" != unknown ] && [ -r "$tp" ]; then
-    size=$(stat -f%z "$tp" 2>/dev/null || stat -c%s "$tp" 2>/dev/null) || size=
+    size=$(api_size "$tp") || size=
     key=$(printf %s "$session_id" | tr -c 'A-Za-z0-9_-' _)
     cache="$dir/$key.tsv"; run="$dir/$key.run"
     if [ -n "$size" ]; then
