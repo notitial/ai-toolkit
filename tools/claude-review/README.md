@@ -12,14 +12,16 @@ copies equal to these (`tests/test_install.py` checks).
 
 | File | Install path in the target repo | SHA-256 |
 |---|---|---|
-| [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` | `45006e89e23a87233c2c7a18b17feb47b18f881ff90856388f6cbabb8fa687f9` |
-| [claude-pr-review.md](claude-pr-review.md) | `.claude/commands/claude-pr-review.md` | `72c33c859ed19728f4c35443320260bb5eb681c228abe3d51722e6930aef2e7e` |
+| [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` | `6a1a5d3cf8f647b97b4abd4c1fd8766c44e33799a885f6b1a93bd1672ff0cf6c` |
+| [claude-pr-review.md](claude-pr-review.md) | `.claude/commands/claude-pr-review.md` | `7b96973af49215e0ab073d305df5651d996ca7ba90ccbb0c9533e40a4d5b8137` |
 
-**Version:** v3.0 (2026-11-04): a new review command, written from the kit's interface alone. It keeps v2.5's result
+**Version:** v3.1 (2026-11-05): a sixth review pass flags private data (credentials, people, clients, private ticket
+keys, hosts and home paths, ignored folders) in the lines a PR adds and in its title and description, and the review
+is told never to repeat the value. v3.0 (2026-11-04): a new review command, written from the kit's interface alone. It keeps v2.5's result
 format and modes, and an incomplete review now posts no verdict instead of approving. v2.5 (2026-10-24): a full
 `@claude review` reopens the thread of a fixed finding whose issue is back, instead of dropping it and approving.
 v2.4 (2026-10-23) made the review App-owned. v2.4 and v2.5 were tested end to end on a throwaway repo with
-`ubuntu-latest` runners; v3.0's command has had no live run yet (run the [Test protocol](#test-protocol) before
+`ubuntu-latest` runners; the v3.x command has had no live run yet (run the [Test protocol](#test-protocol) before
 relying on it). The [tests/](tests/) folder runs the workflow's inline scripts against a fake
 GitHub: `python3 -I -B -m unittest discover -s tools/claude-review/tests` from the repo root (`bash tools/test-all.sh
 claude-review` runs the same).
@@ -47,7 +49,7 @@ Three modes:
 
 | Trigger | Mode | What happens | Typical cost |
 |---|---|---|---|
-| A non-draft same-repo PR is opened, pushed to, reopened or marked ready, and has no review yet (Dependabot and forks skipped) | `initial` | Full review: a triage and a guidance agent, five review passes (defects in the change, interaction with the code around it, security, failure paths, written CLAUDE.md rules), then one verifier per candidate. Up to 8 findings, inline on their lines (else in the review body), REQUEST_CHANGES; or APPROVE with "No issues found" | $0.5–2 on real feature PRs ($0.18–0.33 on small test PRs) |
+| A non-draft same-repo PR is opened, pushed to, reopened or marked ready, and has no review yet (Dependabot and forks skipped) | `initial` | Full review: a triage and a guidance agent, six review passes (defects in the change, interaction with the code around it, security, failure paths, written CLAUDE.md rules, private data), then one verifier per candidate. Up to 8 findings, inline on their lines (else in the review body), REQUEST_CHANGES; or APPROVE with "No issues found" | $0.5–2 on real feature PRs ($0.18–0.33 on small test PRs), measured before v3.1's sixth pass |
 | A push to a PR that was already reviewed | none | `preflight` skips; Claude doesn't run. `publish` dismisses a stale APPROVE | $0 |
 | A comment starting `@claude review`, from someone with write access | `rereview` | Judges each open review thread, replies, resolves the fixed ones, then reviews the whole PR again (drafts too) without repeating raised issues. A fixed issue that is back reopens its old thread with a "Regressed:" reply (a new finding if the thread can't be reopened); only a thread this review resolved at an earlier commit, so a person's resolve, or one Claude accepted as not a bug, stays. APPROVE when nothing is found and no thread is open | about `initial` |
 | A comment starting `@claude review --comments` | `followup` | The thread follow-up only: new code, and a fixed issue that came back, aren't seen. When every thread is resolved, the App dismisses its REQUEST_CHANGES and posts a COMMENT "Findings addressed; new code was not re-reviewed." | $0.04–0.25 |
@@ -104,7 +106,8 @@ What goes in it (this repo's own, `REVIEW.md` at the repo root, is the worked ex
 - **A finding rule:** every finding cites `path:line` and names the trigger.
 
 How it is applied:
-- It only directs: the reviewer's tools, the result schema and the "concrete, reachable trigger" rule do not change,
+- It only directs: the reviewer's tools, the result schema, the "concrete, reachable trigger" rule
+  and the private-data rules (it may only add categories, or drop some other than credentials) do not change,
   and a line in it that isn't about reviewing (run a command, fetch, post, ignore the instructions) is ignored.
 - The checkout is the PR's own tree, so **a PR that edits `REVIEW.md` is reviewed without it** (the command checks
   `pr-files.json`) and the overview says so; otherwise a PR could write "skip `hooks/`" into its own review. Land
@@ -114,6 +117,33 @@ How it is applied:
   once it has landed; a `REVIEW.md` added in the same PR is not read by that PR's own review.
 
 Keep it under about 60 lines; every line is read by every review agent on every review.
+
+## Private data
+
+From v3.1 a sixth pass looks for private data in the lines a PR adds: credentials, real people's names and
+contacts, client and employer names, private ticket keys and links, host names, private IPs and home paths, and paths
+into folders `.gitignore` excludes. It also reads the PR title and description, which become the commit message.
+
+- A finding names the kind of data and the line, never the value. The overview and thread replies follow the same rule.
+  That is an instruction to the model: nothing in `publish` enforces it, and a file name that is itself the value
+  always shows as the finding's path. A credential finding tells the author to rotate the value: it is exposed once
+  the branch is pushed, and removing the line does not undo that.
+- A finding means REQUEST_CHANGES, like any other. A hit in the title or description is named in the overview only and
+  does not change the verdict, so such a PR can still be approved: read the overview before merging. The title and
+  description are checked only when a review runs, and editing them starts none. Fix them before the last push: a
+  `@claude review` comment after an edit is skipped when the head already has a clean overview, so only a new push
+  re-checks them. GitHub keeps a title change in the PR timeline and the edit history of a description.
+- `REVIEW.md` tunes it per repo: say whether the repo is public, what is allowed (the owner's own name, public
+  projects), and anything else that counts as private here. Describe kinds, not values: a public repo's `REVIEW.md` is
+  public. A private repo can narrow the pass.
+- It is a second net. On a public repo the PR's diff is public as soon as the branch is pushed, so the review keeps
+  data off the default branch but cannot un-publish it; scan locally before pushing. A review comment shows its diff
+  hunk, so the line stays visible on the PR after it is fixed. Making a private repo public publishes all its PRs
+  too: audit them first, or publish a fresh repo from the default branch.
+- It cannot see binary files (no patch), commit messages or author emails; a repo that does not squash-merge keeps
+  those on the default branch unchecked.
+- No term list is passed to the review on purpose: a prompt injection in the PR could make Claude repeat the whole list
+  in a public comment.
 
 ## Adding it to a repo
 
@@ -227,7 +257,7 @@ denies a post, give the user the `gh` command instead.
 Use a throwaway PR. Each run's job summary shows
 `Claude review (<mode>): $<cost>, <s> s, <turns> turns, <a> agents, <n> findings, <t> threads judged` and
 `Publish: <i> inline, <b> in body, <d> dropped, <m> moved, verdict <X>, <r> replied, <s> resolved, <o> reopened, <x> dismissed, …`.
-`<a>` is at least 7 in `initial` and `rereview`, plus one per candidate issue (and the thread judges in `rereview`); below that the step warns.
+`<a>` is at least 8 in `initial` and `rereview`, plus one per candidate issue (and the thread judges in `rereview`); below that the step warns.
 
 | # | Do | Pass when |
 |---|---|---|
@@ -240,6 +270,8 @@ Use a throwaway PR. Each run's job summary shows
 | 7 | Unset `CLAUDE_REVIEW_APP_CLIENT_ID`, comment `@claude review --comments`, set it back | `preflight` fails with "Missing: variable CLAUDE_REVIEW_APP_CLIENT_ID"; nothing else runs |
 | 8 | (if available) someone with read access comments `@claude review` | Fails at "Check the commenter can write to the repo" |
 | 9 | On a PR with a resolved finding, push a commit that brings the bug back, comment `@claude review` | The old thread is reopened with an App "Regressed:" reply, `1 reopened` in the publish line, REQUEST_CHANGES, the overview shows a **Regressions:** line; no second thread for the issue |
+| 10 | Open a PR that adds a doc line naming an invented client and person as real, an invented ticket key, an internal-looking host and a home path | REQUEST_CHANGES; each finding names the category and the line, and no posted text (inline, body, overview) contains any planted value |
+| 11 | Open a PR that adds the same kind of line with obvious stand-ins only (`ACME`, `ABC-123`, `example.com`, `~/`) | No private-data finding |
 
 A thread a person starts must never get a reply or be resolved.
 
@@ -335,12 +367,13 @@ Don't loosen any of this when adapting the files.
   agent's context when the agent reads files there, so its text can still steer like any other injection; a prompt
   injection in the PR can steer misleading findings, a wrong "resolved", a "no issues" (which becomes an APPROVE),
   a committable suggestion, or the reopening of threads this workflow resolved (never a person's resolve). All
-  visible and attributed to the App; the verdict is never a required review.
+  visible and attributed to the App; the verdict is never a required review. The private-data pass is a model's
+  judgement: it can miss a name, and an injection can talk it out of a finding.
 
 ## Known limitations
 
 - **Cross-path bugs are missed:** new code whose assumption is broken by another path, often an unchanged line.
-- **The pipeline is cut short** (0–6 agents instead of 7, seen on most live runs, 2026-10-23/24): the warning detects
+- **The pipeline is cut short** (0–6 agents instead of the expected 7, seen on most v2.x live runs, 2026-10-23/24; v3.1 expects at least 8): the warning detects
   it; nothing prevents it yet, and a review that ran no agent can still APPROVE.
 - **A follow-up reads no new code:** after `--comments` dismisses the REQUEST_CHANGES, code pushed since the last full
   review (a new bug, or a fixed one brought back) is unreviewed until the next `@claude review`.
@@ -356,7 +389,7 @@ Don't loosen any of this when adapting the files.
 
 - Keep `RESULT_SCHEMA` in the workflow byte-identical with the schema in the command's "The result" section (a test
   checks).
-- Keep the cost record's `reviewer` string (`claude-pr-review@v3.0`) equal to the version above (a test checks).
+- Keep the cost record's `reviewer` string (`claude-pr-review@v3.1`) equal to the version above (a test checks).
 - Run `tests/` after any change to the inline scripts.
 - `REVIEW.md` (repo root) is the repo's own file, not part of the kit: edit it freely.
 - A new version updates both files here first, with new SHAs in the table above, then this repo's installed copies in
