@@ -18,6 +18,8 @@ Configure the global Claude Code environment from this repo's templates and skil
 
 Read Step 10 before the first run if you rely on other values for any of them.
 
+**What it asks.** The prompt cache TTL (`promptCacheTtl`, `subagentPromptCacheTtl`) is opt-in: with no such key in the template, Step 10 asks before it writes either one and never overwrites a value you set.
+
 **`/setup-claude check`:** read-only. Run only `bash tools/install-copies.sh status` (resolve the path from this skill's location: `../../../tools/install-copies.sh`), show its output, and stop. It lists the install-time settings, the github MCP guard, the `~/.zshrc` line and every unlinked or conflicting link against `main`, and changes nothing.
 
 ## Step 0: Check prerequisites
@@ -308,6 +310,7 @@ Read `templates/safe-permissions.json` for:
 - `env` — global env-var policy keys to enforce (added if missing, overwritten if different)
 - `attribution` — commit/PR attribution policy to enforce (added if missing, overwritten if different)
 - `autoCompactWindow` — the machine-wide compaction window to enforce (see **Auto-compact window**)
+- `promptCacheTtl`, `subagentPromptCacheTtl` — optional: enforced when the template carries one, asked about when it does not (see **Prompt cache TTL**)
 - `enableAllProjectMcpServers` — enforced `false` (added if missing, overwritten if different): each project `.mcp.json` server needs its own approval
 - `deniedMcpServers` — MCP servers that must never connect (additive like `permissions.deny`, deduped by the `serverUrl` string: add missing entries, never remove live ones, report live-only ones); today GitHub's hosted server by URL
 - `permissions.allow` — safe permissions to ensure are present
@@ -368,6 +371,35 @@ Delete an emptied `modelSettings.<model>` object.
 Not touched: the `CLAUDE_CODE_AUTO_COMPACT_WINDOW` env var beats this key, so a session that sets it keeps its own
 window. The status line's `used_percentage` counts
 against the model's full window, so it reads low at compaction time.
+
+### Prompt cache TTL
+
+Read the top-level `promptCacheTtl` and `subagentPromptCacheTtl` from `templates/safe-permissions.json`. Each takes
+`"5m"` or `"1h"` and needs Claude Code v2.1.242 or later. `promptCacheTtl` sets how long the main conversation's cache
+survives an idle gap; `subagentPromptCacheTtl` does the same for everything else (subagents, workflows, teammates,
+forks, compaction). Neither is a security control.
+
+- **The template carries a key:** it is **enforced** like `autoCompactWindow`: add it when absent, overwrite a different
+  live value and report the change.
+- **The template does not carry it (the default here): ask first.** Do this only for a key the live settings lack: a
+  live value of either kind is the user's choice, so report it and leave it. Before asking, say:
+  - on a Claude subscription the main conversation already gets one hour within the plan's included usage, so
+    `promptCacheTtl: "1h"` only changes what happens after that usage runs out into usage credits; with an API key or
+    a cloud provider the default is five minutes;
+  - an hour of cache costs more to write (2x the base input price, against 1.25x for five minutes) and pays off only
+    when the session sits idle for between 5 and 60 minutes; steady bursts of work pay more and gain nothing;
+  - a conversation left idle on the one-hour TTL can be compacted by Claude Code on its own (`idleCompaction: false`
+    turns that off; this skill does not set it);
+  - `subagentPromptCacheTtl: "1h"` raises the write cost of every subagent, compaction and fork request, and most of
+    those are short-lived, so recommend leaving it off unless the user's sessions regularly resume after five minutes.
+
+  Ask for each key on its own and write `"1h"` only on a yes typed in this run. A no writes nothing (never `"5m"`, which
+  would lower a subscription's default), and the question comes back on the next run while the key is absent.
+
+**Override check (every run, the opt-in case too):** `CLAUDE_CODE_PROMPT_CACHE_TTL` and
+`CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` (in the live `env` or the shell) beat the setting, and `FORCE_PROMPT_CACHING_5M=1`
+beats both. Report each one found as `NOTE: <variable> overrides promptCacheTtl`; write the setting anyway only if
+the user asks for it after hearing that.
 
 ### Permissions
 
@@ -614,6 +646,7 @@ Status: Created / Up to date / Updated (with user approval) / Skipped (user chos
 Settings backup: <path> mode 600 / none (no settings.json, or nothing written)
 Env vars enforced: <list of keys set or overwritten, or "none — already up to date">
 Auto-compact window: Added / Overwritten (<old> → 500000) / Already configured; per-model overrides: <DRIFT list (removed on go | left), or "none">
+Prompt cache TTL (promptCacheTtl, subagentPromptCacheTtl), per key: Added 1h (asked) / Enforced (<old> → <new> | already set) / Declined / Already set (<value>, left as is); overrides: <NOTE list, or "none">
 Permissions added: <list, or "none — already up to date">
 Permissions removed (migration): <list, or "none — already clean">
 Deny entries added: <list, or "none — already up to date"> (live-only deny entries: <list, or "none">)
