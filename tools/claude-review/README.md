@@ -130,8 +130,9 @@ into folders `.gitignore` excludes. It also reads the PR title and description, 
   the branch is pushed, and removing the line does not undo that.
 - A finding means REQUEST_CHANGES, like any other. A hit in the title or description is named in the overview only and
   does not change the verdict, so such a PR can still be approved: read the overview before merging. The title and
-  description are checked only when a review runs: comment `@claude review` after editing them. GitHub keeps a title
-  change in the PR timeline and the edit history of a description.
+  description are checked only when a review runs, and editing them starts none. Fix them before the last push: a
+  `@claude review` comment after an edit is skipped when the head already has a clean overview, so only a new push
+  re-checks them. GitHub keeps a title change in the PR timeline and the edit history of a description.
 - `REVIEW.md` tunes it per repo: say whether the repo is public, what is allowed (the owner's own name, public
   projects), and anything else that counts as private here. Describe kinds, not values: a public repo's `REVIEW.md` is
   public. A private repo can narrow the pass.
