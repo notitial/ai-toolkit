@@ -25,8 +25,9 @@ Both are root-owned so no session can change the live copies; a change lands by 
    exported functions (an exported `cd` would undo the `cd` below), `BASH_ENV` and `ENV`. Stage one re-execs it
    under `env -i` with `HOME` from the user record (`dscl`), `TMPDIR` from `getconf DARWIN_USER_TEMP_DIR` and
    `PATH=/usr/bin:/bin`; stage two clears anything else, `cd`s into its own root-owned folder, reads the token and
-   execs the server with `--lockdown-mode` (filters public-repo content from users without push access) and a fixed
-   `--tools` list. Without a token it refuses to start, so the server's browser OAuth login never opens.
+   execs the server with a fixed `--tools` list. Without a token it refuses to start, so the server's browser OAuth
+   login never opens. The server's `--lockdown-mode` is off on purpose (2026-11-04): it filters content from users
+   without push access on public repos, which hid the reviewer App's posts there. What that costs is under Residuals.
    - `--clean-env` only says "stage one already ran". A caller can pass it to skip stage one, but stage two still
      clears every variable except `HOME`, `TMPDIR` and `PATH`; those three then come from the caller, so a same-user
      process could point `HOME` or `TMPDIR` elsewhere. Same-user processes are already outside the fence (see
@@ -199,6 +200,10 @@ that folder's owner and mode through `bash tools/install-copies.sh status`, whos
 
 - The token's `repo` scope covers every repo you can reach; the guard limits writes, not reads, so a session can
   read any of those repos without a prompt.
+- Lockdown mode is off (2026-11-04): issue, PR and comment text by any GitHub user on a public repo, the owner's own
+  public repos included, reaches the agent unfiltered through the allowed reads (`pull_request_read`, `issue_read`,
+  `list_issues`, `search_*`). That is a prompt-injection route toward the hook-allowed comment and PR writes in
+  write-owner repos.
 - Any same-user process can read the keychain item, or the running server's environment, and call the API outside
   every rule. The Bash denies are defence in depth only.
 - A draft PR changing `.github/**` gets no prompt: `create_pull_request` of a draft is a hook allow in the write-owner repos. A

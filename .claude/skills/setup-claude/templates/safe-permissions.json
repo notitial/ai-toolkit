@@ -16,7 +16,7 @@
   "autoCompactWindow": 500000,
   "_enableAllProjectMcpServers_comment": "ENFORCED like env. A project's .mcp.json servers each need an explicit approval: the github MCP rules key on the server name, so an auto-approved project server could expose the same tools under another name.",
   "enableAllProjectMcpServers": false,
-  "_deniedMcpServers_comment": "ADDITIVE like permissions.deny: add missing entries, never remove live ones. GitHub's hosted MCP server (api.githubcopilot.com, OAuth, every toolset incl. merge and push), which the official github plugin and the org-synced engineering plugin ship. It bypasses the launcher, its --tools list and lockdown mode, so it must never connect; a denylist match is final (managed-mcp docs: 'Nothing overrides a denylist match'). The broad entries cover the other Copilot hosts, http and a missing trailing slash; the exact one stays in case `*` does not span a slash. Dedupe by serverUrl string.",
+  "_deniedMcpServers_comment": "ADDITIVE like permissions.deny: add missing entries, never remove live ones. GitHub's hosted MCP server (api.githubcopilot.com, OAuth, every toolset incl. merge and push), which the official github plugin and the org-synced engineering plugin ship. It bypasses the launcher and its --tools list, so it must never connect; a denylist match is final (managed-mcp docs: 'Nothing overrides a denylist match'). The broad entries cover the other Copilot hosts, http and a missing trailing slash; the exact one stays in case `*` does not span a slash. Dedupe by serverUrl string.",
   "deniedMcpServers": [
     {
       "serverUrl": "https://api.githubcopilot.com/*"

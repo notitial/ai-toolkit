@@ -25,4 +25,4 @@ fi
 GITHUB_PERSONAL_ACCESS_TOKEN=$tok
 export GITHUB_PERSONAL_ACCESS_TOKEN
 unset tok
-exec "$DIR/github-mcp-server" stdio --lockdown-mode --tools "$TOOLS"
+exec "$DIR/github-mcp-server" stdio --tools "$TOOLS"
