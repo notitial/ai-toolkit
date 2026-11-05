@@ -27,23 +27,30 @@ In a hook or guard:
 - A change to `hooks/<name>.sh` without a case in `tools/<name>/test-<name>.sh` for each new deny and each new pass.
 
 In `docs/`, `rules/`, `agents/`, `skills/`: a statement that contradicts the code or another document (a path, a
-flag, a count, a roster entry missing from the README install table). Not wording.
+flag, a count, a roster entry missing from the README install table). Not wording, except private data.
 
 In the review workflow and `tools/github-mcp/`: anything that lets a secret, token or credential reach a log, a URL,
 a comment or a file. In the workflow: PR, comment or Claude text that reaches a `run:` through `${{ }}`, and a change
 to `tools/claude-review/claude-review.yml` that isn't made to the installed copy too.
 
+## Private data
+
+This repo is public: every line on `main` can be read by anyone. Hunt private data in every file, docs and prose
+included. Fine here: the owner's own name and GitHub handle as LICENSE and README show them, public products and
+projects cited as sources, and stand-ins. Private here: a name of another repo, session or machine of the owner's that
+no unchanged file already mentions, and any `.archive/` path that names a person, client or ticket.
+
 ## Nit cap
 
-Report at most 5 findings. Fewer is better. Security findings come first and always count. No style, naming,
-wording, formatting or "could add a test" comments.
+Report at most 5 findings. Fewer is better. Security and private-data findings come first and always count. No
+style, naming, wording, formatting or "could add a test" comments.
 
 ## Paths to skip
 
 `.archive/`, `assets/icon/png/`, `tools/pace-vectors.tsv` (generated), and prose-only changes under `docs/` unless
-they contradict code.
+they contradict code. Private data is reported in every path.
 
 ## Every finding
 
 Cite `path:line` and name the trigger: the command, input or state that goes wrong, and what goes wrong. A finding
-without one is dropped.
+without one is dropped. A private-data finding names the kind of data instead, never the value.
