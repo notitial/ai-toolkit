@@ -570,7 +570,7 @@ jobs:
         run: |
           set -o pipefail
           # How many subagents Claude launched (Agent/Task tool calls): a full review (initial or rereview) launches at
-          # least 7, plus one verifier per candidate issue and, in a rereview, its thread judges, so a lower count means the pipeline was
+          # least 8, plus one verifier per candidate issue and, in a rereview, its thread judges, so a lower count means the pipeline was
           # cut short. A followup launches none or a few. A count only, no text.
           agents=$(jq '[.. | objects | select(.type? == "tool_use" and ((.name? // "") | test("^(Agent|Task)$")))] | length' \
             "$EXECUTION_FILE") || agents=null
@@ -587,7 +587,7 @@ jobs:
                  mode: $mode,
                  event: $event,
                  head_sha: ($head | if test("^[0-9a-f]{40}$") then . else null end),
-                 reviewer: "claude-pr-review@v3.0",
+                 reviewer: "claude-pr-review@v3.1",
                  action: "anthropics/claude-code-action@f27be6b65a4652f08a2ba3cff79114829b588967",
                  total_cost_usd: ((.total_cost_usd | numbers) // null),
                  duration_ms: ((.duration_ms | numbers) // null),
@@ -604,7 +604,7 @@ jobs:
           jq -r '"Claude review (\(.mode)): $\(.total_cost_usd // "?"), \(if .duration_ms then "\(.duration_ms / 1000 | floor) s" else "? s" end), \(.num_turns // "?") turns, \(.agent_calls // "?") agents, \(.findings_returned // "?") findings, \(.threads_judged // "-") threads judged"' \
             "$COST_FILE" | tee -a "$GITHUB_STEP_SUMMARY"
           # Detection only: the command makes every step mandatory, but a model can still cut the pipeline short.
-          case "$MODE" in initial | rereview) min=7 ;; *) min=0 ;; esac
+          case "$MODE" in initial | rereview) min=8 ;; *) min=0 ;; esac
           jq -r --argjson min "$min" 'select(.agent_calls != null and .stopped != true and .agent_calls < $min)
             | "::warning::Claude launched \(.agent_calls) agents; a full review (\(.mode)) launches at least \($min), so it may have skipped steps"' \
             "$COST_FILE"
