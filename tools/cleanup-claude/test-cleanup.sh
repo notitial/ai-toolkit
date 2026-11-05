@@ -48,7 +48,7 @@ mkhome() {  # mkhome -> sets H to a fresh fake home with a toolkit install and s
   jq -n --arg allow "$ALLOW1" --arg ask "$ASK1" --arg deny "$DENY1" --arg plugin "$PLUGIN1" --arg url "$DENIED_URL" --arg sl "$SL_CMD" --arg ame "$AM_ENV" --arg ams "$AM_SOFT" '{
     model: "sonnet", theme: "dark",
     env: {CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY: "1", DISABLE_FEEDBACK_COMMAND: "1", ENABLE_CLAUDEAI_MCP_SERVERS: "false", MY_VAR: "x"},
-    attribution: {commit: "", pr: "", sessionUrl: false}, autoCompactWindow: 500000, enableAllProjectMcpServers: false,
+    attribution: {commit: "", pr: "", sessionUrl: false}, autoCompactWindow: 500000, promptCacheTtl: "1h", subagentPromptCacheTtl: "1h", enableAllProjectMcpServers: false,
     deniedMcpServers: [{serverUrl: $url}, {serverUrl: "https://mine.example/*"}],
     skillOverrides: {"auto-mode-setup": "off", "other-skill": "on"},
     statusLine: {type: "command", command: $sl},
@@ -80,6 +80,8 @@ check "dry run exits 0" '[ $RC -eq 0 ]'
 check "dry run leaves the tree as it was" '[ "$(snap)" = "$before" ]'
 check "dry run says so" 'grep -q "dry run, nothing changed" "$T/out"'
 check "dry run lists the links it would remove" 'grep -q "REMOVE .*hooks/gh-block.sh" "$T/out"'
+check "dry run names both cache TTL keys it would remove" 'grep -q "removed  promptCacheTtl" "$T/out" && grep -q "removed  subagentPromptCacheTtl" "$T/out"'
+check "dry run leaves the cache TTL keys in the file" 'has ".promptCacheTtl == \"1h\" and .subagentPromptCacheTtl == \"1h\""'
 
 # ---- apply: links
 run --apply
@@ -100,6 +102,7 @@ check "settings still valid JSON" 'jq -e . "$C/settings.json" >/dev/null'
 check "settings: user keys kept (model, theme)" 'has ".model == \"sonnet\" and .theme == \"dark\""'
 check "settings: toolkit env keys gone, the connector switch and MY_VAR kept" 'has "(.env | keys) == [\"ENABLE_CLAUDEAI_MCP_SERVERS\", \"MY_VAR\"]"'
 check "settings: attribution, compact window, statusLine gone; the MCP flag (a security entry) kept" 'has "((has(\"attribution\") or has(\"autoCompactWindow\") or has(\"statusLine\")) | not) and .enableAllProjectMcpServers == false"'
+check "settings: an opted-in cache TTL of 1h is gone from both keys" 'has "((has(\"promptCacheTtl\") or has(\"subagentPromptCacheTtl\")) | not)"'
 check "settings: denied MCP servers are kept by default" 'has "(.deniedMcpServers | length) == 2"'
 check "settings: only the user's skill override stays" 'has ".skillOverrides == {\"other-skill\": \"on\"}"'
 check "settings: toolkit plugin gone, user plugin kept" 'has ".enabledPlugins == {\"mine@somewhere\": true}"'
@@ -130,7 +133,16 @@ run --apply --keep-ambiguous
 check "--keep-ambiguous keeps the template allow entry" 'has "(.permissions.allow | index(\"$ALLOW1\")) != null"'
 check "--keep-ambiguous keeps the toolkit plugin" 'has ".enabledPlugins | has(\"$PLUGIN1\")"'
 check "--keep-ambiguous keeps the autoMode context line" 'has "(.autoMode.environment | length) == 3"'
+check "--keep-ambiguous keeps an opted-in cache TTL" 'has ".promptCacheTtl == \"1h\" and .subagentPromptCacheTtl == \"1h\""'
 check "--keep-ambiguous still removes the toolkit hooks" 'has "[.hooks.PreToolUse[].hooks[].command] | index(\"\$HOME/.claude/hooks/gh-block.sh\") == null"'
+mkhome
+jq '.promptCacheTtl = "5m"' "$C/settings.json" > "$T/ttl.json" && cp "$T/ttl.json" "$C/settings.json"
+run --apply
+check "a cache TTL of 5m is the user's own and stays, whatever the other key does" 'has ".promptCacheTtl == \"5m\" and (has(\"subagentPromptCacheTtl\") | not)"'
+mkhome
+jq '.subagentPromptCacheTtl = 3600 | del(.promptCacheTtl)' "$C/settings.json" > "$T/ttl.json" && cp "$T/ttl.json" "$C/settings.json"
+run --apply
+check "a lone cache TTL that is not the string 1h stays" 'has ".subagentPromptCacheTtl == 3600 and (has(\"promptCacheTtl\") | not)"'
 mkhome
 run --apply --include-security
 check "--include-security removes the template deny and ask entries, keeps the user's" 'has "(.permissions.deny | index(\"$DENY1\")) == null and (.permissions.deny | index(\"Bash(my-deny:*)\")) != null and (.permissions.ask | index(\"$ASK1\")) == null and (.permissions.ask | index(\"Bash(my-ask:*)\")) != null"'

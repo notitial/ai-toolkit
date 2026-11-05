@@ -4,7 +4,8 @@
 #   --apply             do it (without it, nothing is changed: the report is the dry run)
 #   --config-dir DIR    a Claude config dir to clean; repeatable (default: ~/.claude and each ~/.claude-*/config)
 #   --purge-ask         also remove the items classed ASK (user-authored or history: the ETA log)
-#   --keep-ambiguous    leave permission allow entries, plugins and autoMode context lines the template also lists
+#   --keep-ambiguous    leave permission allow entries, plugins and autoMode context lines the template also lists,
+#                       and a promptCacheTtl or subagentPromptCacheTtl of "1h" (the opt-in /setup-claude asks about)
 #   --include-security  also remove the security entries the template lists: permission ask and deny, deniedMcpServers,
 #                       ENABLE_CLAUDEAI_MCP_SERVERS, enableAllProjectMcpServers, autoMode soft_deny (kept by default;
 #                       /setup-claude puts them back). --include-deny is the same flag under its old name
@@ -21,7 +22,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd -P) || exit 2
 TEMPLATE="$ROOT/.claude/skills/setup-claude/templates/safe-permissions.json"
 
 APPLY=0 PURGE=0 KEEP_AMB=0 SEC=0 VERBOSE=0 DIRS=""
-usage() { sed -n '2,14p' "$0" >&2; exit 2; }
+usage() { sed -n '2,15p' "$0" >&2; exit 2; }
 while [ $# -gt 0 ]; do
   case $1 in
     --apply) APPLY=1 ;;
@@ -30,7 +31,7 @@ while [ $# -gt 0 ]; do
     --include-security | --include-deny) SEC=1 ;;
     --verbose) VERBOSE=1 ;;
     --config-dir) [ $# -ge 2 ] || usage; DIRS="$DIRS$2"$'\n'; shift ;;
-    -h | --help) sed -n '2,14p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,15p' "$0"; exit 0 ;;
     *) usage ;;
   esac
   shift
@@ -229,6 +230,12 @@ def toolkit_cmd:
     .env |= with_entries(select(.key as $k | ((tl.env | has($k)) and ($sec == 1 or (sec_env | index($k) | not))) | not)) | prune("env")
   else . end)
 | rm_eq("attribution") | rm_eq("autoCompactWindow")
+# The cache TTL keys are not in the template: /setup-claude writes "1h" only when the user says yes. The value alone
+# marks them, so they are ambiguous like an allow entry the user may have set themselves.
+| (if $amb == 1 then
+    (if .promptCacheTtl == "1h" then del(.promptCacheTtl) else . end)
+    | (if .subagentPromptCacheTtl == "1h" then del(.subagentPromptCacheTtl) else . end)
+  else . end)
 | (if $sec == 1 then rm_eq("enableAllProjectMcpServers") else . end)
 | (if $sec == 1 and (.deniedMcpServers | type) == "array" then
     .deniedMcpServers |= map(select(. as $e | ([tl.deniedMcpServers[]? | select(.serverUrl == ($e | try .serverUrl catch null))] | length) == 0))
