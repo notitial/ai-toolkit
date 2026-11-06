@@ -239,11 +239,16 @@ In a repo with the review, a PR isn't ready for the user until its review has fi
 read and post through the GitHub MCP server (`gh` is blocked for agents by `hooks/gh-block.sh`); where its guard
 denies a post, give the user the `gh` command instead.
 
-1. Wait for the checks (the runner may be queued): poll `pull_request_read` with `get_check_runs` every few minutes,
-   until the `Publish the review` run completes (about 1–2 minutes once a runner picks it up).
+1. A draft isn't reviewed until it is marked ready for review, which starts a paid run. Wait for the checks (the runner
+   may be queued): poll `pull_request_read` with `get_check_runs` every few minutes, until the `Publish the review` run
+   completes (about 1–2 minutes once a runner picks it up). It must conclude `success`: `skipped` means no review ran,
+   so tell the user.
 2. Read the findings with `pull_request_read`: the App's inline comments (`get_review_comments`), the review body's
    "Not on a changed line" section (`get_reviews`), and the overview comment (`get_comments`, the one starting
-   `<!-- claude-review:summary`).
+   `<!-- claude-review:summary`). A review that did not finish shows "No verdict" in the overview comment, or posts
+   nothing at all for the head (a green `Publish the review` with no App review and no overview for it). Silence is never
+   "no findings": tell the user. After a "No verdict" overview only a new full review runs it again; after nothing at
+   all, the next push is reviewed afresh only if the App has never commented on the PR; otherwise ask the user.
 3. Fix each finding, or reply in its thread (`add_reply_to_pull_request_comment`) with why it isn't a bug.
 4. Pushes after the first review are skipped. After pushing fixes or replies, and once no review is running, comment
    `@claude review --comments` (`add_issue_comment`, top level): it judges the open threads, replies and resolves
