@@ -210,6 +210,9 @@ EOF
   [ "$mine" = 1 ] || printf '%s\n' "$n"
 done | jq -R . | jq -s .)
 CFG_JSON=$(printf '%s' "$CFGS" | jq -R . | jq -s 'map(select(. != ""))')
+# The deny entries /setup-claude writes from this checkout's real path (not in the template): security entries, so
+# they go only with --include-security, like the template's own deny entries.
+LIVE_DENY=$(jq -n --arg r "$ROOT" '["hooks/**", "tools/github-mcp/**", "tools/shell-init.zsh", "tools/ait.zsh"] | map("Edit(/" + $r + "/" + . + ")")')
 
 JQ_CLEAN='
 def tl: $t[0];
@@ -219,7 +222,7 @@ def sec_env: ["ENABLE_CLAUDEAI_MCP_SERVERS"];
 # A hook command of the toolkit: the script path alone or with arguments, optionally under bash, never a chained command.
 def toolkit_cmd:
   (type == "string") and (
-    . == "/usr/local/libexec/mcp-github/guard.sh"
+    . == "/usr/local/libexec/mcp-github/guard.sh" or . == $guard
     or (sub("^bash +"; "") as $c
         | ($c | split(" ")[0] // "") as $w
         | (($c | test("&&|;|\\|")) | not)
@@ -257,7 +260,7 @@ def toolkit_cmd:
 | (if (.permissions | type) == "object" then
     reduce (((if $amb == 1 then ["allow"] else [] end) + (if $sec == 1 then ["ask", "deny"] else [] end))[]) as $k (.;
       if (.permissions[$k] | type) == "array" then
-        .permissions[$k] |= map(select(. as $e | any((tl.permissions[$k] // [])[]; . == $e) | not))
+        .permissions[$k] |= map(select(. as $e | (any((tl.permissions[$k] // [])[]; . == $e) or ($k == "deny" and ($live | index($e)) != null)) | not))
         | (if .permissions[$k] == [] then del(.permissions[$k]) else . end)
       else . end)
     | prune("permissions")
@@ -301,6 +304,7 @@ while IFS= read -r cfg; do
   fi
   jq -S . "$rf" > "$SCRATCH/old.json"
   jq -S --slurpfile t "$RTEMPLATE" --argjson names "$HOOK_NAMES" --argjson cfgs "$CFG_JSON" \
+    --arg guard "$ROOT/tools/github-mcp/guard.sh" --argjson live "$LIVE_DENY" \
     --argjson amb $((1 - KEEP_AMB)) --argjson sec "$SEC" "$JQ_CLEAN" "$rf" > "$SCRATCH/new.json" 2>/dev/null
   if [ ! -s "$SCRATCH/new.json" ]; then N_FAIL=$((N_FAIL + 1)); say FAIL "$rf (the clean-up filter failed; left alone)"; continue; fi
   if cmp -s "$SCRATCH/old.json" "$SCRATCH/new.json"; then say OK "$rf (nothing of the toolkit's in it)"; continue; fi
@@ -443,7 +447,7 @@ manual() { N_MANUAL=$((N_MANUAL + 1)); say RUN "$1"; [ -z "${2:-}" ] || printf '
 if [ -e "$LIBEXEC/mcp-github" ]; then
   cmd="sudo rm -r"
   [ -e "$LIBEXEC/mcp-github" ] && cmd="$cmd $(printf '%q' "$LIBEXEC/mcp-github")"
-  manual "root-owned installs (github MCP launcher, guard and binary)" "$cmd"
+  manual "root-owned install left from the earlier setup (github MCP launcher, guard and binary; the launcher and guard now run from the checkout)" "$cmd"
 fi
 mcp_check() {  # mcp_check <.claude.json> <command prefix>: reads only whether a server of that name exists
   local s
