@@ -14,7 +14,9 @@
 #   github-mcp     the launcher and the guard run from this checkout: it is on a clean main, the pinned server binary
 #                  is in tools/github-mcp/bin/, the `github` MCP server and the guard hook point at this checkout.
 #   ~/.zshrc       sources ~/.claude/tools/shell-init.zsh, which loads the zsh helpers.
-#   links          every agent, hook, rule, global skill and tool script with no link under ~/.claude, or a wrong one.
+#   links          every agent, hook, rule, global skill and tool script with no link under ~/.claude, or a wrong one;
+#                  a hook or the lock script that is not executable, since those run by their path; a hook no entry
+#                  in ~/.claude/settings.json runs (presence only: /setup-claude compares events and matchers).
 # Tests: bash tools/test-install-copies.sh. The ICOPIES_* overrides are honoured only when ICOPIES_TESTING=1.
 
 set -u
@@ -224,6 +226,24 @@ check_link() {
   fi
 }
 
+# check_exec <repo path>: a script run by its path does not start without the executable bit, and a hook then fails open:
+# its control is off and nothing blocks. HEAD is checked as well as the disk: a chmod here hides a commit without the bit,
+# which is back off on the next clean checkout, so that fix is a commit. Only a disk that lost a committed bit takes a chmod.
+check_exec() {
+  [ -e "$ROOT/$1" ] || return 0
+  case $(g ls-tree HEAD -- "$1" 2>/dev/null) in
+    100644\ *) line STALE "$1 is committed without the executable bit, so it does not run from a clean checkout" "commit it as 100755 in a PR, then pull and run /setup-claude" ;;
+    *) [ -x "$ROOT/$1" ] || line STALE "$1 is not executable in this checkout, so it does not run" "chmod 755 $1" ;;
+  esac
+}
+
+# check_wired <repo path> <the hook commands in settings.json>: a linked, executable hook still does nothing unless
+# settings.json runs it, so links alone must not read as "all current". The command is the template's literal form.
+check_wired() {
+  printf '%s\n' "$2" | grep -Fxq -- "\$HOME/.claude/$1" && return 0
+  line MISSING "$1 is not wired in ~/.claude/settings.json, so it does not run" "/setup-claude"
+}
+
 # roster: what /setup-claude links, one repo path per line: the agents, hooks, rules and skills committed at HEAD (a
 # skill as skills/<name>). A file that is only on disk (untracked, or on another branch) is never listed, so it is never
 # linked into ~/.claude.
@@ -240,19 +260,33 @@ cmd_roster() {
 }
 
 status_links() {
-  local p list
+  local p list wired have_jq=0
   LINK_OK=0 LINK_NEW=0 LINK_CONFLICT=0
   if ! list=$(cmd_roster 2>/dev/null); then
     line STALE "links (the committed roster cannot be read from HEAD)" "fix the checkout"
     list=""
   fi
+  # No jq is already a line of its own or follows a STALE checkout path, so status cannot read "all current" without it.
+  # A missing or invalid settings file wires nothing.
+  if command -v jq >/dev/null 2>&1; then
+    have_jq=1
+    wired=$(jq -r '[.hooks[]? | arrays | .[]? | .hooks[]?.command | strings] | .[]' "$CLAUDE_DIR/settings.json" 2>/dev/null)
+  fi
   while IFS= read -r p; do
-    [ -n "$p" ] && check_link "$p" "$CLAUDE_DIR/$p"
+    [ -n "$p" ] || continue
+    check_link "$p" "$CLAUDE_DIR/$p"
+    case $p in
+      hooks/*)
+        check_exec "$p"
+        [ "$have_jq" = 0 ] || check_wired "$p" "$wired"
+        ;;
+    esac
   done <<EOF
 $list
 EOF
   check_link tools/statusline.sh "$CLAUDE_DIR/statusline.sh"
   check_link tools/workspace-lock/workspace-lock.sh "$CLAUDE_DIR/tools/workspace-lock.sh"
+  check_exec tools/workspace-lock/workspace-lock.sh
   check_link tools/shell-init.zsh "$CLAUDE_DIR/tools/shell-init.zsh"
   note "links     $LINK_OK linked, $LINK_NEW unlinked, $LINK_CONFLICT conflicting"
 }

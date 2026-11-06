@@ -110,13 +110,13 @@ make_links() {
   ln -s "$R/tools/shell-init.zsh" "$cd/tools/shell-init.zsh"
 }
 # wire_mcp: the github MCP wired at the checkout: the server binary beside the launcher, the `github` server
-# registered at the launcher, the guard hook pointing at the guard.
+# registered at the launcher, the guard hook pointing at the guard, and the fixture's hook wired beside it.
 wire_mcp() {
   mkdir -p "$R/tools/github-mcp/bin"
   printf '#!/bin/sh\n# fake server\n' > "$R/tools/github-mcp/bin/github-mcp-server"
   chmod 755 "$R/tools/github-mcp/bin/github-mcp-server"
   jq -n --arg c "$R/tools/github-mcp/launch" '{mcpServers: {github: {type: "stdio", command: $c, args: []}}}' > "$H/.claude.json"
-  jq -n --arg c "/bin/bash -p '$R/tools/github-mcp/guard.sh' || exit 2" '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: $c}]}]}}' > "$H/.claude/settings.json"
+  jq -n --arg c "/bin/bash -p '$R/tools/github-mcp/guard.sh' || exit 2" '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: $c}]}, {matcher: "Bash", hooks: [{type: "command", command: "$HOME/.claude/hooks/h.sh"}]}]}}' > "$H/.claude/settings.json"
 }
 # everything installed and current
 setup_current() {
@@ -139,6 +139,7 @@ printf '# skill\n' > "$SEED/skills/s/SKILL.md"
 printf '#!/bin/sh\n' > "$SEED/tools/statusline.sh"
 printf '#!/bin/sh\n' > "$SEED/tools/workspace-lock/workspace-lock.sh"
 printf '# init\n' > "$SEED/tools/shell-init.zsh"
+chmod 755 "$SEED/hooks/h.sh" "$SEED/tools/workspace-lock/workspace-lock.sh"
 git init -q -b main "$SEED"
 git init -q --bare -b main "$T/base.git"
 git -C "$SEED" remote add origin "$T/base.git"
@@ -160,7 +161,8 @@ expect_re "a .zshrc that does not load the helpers is MISSING" "$OUT" '^MISSING 
 expect_re "UNLINKED agent" "$OUT" '^UNLINKED +\.claude/agents/a\.md'
 expect_re "UNLINKED shell-init.zsh" "$OUT" '^UNLINKED +\.claude/tools/shell-init\.zsh'
 expect_has "links summary" "$OUT" "links     0 linked, 7 unlinked, 0 conflicting"
-expect_has "count of items needing attention" "$OUT" "11 need attention"
+expect_re "a hook no settings file runs is MISSING" "$OUT" '^MISSING +hooks/h\.sh is not wired in ~/\.claude/settings\.json, so it does not run  -> /setup-claude$'
+expect_has "count of items needing attention" "$OUT" "12 need attention"
 expect_not "no root-owned folder is mentioned" "$OUT" "libexec"
 
 case_start "status 2: everything installed and linked"
@@ -215,6 +217,56 @@ gc -c commit.gpgsign=false commit -q -m rmpin
 ic status
 expect_re "no pin file: the binary line says the pin is missing" "$OUT" '^STALE +github-mcp server binary \(tools/github-mcp/server\.sha256 at HEAD is missing or malformed'
 expect_re "a pin not committed on main is named as such" "$OUT" '^STALE +github-mcp checkout \(tools/github-mcp/server\.sha256 is not committed on main yet'
+case_start "status 2b1: a hook or the lock script without the exec bit"
+new_case
+setup_current
+chmod 644 "$R/hooks/h.sh"
+ic status
+expect_rc "status exits 1 for a hook that is not executable" 1
+expect_re "a committed bit lost on disk is STALE, and takes a chmod" "$OUT" '^STALE +hooks/h\.sh is not executable in this checkout, so it does not run  -> chmod 755 hooks/h\.sh$'
+expect_has "its link still counts as linked" "$OUT" "links     7 linked, 0 unlinked, 0 conflicting"
+chmod 755 "$R/hooks/h.sh"
+gc update-index --chmod=-x hooks/h.sh
+chmod 644 "$R/hooks/h.sh"
+gc commit -q -m "hook without the exec bit"
+gc push -q origin main
+ic status
+expect_re "a hook committed without the bit is STALE on a clean main, and takes a commit" "$OUT" '^STALE +hooks/h\.sh is committed without the executable bit, so it does not run from a clean checkout  -> commit it as 100755 in a PR'
+expect_not "that hook gets one line, not the chmod fix too" "$OUT" "chmod 755"
+expect_re "that main still counts as clean" "$OUT" '^ok +github-mcp checkout is on a clean main$'
+chmod 755 "$R/hooks/h.sh"
+ic status
+expect_rc "status exits 1 for a chmod hiding a commit without the bit" 1
+expect_re "a chmod does not hide a commit without the bit" "$OUT" '^STALE +hooks/h\.sh is committed without the executable bit'
+new_case
+setup_current
+chmod 644 "$R/tools/workspace-lock/workspace-lock.sh"
+ic status
+expect_rc "status exits 1 for a lock script that is not executable" 1
+expect_re "a lock script that is not executable is STALE" "$OUT" '^STALE +tools/workspace-lock/workspace-lock\.sh is not executable'
+new_case
+setup_current
+ic status
+expect_not "a sourced script, a rule and a status line at 644 are not flagged" "$OUT" "is not executable"
+expect_not "nor as committed without the bit" "$OUT" "committed without"
+case_start "status 2b1a: a linked, executable hook that settings.json does not run"
+new_case
+setup_current
+jq -n --arg c "/bin/bash -p '$R/tools/github-mcp/guard.sh' || exit 2" '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: $c}]}]}}' > "$H/.claude/settings.json"
+ic status
+expect_rc "status exits 1 for a hook no entry runs" 1
+expect_re "an unwired hook is MISSING" "$OUT" '^MISSING +hooks/h\.sh is not wired in ~/\.claude/settings\.json, so it does not run  -> /setup-claude$'
+expect_has "its link still counts as linked" "$OUT" "links     7 linked, 0 unlinked, 0 conflicting"
+expect_not "an unwired hook is not all current" "$OUT" "all current"
+jq -n '{hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: "/old/place/hooks/h.sh"}]}]}}' > "$H/.claude/settings.json"
+ic status
+expect_re "an entry at another path does not count" "$OUT" '^MISSING +hooks/h\.sh is not wired'
+jq -n '{hooks: {_comment: "a note", SessionStart: [{matcher: "startup", hooks: [{type: "command", command: "$HOME/.claude/hooks/h.sh"}]}]}}' > "$H/.claude/settings.json"
+ic status
+expect_not "any event counts here, and a note under hooks is skipped" "$OUT" "hooks/h.sh is not wired"
+printf 'not json\n' > "$H/.claude/settings.json"
+ic status
+expect_re "an invalid settings file wires nothing" "$OUT" '^MISSING +hooks/h\.sh is not wired'
 case_start "status 2b2: a binary without the exec bit, and a hidden edit"
 new_case
 setup_current
@@ -514,6 +566,16 @@ expect_not "automode with no settings file prints no placeholder" "$OUT" "<"
 conf_with 'router_ip=nope'
 ic automode
 expect_rc "automode refuses an invalid settings file" 1
+
+# The scripts that run by their path are committed executable in this repository: a hook without the bit fails open, and
+# the hook suites cannot see it, since they run each hook as `bash <file>`.
+case_start "this repository: scripts run by their path are committed 100755"
+REPO=$(cd "$(dirname "$SCRIPT_SRC")/.." && pwd -P)
+MODES=$(git -C "$REPO" ls-files -s -- 'hooks/*.sh' tools/workspace-lock/workspace-lock.sh tools/github-mcp/launch)
+expect_has "the hooks are listed" "$MODES" "hooks/secret-detector.sh"
+expect_has "the lock script is listed" "$MODES" "tools/workspace-lock/workspace-lock.sh"
+expect_has "the launcher is listed" "$MODES" "tools/github-mcp/launch"
+expect_not "none of them is committed without the executable bit" "$MODES" "100644 "
 
 case_start "usage: render is gone"
 new_case
