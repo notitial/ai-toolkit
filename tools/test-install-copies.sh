@@ -214,6 +214,18 @@ if [ ! -e "$T/filter-ran" ] && [ ! -e "$T/fsmonitor-ran" ]; then PASS=$((PASS + 
 cp "$T/config.saved" "$R/.git/config"
 rm -f "$R/.git/info/attributes"
 
+case_start "status 2f: a checkout path with a space"
+new_case
+mkdir -p "$C/with space"
+git clone -q "$O" "$C/with space/repo" 2>/dev/null
+R="$C/with space/repo"
+setup_current
+ic status
+expect_rc "status exits 1 for a non-plain checkout path" 1
+expect_re "the path is named as the cause" "$OUT" '^STALE +github-mcp checkout path \(.*with space/repo has characters other than'
+expect_not "no claude mcp add hint" "$OUT" "claude mcp add"
+expect_not "no guard-hook line sending the user to /setup-claude" "$OUT" "github MCP guard hook"
+
 case_start "status 2e: an http github server is STALE, not unregistered"
 new_case
 setup_current

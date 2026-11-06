@@ -133,6 +133,13 @@ BIN_REL=tools/github-mcp/bin/github-mcp-server
 # point here (a copy elsewhere, or the old root-owned folder, is stale).
 status_github_mcp() {
   local br dirty want cfg have cmds nproj pin got
+  # /setup-claude skips the guard hook for a path with other characters, and the launcher refuses one: name that cause
+  # instead of sending the user to /setup-claude or to `claude mcp add`, which cannot fix it.
+  case $ROOT in
+    *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._+-]*)
+      line STALE "github-mcp checkout path ($ROOT has characters other than letters, digits and / . _ + -: /setup-claude writes no guard hook and the launcher refuses to start)" "move the checkout to a plain path, then run /setup-claude"
+      return ;;
+  esac
   br=$(g symbolic-ref -q HEAD 2>/dev/null)
   case $br in refs/heads/*) br=${br#refs/heads/} ;; '') ;; *) br="HEAD at $br" ;; esac
   dirty=$(tracked_changes)

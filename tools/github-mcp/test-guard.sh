@@ -531,6 +531,12 @@ rm -f "$TMP"/out-*
 (cd / && "$LC/.archive/x/launch") > /dev/null 2> "$TMP/out-stderr"
 lcheck "a launcher copy two folders below the root: refuses to start" '[ $? -ne 0 ] && [ ! -e "$TMP/out-vars" ]'
 rm -rf "$LC/.archive"
+# A checkout path with a space gets no guard hook from /setup-claude, so the launcher refuses to start from it.
+mkdir -p "$TMP/with space"
+cp -R "$LC" "$TMP/with space/lc"
+rm -f "$TMP"/out-*
+(cd / && "$TMP/with space/lc/tools/github-mcp/launch") > /dev/null 2> "$TMP/out-stderr"
+lcheck "a checkout path with a space: refuses to start" '[ $? -ne 0 ] && grep -q "not a plain path" "$TMP/out-stderr" && [ ! -e "$TMP/out-vars" ]'
 
 # Nothing is rendered or root-installed any more: no placeholder, no install path left in either file.
 if ! grep -q '__[A-Z][A-Z0-9_]*__' "$SRC" "$HERE/launch"; then

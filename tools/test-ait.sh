@@ -79,6 +79,12 @@ expect_has "the registration is ok" "$out" "ok        github MCP server register
 expect_has "the hook is ok" "$out" "ok        github MCP guard hook points at this checkout"
 expect_has "all ok exits 0" "$out" "rc=0"
 expect_not "no root-owned copy is mentioned" "$out" "libexec"
+# install.conf is read by the launcher and the guard at run time: a missing one is not "all ok".
+mv "$CONF" "$CONF.away"
+out=$(z 'ghm-status; echo "rc=$?"')
+expect_has "a missing install.conf is shown" "$out" "install.conf"
+expect_has "a missing install.conf fails ghm-status" "$out" "rc=1"
+mv "$CONF.away" "$CONF"
 
 # The checkout must be a clean main, or the guard and the launcher are off.
 printf 'edit\n' >> "$R/tools/github-mcp/guard.sh"

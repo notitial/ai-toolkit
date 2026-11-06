@@ -459,7 +459,9 @@ match, so work in a clone stays free.
    (`cd -P <root> && pwd -P`). Skip this block, and the guard hook below, with a note when that root is not a plain
    path: only letters, digits and `/ . _ - +`, and not under a temp folder (`/tmp`, `/private/tmp`, `/var/folders`,
    `/private/var/folders`). A throwaway clone is not the live checkout, and a quote or glob character in the path would
-   break the hook command or change what a deny matches.
+   break the hook command or change what a deny matches. For a non-plain path that is not a temp folder, say plainly
+   that the github MCP must not be registered from it (the launcher refuses to start there) and that the fix is to
+   move the checkout to a plain path.
 2. Build ten entries, each `Edit(/` + the absolute path + `)` so that it starts with `//`: `<root>/.git/**` (the
    guard and the launcher run git there, and its config can name commands), `<root>/hooks/**`,
    `<root>/rules/**`, `<root>/agents/**`, `<root>/skills/**`, `<root>/tools/github-mcp/**`,

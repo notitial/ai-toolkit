@@ -2,8 +2,8 @@
 #   source ~/.claude/tools/shell-init.zsh
 #   ait          cd to the checkout
 #   ait-status   everything /setup-claude checks (bash tools/install-copies.sh status)
-#   ghm-status   the github MCP lines of ait-status: the checkout on a clean main, the server binary, the server
-#                registration and the guard hook, all pointing at this checkout
+#   ghm-status   the github MCP lines of ait-status: install.conf (the launcher and the guard read it), the checkout
+#                on a clean main, the server binary, the server registration and the guard hook, all pointing here
 #   ghm-test     the github MCP suites of this (live) checkout, i.e. of main; to test a branch, run
 #                bash tools/github-mcp/test-guard.sh and test-update-check.sh in its /tmp clone
 # The launcher and the guard run from the live checkout (it stays on main and only moves with a fast-forward pull
@@ -24,7 +24,7 @@ ghm-test() {
 ghm-status() {
   emulate -L zsh
   local out
-  out=$(bash "$AIT_ROOT/tools/install-copies.sh" status 2>&1 </dev/null | grep -i 'github')
+  out=$(bash "$AIT_ROOT/tools/install-copies.sh" status 2>&1 </dev/null | grep -Ei 'github|install\.conf')
   print -r -- "$out"
   [[ -n $out && -z $(print -r -- "$out" | grep -v '^ok ') ]]
 }

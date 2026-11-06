@@ -5,6 +5,13 @@ TOOLS=get_me,pull_request_read,list_pull_requests,search_pull_requests,issue_rea
 # Absolute paths only before the clean-env re-exec: a tool found on the caller's PATH would decide where DIR points.
 DIR=$(cd "$(/usr/bin/dirname "$0")" && pwd -P)
 ROOT=$(cd "$DIR/../.." && pwd -P)
+# /setup-claude writes the guard hook only for a plain checkout path (it goes inside a quoted hook command), so a
+# server started from any other path would run without the guard: refuse it.
+case $ROOT in
+  *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._+-]*)
+    echo "mcp-github: $ROOT is not a plain path (letters, digits and / . _ + - only), so /setup-claude writes no guard hook for it; move the checkout; refusing to start" >&2
+    exit 1 ;;
+esac
 if [ "${1:-}" != --clean-env ]; then
   user=$(/usr/bin/id -un </dev/null)
   home=$(/usr/bin/dscl . -read "/Users/$user" NFSHomeDirectory </dev/null | /usr/bin/sed -n 's/^NFSHomeDirectory: //p')
