@@ -1,7 +1,7 @@
 # The checks a PR must not break. Hooks run by their path, so a hook committed without the executable bit fails open:
 # test-install-copies.sh fails on one, and on the install status lines that report it. No secrets and read-only, so it
 # is safe on a fork's PR. Add other suites from tools/test-all.sh once they have run on Linux.
-name: Checks
+name: CI
 
 on:
   pull_request:
@@ -11,12 +11,12 @@ permissions:
   contents: read
 
 jobs:
-  install-copies:
-    name: Install copies
+  install:
+    name: Install Checks
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Check out the PR
+      - name: Check out the code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
