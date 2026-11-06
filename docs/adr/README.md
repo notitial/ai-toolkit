@@ -36,6 +36,7 @@ rewrite.
 | 0011 | [Shell-Hook Enforcement for Agent Guardrails](0011-shell-hook-enforcement.md) | accepted | 2026-04-02 |
 | 0012 | [Workspace Lock](0012-overnight-orchestrator-lock.md) | accepted, amended | 2026-07-03 |
 | 0013 | [App-Owned PR Review, Verdict as a Signal](0013-app-owned-pr-review.md) | accepted | 2026-10-23 |
+| 0014 | [Run Installs From the Live Checkout](0014-live-checkout-installs.md) | accepted | 2026-11-06 |
 
 ADR 0012's file name keeps "overnight-orchestrator-lock" from its first title; links depend on the name, so it
 stays.
