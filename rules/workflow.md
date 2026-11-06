@@ -52,12 +52,16 @@ no-op. A PR you open there is not ready for the user until its Claude review has
 All reads and posts go through the github MCP (`gh` is blocked for agents, `rules/security.md`); where the guard
 denies a post, give the user the `gh` command in a markdown code block instead.
 
-1. Wait for the checks (the runner may be queued): poll `pull_request_read` with `get_check_runs` every few minutes,
-   until the `Publish the review` run completes (`Review PR` posts nothing; `publish` posts the findings).
+1. A draft PR is not reviewed until it is marked ready for review, which starts a paid run (the guard asks first).
+   Wait for the checks (the runner may be queued): poll `pull_request_read` with `get_check_runs` every few minutes,
+   until the `Publish the review` run completes (`Review PR` posts nothing; `publish` posts the findings). It must
+   conclude `success`: `skipped` means no review ran, so tell the user.
 2. Read the findings with `pull_request_read`: the reviewer App's inline comments (`get_review_comments`), the
    review body's "Not on a changed line" section (`get_reviews`) and the overview comment (`get_comments`, the one
-   starting `<!-- claude-review:summary`). The App posts APPROVE or REQUEST_CHANGES; a review that did not finish
-   posts no verdict ("No verdict: …"): tell the user, since only a new full review runs it again.
+   starting `<!-- claude-review:summary`). The App posts APPROVE or REQUEST_CHANGES. A review that did not finish
+   shows "No verdict" in the overview comment, or posts nothing at all for the head (a green `Publish the review`
+   with no App review and no overview for it). Silence is never "no findings": tell the user. After a "No verdict"
+   overview only a new full review runs it again; after nothing at all, the next push is reviewed afresh.
 3. Fix each finding on the branch, or reply in its thread (`add_reply_to_pull_request_comment`) with why it isn't a
    bug. A finding in the review body has no thread: fix it and say so in the handover.
 4. Pushes after the first review are skipped, so after pushing fixes or replies, comment
