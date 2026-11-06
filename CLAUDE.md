@@ -55,7 +55,7 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 - No force push. A PR branch that falls behind `main` gets `main` merged in, never a rebase (`rules/workflow.md`, Stale PR Branches).
 - No worktrees; branch in a plain clone under `/tmp` (see Where agents edit). Never push to `main`; land every change through a PR.
 - Check for secrets before committing — no `.env`, API keys, credentials.
-- Every non-draft PR gets an automatic Claude review (`.github/workflows/claude-review.yml`, see ADR 0013); its verdict is a signal, not a required approval.
+- Every non-draft PR gets an automatic Claude review (`.github/workflows/claude-review.yml`, see ADR 0013); its verdict is a signal, not a required approval. Every PR to `main` also runs `.github/workflows/checks.yml`, which fails on a hook committed without the executable bit.
 
 ## Where agents edit
 
@@ -88,6 +88,6 @@ The live checkout is what `/setup-claude` links into `~/.claude` (hooks, rules, 
 | `.claude/settings.json` | Project-level permissions allowlist (no hooks) |
 | `.claude/rules/` | Path-scoped rules (loaded on demand) |
 | `.claude/commands/` | Project command claude-pr-review (a fork of the code-review command from Anthropic's Claude Code plugins) |
-| `.github/workflows/` | Automatic Claude PR review workflow (ADR 0013) |
+| `.github/workflows/` | Automatic Claude PR review workflow (ADR 0013); `checks.yml`, the install-copies tests on every PR |
 | `assets/icon/` | The project icon (SVG, mono variant, PNGs from 16 to 1024 px) |
 | `README.md` | Repo overview, install table and links |
