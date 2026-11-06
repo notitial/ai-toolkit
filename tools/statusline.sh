@@ -379,12 +379,18 @@ fi
 #
 # Per account: the store path embeds self_fp, a fingerprint of
 # ${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json (whoever is logged in for THIS session), so
-# each account reads and writes its own file and never sees another's meter.
+# each account reads and writes its own file and never sees another's meter. Run each
+# extra account with its own CLAUDE_CONFIG_DIR: a session on CLAUDE_CODE_OAUTH_TOKEN
+# that shares the default ~/.claude.json still shows the stored login's accountUuid,
+# so it would write into, and borrow from, another account's file. Such a session keeps
+# no store (the token is tested for presence only, never read).
 # Freshness is per-window and keyed on resets_at (see below), not a wall-clock age.
 # Fail-open and silent, like every segment.
 self_src="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
 self_fp=unknown
-if [ -r "$self_src" ]; then
+if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ -z "${CLAUDE_CONFIG_DIR:-}" ]; then
+  : # a token session on the shared login: its account is unknown here
+elif [ -r "$self_src" ]; then
   self_uuid=$(GREP_OPTIONS= GREP_COLORS= grep -m1 -o '"accountUuid" *: *"[^"]*"' "$self_src" 2>/dev/null | sed 's/.*"\([^"]*\)"$/\1/') || true
   if [ -n "${self_uuid:-}" ]; then
     self_fp=$(printf %s "$self_uuid" | shasum -a 256 2>/dev/null | cut -c1-12) || self_fp=unknown
