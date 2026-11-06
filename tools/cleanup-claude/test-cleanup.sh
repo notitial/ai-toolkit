@@ -217,6 +217,28 @@ check "manual: mcp remove is printed for git-mcp and github only" 'grep -q "clau
 check "manual: .claude.json is not modified" '[ "$(shasum "$H/.claude.json")" = "$cj" ]'
 check "manual: Keychain commands are printed, not run" 'grep -q "security delete-generic-password -s mcp-github" "$T/out"'
 
+# ---- the root-owned folder stays while a settings file this run leaves still names its guard hook
+mkhome
+mkdir -p "$T/libexec/mcp-github" "$H/other-config/sessions"
+run --apply --remove-guard-hook --config-dir "$H/other-config"
+check "root guard: a default config dir not being cleaned keeps the folder" '! grep -q "sudo rm -r" "$T/out" && grep -q "^KEEP .*$C/settings.json: names the root-owned guard hook and is not among" "$T/out" && grep -q "^KEEP .*root-owned install" "$T/out"'
+mkhome
+mkdir -p "$T/libexec/mcp-github" "$H/other-config/sessions"
+jq 'del(.hooks.PreToolUse[4])' "$C/settings.json" > "$T/s.json" && cp "$T/s.json" "$C/settings.json"
+run --apply --remove-guard-hook --config-dir "$H/other-config"
+check "root guard: a default config dir without it does not keep the folder" 'grep -q "sudo rm -r $T/libexec/mcp-github\$" "$T/out"'
+mkhome
+mkdir -p "$T/libexec/mcp-github"
+printf '%s\n' '{"hooks": {"PreToolUse": [{"matcher": "mcp__github__.*", "hooks": [{"type": "command", "command": "/usr/local/libexec/mcp-github/guard.sh"}]}]},' > "$C/settings.json"
+run --apply --remove-guard-hook
+check "root guard: a settings file that is not JSON keeps the folder" '! grep -q "sudo rm -r" "$T/out" && grep -q "^KEEP .*names the root-owned guard hook and is left alone" "$T/out"'
+mkhome
+mkdir -p "$T/libexec/mcp-github"
+chmod 500 "$C"
+run --apply --remove-guard-hook
+chmod 700 "$C"
+check "root guard: a settings file that could not be written keeps the folder" '! grep -q "sudo rm -r" "$T/out" && grep -q "^KEEP .*names the root-owned guard hook and was not written" "$T/out"'
+
 # ---- the roster /setup-claude and install-copies.sh link, all removed
 mkhome
 R="$H/.claude-roster"; mkdir -p "$R/agents" "$R/hooks" "$R/rules" "$R/skills" "$R/tools"

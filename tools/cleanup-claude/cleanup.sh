@@ -298,6 +298,14 @@ realfile() {
   printf '%s\n' "$f"
 }
 fmode() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1" 2>/dev/null; }
+# A settings file this run leaves holding the root-owned guard hook keeps that folder: with guard.sh gone the bare hook
+# command is a non-blocking error and github MCP calls run unguarded. A file not parsed is matched as text.
+ROOT_GUARD=/usr/local/libexec/mcp-github/guard.sh
+keep_if_root_guard() {  # keep_if_root_guard <file> <why it keeps its content>
+  [ -f "$1" ] && grep -Fq "$ROOT_GUARD" "$1" 2>/dev/null || return 0
+  KEPT_ROOT_GUARD=1
+  say KEEP "$1: names the root-owned guard hook and $2"
+}
 
 SEEN_SETTINGS=""
 while IFS= read -r cfg; do
@@ -310,13 +318,15 @@ while IFS= read -r cfg; do
   case $'\n'"$SEEN_SETTINGS" in *$'\n'"$rf"$'\n'*) say OK "$sf (same file as one already handled)"; continue ;; esac
   SEEN_SETTINGS="$SEEN_SETTINGS$rf"$'\n'
   if ! jq -e 'type == "object"' "$rf" >/dev/null 2>&1; then
-    N_FAIL=$((N_FAIL + 1)); say FAIL "$rf (not valid JSON; left alone)"; continue
+    N_FAIL=$((N_FAIL + 1)); say FAIL "$rf (not valid JSON; left alone)"; keep_if_root_guard "$rf" "is left alone"; continue
   fi
   jq -S . "$rf" > "$SCRATCH/old.json"
   jq -S --slurpfile t "$RTEMPLATE" --argjson names "$HOOK_NAMES" --argjson cfgs "$CFG_JSON" \
     --arg guard "$ROOT/tools/github-mcp/guard.sh" --argjson live "$LIVE_DENY" \
     --argjson amb $((1 - KEEP_AMB)) --argjson sec "$SEC" --argjson rmguard "$RMGUARD" "$JQ_CLEAN" "$rf" > "$SCRATCH/new.json" 2>/dev/null
-  if [ ! -s "$SCRATCH/new.json" ]; then N_FAIL=$((N_FAIL + 1)); say FAIL "$rf (the clean-up filter failed; left alone)"; continue; fi
+  if [ ! -s "$SCRATCH/new.json" ]; then
+    N_FAIL=$((N_FAIL + 1)); say FAIL "$rf (the clean-up filter failed; left alone)"; keep_if_root_guard "$rf" "is left alone"; continue
+  fi
   if [ "$RMGUARD" = 0 ] && jq -e --arg guard "$ROOT/tools/github-mcp/guard.sh" '[.hooks? // {} | .[]? | arrays | .[] | objects | .hooks? // [] | .[]? | .command? | strings
       | select(. == "/usr/local/libexec/mcp-github/guard.sh" or . == $guard or . == ("/bin/bash -p '"'"'" + $guard + "'"'"' || exit 2"))] | length > 0' \
       "$SCRATCH/new.json" >/dev/null 2>&1; then
@@ -345,14 +355,24 @@ while IFS= read -r cfg; do
         say DONE "$rf  (backup: $bak)"
       else
         rm -f "$tmp"; N_FAIL=$((N_FAIL + 1)); say FAIL "$rf (write failed; backup kept at $bak)"
+        keep_if_root_guard "$rf" "was not written"
       fi
     else
-      N_FAIL=$((N_FAIL + 1)); say FAIL "$rf (no backup written; left alone)"
+      N_FAIL=$((N_FAIL + 1)); say FAIL "$rf (no backup written; left alone)"; keep_if_root_guard "$rf" "was not written"
     fi
   fi
 done <<EOF
 $CFGS
 EOF
+# The default config dirs a --config-dir run does not clean keep their hooks too.
+for sf in "$HOME_DIR/.claude/settings.json" "$HOME_DIR"/.claude-*/config/settings.json; do
+  [ -e "$sf" ] || continue
+  rf=$(realfile "$sf")
+  [ -f "$rf" ] || continue
+  rf="$(phys "$(dirname "$rf")")/$(basename "$rf")"
+  case $'\n'"$SEEN_SETTINGS" in *$'\n'"$rf"$'\n'*) continue ;; esac
+  keep_if_root_guard "$rf" "is not among the config dirs being cleaned"
+done
 
 # ---- 3. shell rc lines: whole lines that only source the toolkit; anything riskier is printed for the user
 echo "== shell rc files"
@@ -462,7 +482,7 @@ EOF
 echo "== for you to run (never run by this script)"
 manual() { N_MANUAL=$((N_MANUAL + 1)); say RUN "$1"; [ -z "${2:-}" ] || printf '        %s\n' "$2"; }
 if [ -e "$LIBEXEC/mcp-github" ] && [ "$KEPT_ROOT_GUARD" = 1 ]; then
-  say KEEP "root-owned install in $LIBEXEC/mcp-github: a kept guard hook still runs its guard.sh, so no rm is printed (--remove-guard-hook removes the hook and prints it)"
+  say KEEP "root-owned install in $LIBEXEC/mcp-github: a settings file named above keeps a guard hook that runs its guard.sh, so no rm is printed"
 elif [ -e "$LIBEXEC/mcp-github" ]; then
   cmd="sudo rm -r"
   [ -e "$LIBEXEC/mcp-github" ] && cmd="$cmd $(printf '%q' "$LIBEXEC/mcp-github")"
