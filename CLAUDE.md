@@ -53,9 +53,19 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 - One commit per logical change. Squash review-churn ("address findings", "round-N fixes") into the commit it amends before landing; never commit the same fix twice.
 - Squash-merge PRs (the repo allows nothing else): the PR title, with its `(#N)`, becomes the commit title, and the PR description becomes the commit body — so the title must be conventional and the description must stand as the commit's record. Avoid merge commits on `main` — pull with `--ff-only`.
 - No force push. A PR branch that falls behind `main` gets `main` merged in, never a rebase (`rules/workflow.md`, Stale PR Branches).
-- No worktrees; branch in the existing checkout. Never push to `main`; land every change through a PR.
+- No worktrees; branch in a plain clone under `/tmp` (see Where agents edit). Never push to `main`; land every change through a PR.
 - Check for secrets before committing — no `.env`, API keys, credentials.
 - Every non-draft PR gets an automatic Claude review (`.github/workflows/claude-review.yml`, see ADR 0013); its verdict is a signal, not a required approval.
+
+## Where agents edit
+
+The live checkout is what `/setup-claude` links into `~/.claude` (hooks, rules, skills, agents, the status line, the tool scripts) and what the github MCP launcher and guard run from, so a branch or half-done edit there goes live on the next tool call, MCP start or window reload. It stays on `main` and moves only with `git pull --ff-only` after a merge: the merge plus that pull is the install.
+
+- Code changes go in a plain clone under `/tmp`, such as `/tmp/ai-toolkit-<task>`, never a worktree. Git MCP calls carry `path` set to that clone. Never edit a tracked file in the live checkout.
+- `.archive/` (STATE.md, handoffs) stays in the live checkout: it is gitignored, so a clone has none.
+- `/tmp` is wiped on reboot: push the branch before stopping or handing over.
+- A long-lived session may still run in the live folder, since the tool that tracks it keys it to the folder it started in; it edits in its clone.
+- `/setup-claude` backs this with permission rules: asks on edits of `~/.claude/settings.json` and `settings.local.json`, denies on the live checkout's `hooks/`, `tools/github-mcp/`, `tools/shell-init.zsh` and `tools/ait.zsh`. A shell write (`sed -i`, a redirect, `git checkout` in the live checkout) is not an Edit, so no rule stops it: the clone discipline is the control.
 
 ## Key Paths
 

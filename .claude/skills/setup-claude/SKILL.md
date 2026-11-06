@@ -316,6 +316,7 @@ Read `templates/safe-permissions.json` for:
 - `permissions.allow` — safe permissions to ensure are present
 - `permissions.deny` — deny entries to ensure are present (security controls)
 - `permissions.ask` — commands that always prompt (added if missing, never removed)
+- the live checkout denies — not in the template: built from this checkout's real path and added only on the user's go (see **Permissions**)
 - `enabledPlugins` — plugins to ensure are enabled
 - `autoMode` and `skillOverrides` — auto mode classifier context and the /auto-mode-setup switch (merged; see **Auto mode**)
 - `_migration.removeBashGit` — old Bash git permissions to remove (replaced by MCP git)
@@ -440,11 +441,30 @@ Only remove these specific listed patterns. Do not remove other non-git Bash per
 **Deny entries:** Read `permissions.deny` from the template. **Add** any entry not already present in the live `deny` array (create the array if absent). **Never remove** existing live `deny` entries — they are security controls that may have been added outside this skill; report any live-only entries instead of touching them. Append in template order: a `Read(!…)` exception counts only after the rule it carves from, in the same file, so never add one without its rule or ahead of it. If the live array already has `Read(.env.*)`, put the template's `!` lines directly after it. Report any unanchored `.env` rule that comes after the `!` lines: the last matching rule wins, so it would deny `.env.example` again. `_deny_read_comment` in the template explains the secret-file rules.
 
 **Ask entries:** Read `permissions.ask` from the template (`caffeinate` and `pkill -x caffeinate`, which start and stop a keep-awake power assertion, the
-github MCP write tools, and edits to any `.mcp.json`). **Add** any entry not
+github MCP write tools, and edits to any `.mcp.json` or to `~/.claude/settings.json` and `~/.claude/settings.local.json`;
+the settings write this step ends with prompts once, and so does every later edit by any session). **Add** any entry not
 already present in the live `ask` array (create it if absent); **never remove** a live `ask` entry, and report
 live-only ones. An ask rule prompts even in auto mode and wins over a matching allow rule, so a live allow
 entry never suppresses the prompt. Prompts are invisible to the model: after adding an entry, ask the user to
 confirm that the command prompts.
+
+**Live checkout denies (written from the real path, never from the template).** The hooks, the github MCP launcher
+and guard and the shell helpers run from this checkout through the links this skill makes, so an edit of one takes
+effect on the next tool call, MCP start or window reload. Agents edit in `/tmp` clones (CLAUDE.md, Git
+Conventions) and never need to touch them, so a deny on the live paths costs nothing. A clone's own path does not
+match, so work in a clone stays free.
+
+1. Resolve the live checkout: the repo root this skill runs from (`../../../` from this file), as a physical path
+   (`cd -P <root> && pwd -P`). Skip this block with a note when that root is under `/tmp` or `/private/tmp`: a
+   throwaway clone is not the live checkout.
+2. Build four entries, each `Edit(/` + the absolute path + `)` so that it starts with `//`:
+   `<root>/hooks/**`, `<root>/tools/github-mcp/**`, `<root>/tools/shell-init.zsh`, `<root>/tools/ait.zsh`.
+3. These are a security control computed from a path, so show the four entries word for word and add the missing ones
+   to the live `deny` array only on the user's explicit go typed in this run. Without it, add none and say so.
+   Additive like the template's deny entries: never remove a live entry, and report any live `Edit(//…)` entry for
+   another checkout path as a leftover instead of touching it.
+4. A `Bash` command that writes a file (`sed -i`, a redirect, `git checkout`) is not an Edit and no rule here stops it:
+   say so in the report, so the user knows what the denies do not cover.
 
 ### Plugins
 
@@ -665,6 +685,7 @@ Permissions added: <list, or "none — already up to date">
 Permissions removed (migration): <list, or "none — already clean">
 Deny entries added: <list, or "none — already up to date"> (live-only deny entries: <list, or "none">)
 Ask entries added: <list, or "none — already up to date"> (live-only ask entries: <list, or "none">); user to confirm they prompt
+Live checkout denies: <root>; added <list> / already present / declined / skipped (root under /tmp); leftovers for other paths: <list, or "none">; not covered: Bash writes
 Hooks config: Added / Already configured / Merged
 Status line config: Added / Already configured / Skipped
 Auto mode, per list (environment, soft_deny): Added / Merged <entries added> / Already configured / DRIFT (replaced on go, backup <path> mode 600 | left as is); live allow / hard_deny: <absent | with "$defaults" | WITHOUT "$defaults">; skillOverrides: <keys added, or "none">
