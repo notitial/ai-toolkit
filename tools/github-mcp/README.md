@@ -252,8 +252,11 @@ you don't need (fewer scopes on the `gh` login, a passphrase on SSH keys).
   refs, a pager, a promisor remote's lazy fetch or any transport) runs or redirects it. It cannot tell a merged commit
   from a forged one: `git update-ref refs/remotes/origin/main HEAD`, or one text write of that ref file, makes
   `origin/main` agree, and a shell write into `.git/objects` can rewrite a commit in place. The `.git/**` Edit deny is
-  what holds the text-write route; whether a deny matches a mixed-case spelling such as `.GIT/config` on a
-  case-insensitive volume is unverified, as is whether it matches through a symlink. The worst realistic case is a leaked GitHub token (writes stay denied by tool name), and it needs a
+  what holds the text-write route. Tested on Claude Code 2.1.319 (2026-11-06), with the deny on the real path or on a
+  symlink to it, the Edit tool was refused for the exact path, a mixed-case spelling (`.GIT/config` on a
+  case-insensitive volume), a path through a symlink to the real folder, the real path when the deny named the link,
+  and `/tmp/...` for a deny on `/private/tmp/...`. A later Claude Code version could change that, and a shell write
+  is not an Edit either way. The worst realistic case is a leaked GitHub token (writes stay denied by tool name), and it needs a
   hijacked agent.
 - A check-then-run gap remains: the launcher verifies the binary's hash and then runs it, so a swap in between is not
   caught. The environment is also a lever: a changed `HOME` moves where `install.conf` and the git config are read

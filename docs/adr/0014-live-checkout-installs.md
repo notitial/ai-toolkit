@@ -44,8 +44,10 @@ edit). Nothing is owned by root and nothing needs `sudo`.
 - **Permission rules.** `/setup-claude` writes Edit denies on the live checkout's `.git`, `hooks`, `rules`, `agents`,
   `skills`, `tools/github-mcp`, `tools/workspace-lock`, the status line and the shell helpers. The template denies the
   `~/.claude` link paths and asks on every edit of the user settings.
-- **Committed files only.** `/setup-claude` links only what is committed at `HEAD` (`install-copies.sh roster`), never
-  an untracked file in the checkout.
+- **Committed files only.** `/setup-claude` links only the agents, hooks, rules and skills committed at `HEAD`
+  (`install-copies.sh roster`), never an untracked file in the checkout. This amends the discovery by glob that
+  [ADR 0006](0006-symlink-based-skill-distribution.md), [ADR 0007](0007-global-setup-skill.md) and
+  [ADR 0009](0009-global-rules-distribution.md) describe.
 
 The threat model is the one in [ADR 0011](0011-shell-hook-enforcement.md): the controls stop accidents and a
 well-meaning session that forgets the rules, not a hijacked agent that works around them on purpose.
@@ -59,8 +61,9 @@ well-meaning session that forgets the rules, not a hijacked agent that works aro
   checkout. The Edit denies close the editing tools only.
 - **The git pins list known routes.** Three security reviews kept finding the same class of problem: git runs what the
   checkout's `.git/config` names. The pins close every route found so far. The `.git/**` Edit deny is what holds the
-  class against an editing tool; [tools/github-mcp/README.md](../../tools/github-mcp/README.md) records whether it
-  matches mixed-case and symlinked paths.
+  class against an editing tool. Tested on Claude Code 2.1.319, an Edit deny also matches a mixed-case spelling on a
+  case-insensitive volume and a path through a symlink in either direction
+  ([tools/github-mcp/README.md](../../tools/github-mcp/README.md)).
 - **Local forgery stays possible.** `origin/main` can be forged by `update-ref` or one text write, and a commit can be
   rewritten in `.git/objects` by a shell write. A swap of the binary between its hash check and its exec is not caught,
   and a changed `HOME` moves where `install.conf` is read from.

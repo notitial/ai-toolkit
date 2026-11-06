@@ -1,7 +1,7 @@
 # 7. Global Setup Skill Over Manual Installation
 
 **Status:** accepted
-**Date:** 2026-03-27
+**Date:** 2026-03-27 · **Amended:** 2026-11-06 (ADR 0014: committed files only)
 
 ## Context
 
@@ -27,3 +27,4 @@ The skill approach has a unique advantage: Claude Code is both the installer and
 - Templates in the repo are the source of truth — changing a template and re-running `/setup-claude` updates the global config
 - The skill only touches `~/.claude/` — it never modifies project-level files
 - Adding a new skill to the repo is automatic — the glob pattern discovers it on next run
+- Amended by [ADR 0014](0014-live-checkout-installs.md) (2026-11-06): `/setup-claude` links only the artifacts committed at `HEAD` (`bash tools/install-copies.sh roster`), not every matching file on disk.
