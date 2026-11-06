@@ -249,9 +249,11 @@ you don't need (fewer scopes on the `gh` login, a passphrase on SSH keys).
   that, the clone rule in `CLAUDE.md` is the only layer. Within its reach the check switches the guard and the
   launcher off while the checkout is on another branch, differs from `HEAD` in a tracked file or holds a commit
   `origin/main` lacks, and it runs git so that nothing in `.git/config` (a filter, an fsmonitor, a work tree, replace
-  refs) runs or redirects it. It cannot tell a merged commit from a forged one: `git update-ref
-  refs/remotes/origin/main HEAD` makes `origin/main` agree, and a shell write into `.git/objects` can rewrite a commit
-  in place. The worst realistic case is a leaked GitHub token (writes stay denied by tool name), and it needs a
+  refs, a pager, a promisor remote's lazy fetch or any transport) runs or redirects it. It cannot tell a merged commit
+  from a forged one: `git update-ref refs/remotes/origin/main HEAD`, or one text write of that ref file, makes
+  `origin/main` agree, and a shell write into `.git/objects` can rewrite a commit in place. The `.git/**` Edit deny is
+  what holds the text-write route; whether a deny matches a mixed-case spelling such as `.GIT/config` on a
+  case-insensitive volume is unverified, as is whether it matches through a symlink. The worst realistic case is a leaked GitHub token (writes stay denied by tool name), and it needs a
   hijacked agent.
 - A check-then-run gap remains: the launcher verifies the binary's hash and then runs it, so a swap in between is not
   caught. The environment is also a lever: a changed `HOME` moves where `install.conf` and the git config are read

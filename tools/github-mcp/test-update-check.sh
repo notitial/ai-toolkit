@@ -255,6 +255,13 @@ ok "a matching pin on a commit origin/main lacks: nothing runs" '[ $st -eq 0 ] &
 reset
 out=$(hook); st=$?
 ok "the same pin once on origin/main: the hook works again" '[ $st -eq 0 ] && [ -e "$C" ]'
+# A detached HEAD at an older commit origin/main holds would bring back that commit's pin: only main's HEAD counts.
+OLD=$("${RG[@]}" rev-parse HEAD~1)
+"${RG[@]}" checkout -q --detach "$OLD" 2>/dev/null
+reset
+out=$(hook); st=$?
+ok "a detached HEAD at an older commit: nothing runs" '[ $st -eq 0 ] && [ -z "$out" ] && [ ! -e "$C" ]'
+"${RG[@]}" checkout -q main 2>/dev/null
 # The session's environment does not steer the pin lookup.
 reset
 out=$(printf '%s' "$INPUT" | GIT_DIR=/nonexistent GIT_INDEX_FILE=/nonexistent XDG_CACHE_HOME="$T/cache" "$SH" "$T/hook.sh" 2>/dev/null); st=$?

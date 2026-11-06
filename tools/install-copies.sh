@@ -32,12 +32,13 @@ ZDOT="${ICOPIES_ZDOTDIR:-${ZDOTDIR:-$HOME_DIR}}"
 BAD=0
 
 # g: git on this checkout, pinned like the guard's live_git (tools/github-mcp/guard.sh): its .git/config is a file
-# edit away, so no fsmonitor, hook, replace ref, graft, commit-graph or trace2 target from it, and the work tree is
+# edit away, so no fsmonitor, hook, pager, lazy fetch, transport, replace ref, graft, commit-graph or trace2 target from it, and the work tree is
 # this checkout whatever core.worktree says. Callers use only commands that run no filter or external diff.
 g() {
   /usr/bin/env GIT_DIR="$ROOT/.git" GIT_WORK_TREE="$ROOT" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
     GIT_ATTR_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 GIT_NO_REPLACE_OBJECTS=1 GIT_GRAFT_FILE=/dev/null GIT_TRACE2=0 \
-    GIT_TRACE2_EVENT=0 GIT_TRACE2_PERF=0 /usr/bin/git -c core.fsmonitor=false -c core.commitGraph=false \
+    GIT_TRACE2_EVENT=0 GIT_TRACE2_PERF=0 GIT_NO_LAZY_FETCH=1 GIT_ALLOW_PROTOCOL=none /usr/bin/git --no-pager \
+    -c core.fsmonitor=false -c core.commitGraph=false \
     -c core.useReplaceRefs=false -c core.hooksPath=/dev/null -C "$ROOT" "$@"
 }
 # tracked_changes: prints a line when any tracked file differs from HEAD (index against HEAD, then each file hashed
@@ -47,7 +48,8 @@ tracked_changes() {
   g diff-index --cached --quiet --no-ext-diff --no-textconv HEAD -- 2>/dev/null || echo "staged changes"
   idx=$(g ls-files -s 2>/dev/null) || { echo "index unreadable"; return; }
   [ -n "$idx" ] || return 0
-  printf '%s\n' "$idx" | grep -Eqv '^100(644|755) [0-9a-f]{40,64} 0[[:blank:]]' && echo "a symlink, submodule or conflict"
+  printf '%s\n' "$idx" | grep -Eqv '^100(644|755) [0-9a-f]{40,64} 0[[:blank:]]'
+  [ $? -eq 1 ] || echo "a symlink, submodule or conflict"
   [ "$(printf '%s\n' "$idx" | cut -d ' ' -f 2)" = "$(printf '%s\n' "$idx" | cut -f 2- | g hash-object --no-filters --stdin-paths 2>/dev/null)" ] ||
     echo "a tracked file differs"
 }
@@ -119,7 +121,7 @@ status_ref() {
   fi
   o=$(g rev-parse --verify -q "refs/remotes/origin/$REF^{commit}" 2>/dev/null) || return 0
   [ "$o" = "$REF_SHA" ] && return 0
-  g merge-base --is-ancestor "$o" "$REF_SHA" 2>/dev/null && return 0
+  g merge-base --is-ancestor "$o" "$REF_SHA" >/dev/null 2>&1 && return 0
   line STALE "$REF is behind origin/$REF as of the last fetch" "fast-forward $REF, then re-run"
   return 0
 }
@@ -131,7 +133,8 @@ BIN_REL=tools/github-mcp/bin/github-mcp-server
 # point here (a copy elsewhere, or the old root-owned folder, is stale).
 status_github_mcp() {
   local br dirty want cfg have cmds nproj pin got
-  br=$(g symbolic-ref -q --short HEAD 2>/dev/null)
+  br=$(g symbolic-ref -q HEAD 2>/dev/null)
+  case $br in refs/heads/*) br=${br#refs/heads/} ;; '') ;; *) br="HEAD at $br" ;; esac
   dirty=$(tracked_changes)
   if [ "$br" != main ] || [ -n "$dirty" ]; then
     line STALE "github-mcp checkout (${br:-no branch}${dirty:+, with edits}: the guard and the launcher are off)" "work in a /tmp clone; put this checkout back on a clean main"

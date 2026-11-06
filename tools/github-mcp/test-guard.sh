@@ -332,6 +332,26 @@ check deny "an edit hidden behind a replace ref of HEAD denies" "$READ_CALL"
 "${GIT_Q[@]}" replace -d HEAD >/dev/null
 "${GIT_Q[@]}" reset -q --hard HEAD
 check pass "replace ref removed: the read passes" "$READ_CALL"
+# A promisor remote in .git/config would make git fetch a missing object from inside a read command, running the
+# remote's upload-pack command: no lazy fetch and no transport may run.
+plant_promisor() {  # plant_promisor <checkout>: main points at a missing object, origin is a promisor
+  cp "$1/.git/config" "$TMP/config.saved"
+  MAIN_SAVED=$(cat "$1/.git/refs/heads/main" 2>/dev/null || git -C "$1" rev-parse refs/heads/main)
+  git init -q --bare "$TMP/promisor.git" 2>/dev/null
+  printf '[core]\n\trepositoryformatversion = 1\n[extensions]\n\tpartialClone = origin\n[remote "origin"]\n\turl = %s/promisor.git\n\tpromisor = true\n\tuploadpack = touch %s/fetch-ran; git-upload-pack\n' \
+    "$TMP" "$TMP" >> "$1/.git/config"
+  printf '1234567890123456789012345678901234567890\n' > "$1/.git/refs/heads/main"
+  rm -f "$TMP/fetch-ran"
+}
+unplant_promisor() {  # unplant_promisor <checkout>
+  printf '%s\n' "$MAIN_SAVED" > "$1/.git/refs/heads/main"
+  cp "$TMP/config.saved" "$1/.git/config"
+}
+plant_promisor "$CO"
+check deny "a promisor remote and a missing object: denies" "$READ_CALL"
+if [ ! -e "$TMP/fetch-ran" ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: the guard ran a lazy fetch's upload-pack command from .git/config"; fi
+unplant_promisor "$CO"
+check pass "promisor removed: the read passes" "$READ_CALL"
 # A copy of the guard elsewhere in the checkout must not pass on the real files.
 mkdir -p "$CO/.archive/x"
 cp "$CO/tools/github-mcp/guard.sh" "$CO/.archive/x/guard.sh"
@@ -497,6 +517,12 @@ rm -f "$TMP/filter-ran" "$TMP/fsmonitor-ran"
 run_launch
 lcheck "planted config, unchanged file: starts, runs nothing from .git/config" '[ $? -eq 0 ] && noexec && [ -e "$TMP/out-vars" ]'
 unplant_config "$LC"
+plant_promisor "$LC"
+run_launch
+lcheck "a promisor remote and a missing object: refuses to start, runs no fetch" '[ $? -ne 0 ] && [ ! -e "$TMP/fetch-ran" ] && [ ! -e "$TMP/out-vars" ]'
+unplant_promisor "$LC"
+run_launch
+lcheck "promisor removed: starts again" '[ $? -eq 0 ] && [ -e "$TMP/out-vars" ]'
 # A copy of the launcher elsewhere in the checkout refuses: it would read the pin and binary beside itself.
 mkdir -p "$LC/.archive/x/bin"
 cp "$L/launch" "$L/server.sha256" "$LC/.archive/x/"

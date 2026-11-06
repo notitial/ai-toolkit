@@ -100,20 +100,23 @@ check() {
 }
 
 # hgit: git on the checkout with nothing from the session's environment, and nothing from its .git/config that runs a
-# command or redirects an object (the same pins as the guard's live_git). Only cat-file and merge-base are used.
+# command or redirects an object (the same pins as the guard's live_git). Only symbolic-ref, cat-file and merge-base
+# are used.
 hgit() {
   [ -n "$ROOT" ] && [ -d "$ROOT/.git" ] || return 1
   /usr/bin/env -i PATH=/usr/bin:/bin GIT_DIR="$ROOT/.git" GIT_WORK_TREE="$ROOT" GIT_CONFIG_NOSYSTEM=1 \
     GIT_CONFIG_GLOBAL=/dev/null GIT_OPTIONAL_LOCKS=0 GIT_NO_REPLACE_OBJECTS=1 GIT_GRAFT_FILE=/dev/null GIT_TRACE2=0 \
-    GIT_TRACE2_EVENT=0 GIT_TRACE2_PERF=0 /usr/bin/git -c core.fsmonitor=false -c core.commitGraph=false \
+    GIT_TRACE2_EVENT=0 GIT_TRACE2_PERF=0 GIT_NO_LAZY_FETCH=1 GIT_ALLOW_PROTOCOL=none /usr/bin/git --no-pager \
+    -c core.fsmonitor=false -c core.commitGraph=false \
     -c core.useReplaceRefs=false -c core.hooksPath=/dev/null -C "$ROOT" "$@" </dev/null 2>/dev/null
 }
 
-# bin_pinned: the binary matches the hash in server.sha256 as committed at a HEAD that origin/main holds (a pin edited
-# in the work tree or committed only on a branch does not count). A binary that does not is never run here: this
+# bin_pinned: the binary matches the hash in server.sha256 as committed at main's HEAD, which origin/main holds (a pin
+# edited in the work tree, committed only on a branch, or from an older commit through a detached HEAD does not count). A binary that does not is never run here: this
 # hook would hand it the session's environment.
 bin_pinned() {
   local want got
+  [ "$(hgit symbolic-ref -q HEAD)" = refs/heads/main ] || return 1
   hgit merge-base --is-ancestor HEAD refs/remotes/origin/main || return 1
   want=$(hgit cat-file blob HEAD:tools/github-mcp/server.sha256 | sed -n 's/^\([0-9a-f]\{64\}\)  *github-mcp-server$/\1/p' | head -n 1)
   got=$(/usr/bin/shasum -a 256 "$BIN" 2>/dev/null | sed -n 's/^\([0-9a-f]\{64\}\)  .*/\1/p')

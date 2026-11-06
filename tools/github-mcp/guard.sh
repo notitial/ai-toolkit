@@ -89,19 +89,23 @@ LIVE_FILES="tools/github-mcp/guard.sh tools/github-mcp/launch"
 # git reads the checkout's own .git/config, which a file edit can change, so only commands that run no filter, hook,
 # external diff or textconv are used: the index against HEAD (diff-index --cached) and each tracked file hashed with
 # --no-filters against the index. The work tree, replace refs, grafts, the commit-graph and trace2 are pinned so that
-# .git/config cannot redirect them. Only plain files are accepted; a symlink, a submodule or a conflict denies.
+# .git/config cannot redirect them, and no pager, lazy fetch or transport runs (a promisor remote named there would
+# otherwise run its upload-pack command on a missing object). Only plain files are accepted; a symlink, a submodule
+# or a conflict denies, and so does a grep that fails.
 live_git() {
   [ -n "$ROOT" ] && [ -d "$ROOT/.git" ] || return 1
   /usr/bin/env GIT_DIR="$ROOT/.git" GIT_WORK_TREE="$ROOT" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
     GIT_ATTR_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 GIT_NO_REPLACE_OBJECTS=1 GIT_GRAFT_FILE=/dev/null GIT_TRACE2=0 \
-    GIT_TRACE2_EVENT=0 GIT_TRACE2_PERF=0 /usr/bin/git -c core.fsmonitor=false -c core.commitGraph=false \
+    GIT_TRACE2_EVENT=0 GIT_TRACE2_PERF=0 GIT_NO_LAZY_FETCH=1 GIT_ALLOW_PROTOCOL=none /usr/bin/git --no-pager \
+    -c core.fsmonitor=false -c core.commitGraph=false \
     -c core.useReplaceRefs=false -c core.hooksPath=/dev/null -C "$ROOT" "$@" 2>/dev/null
 }
 live_main_ok() {
   [ "$(live_git symbolic-ref -q HEAD </dev/null)" = refs/heads/main ] || return 1
   live_git diff-index --cached --quiet --no-ext-diff --no-textconv HEAD -- </dev/null || return 1
   _idx=$(live_git ls-files -s </dev/null) && [ -n "$_idx" ] || return 1
-  printf '%s\n' "$_idx" | /usr/bin/grep -Eqv '^100(644|755) [0-9a-f]{40,64} 0[[:blank:]]' && return 1
+  printf '%s\n' "$_idx" | /usr/bin/grep -Eqv '^100(644|755) [0-9a-f]{40,64} 0[[:blank:]]'
+  [ $? -eq 1 ] || return 1
   _want=$(printf '%s\n' "$_idx" | /usr/bin/cut -d ' ' -f 2)
   _got=$(printf '%s\n' "$_idx" | /usr/bin/cut -f 2- | live_git hash-object --no-filters --stdin-paths) || return 1
   [ "$_want" = "$_got" ] || return 1
