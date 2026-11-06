@@ -265,7 +265,7 @@ for bad in / "$H" "$ROOT" "$ROOT/.claude" "$T/plain"; do
   check "--config-dir $bad is refused" '[ $RC -eq 2 ] && grep -q "refused" "$T/out"'
 done
 before=$(snap); run --config-dir "$H"; check "a refused config dir changes nothing" '[ "$(snap)" = "$before" ]'
-CLEANUP_HOME="$T/empty" bash "$CLEAN" > "$T/out" 2>&1
+HOME="$H" CLEANUP_HOME="$T/empty" bash "$CLEAN" > "$T/out" 2>&1
 check "a stray CLEANUP_HOME without CLEANUP_TESTING is ignored" '! grep -q "$T/empty" "$T/out" && ! grep -q "no Claude config dir found" "$T/out"'
 
 # ---- --verbose prints paths, never values

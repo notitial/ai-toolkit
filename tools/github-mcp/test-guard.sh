@@ -396,12 +396,31 @@ write_conf 'github_write_owners=notitial example-user' 'github_keychain_account=
 LC="$TMP/lc"
 L="$LC/tools/github-mcp"
 mkdir -p "$L/bin"
-sed -e "s|/usr/bin/security find-generic-password -s mcp-github -a \"\$acct\" -w|\"\$DIR/fake-security\" \"\$acct\"|" \
-    -e "s|\"\$HOME/.claude/install.conf\"|\"$LC/install.conf\"|" \
-    "$HERE/launch" > "$L/launch"
+# The launcher is macOS-only (dscl, getconf DARWIN_USER_TEMP_DIR, the keychain, /var/empty). Elsewhere (the Linux CI
+# job) the copy also swaps the first, second and last for stand-ins, so the rest of the launcher is still tested; on
+# macOS they stay real. PLATFORM_OVERRIDE=Linux on a Mac tries the swapped copy locally.
+PLATFORM=${PLATFORM_OVERRIDE:-$(uname -s)}
+SWAPS=(-e "s|/usr/bin/security find-generic-password -s mcp-github -a \"\$acct\" -w|\"\$DIR/fake-security\" \"\$acct\"|"
+       -e "s|\"\$HOME/.claude/install.conf\"|\"$LC/install.conf\"|")
+if [ "$PLATFORM" = Darwin ]; then
+  EXPECT_HOME=$(/usr/bin/dscl . -read "/Users/$(id -un)" NFSHomeDirectory | sed -n "s/^NFSHomeDirectory: //p")
+  EXPECT_TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)
+  EMPTY_DIRS=(/var/empty /private/var/empty)
+else
+  EXPECT_HOME="$TMP/fakehome"
+  EXPECT_TMPDIR="$TMP/faketmp"
+  mkdir -p "$TMP/empty"
+  EMPTY_DIRS=("$(cd -P "$TMP/empty" && pwd -P)")
+  SWAPS+=(-e "s|/usr/bin/dscl . -read \"/Users/\$user\" NFSHomeDirectory|\"\$DIR/fake-dscl\"|"
+          -e "s|/usr/bin/getconf DARWIN_USER_TEMP_DIR|\"\$DIR/fake-getconf\"|"
+          -e "s|cd /var/empty|cd \"$TMP/empty\"|")
+fi
+sed "${SWAPS[@]}" "$HERE/launch" > "$L/launch"
+printf '#!/bin/sh\nprintf "NFSHomeDirectory: %%s\\n" "%s"\n' "$EXPECT_HOME" > "$L/fake-dscl"
+printf '#!/bin/sh\nprintf "%%s\\n" "%s"\n' "$EXPECT_TMPDIR" > "$L/fake-getconf"
 printf '#!/bin/sh\nprintf %%s "$1" > "%s/out-account"\nprintf %%s tok-FAKE-123\n' "$TMP" > "$L/fake-security"
 printf '#!/bin/sh\n/usr/bin/env > "%s/out-vars"\npwd > "%s/out-cwd"\nprintf "%%s\\n" "$@" > "%s/out-args"\n' "$TMP" "$TMP" "$TMP" > "$L/bin/github-mcp-server"
-chmod 755 "$L/launch" "$L/fake-security" "$L/bin/github-mcp-server"
+chmod 755 "$L/launch" "$L/fake-security" "$L/fake-dscl" "$L/fake-getconf" "$L/bin/github-mcp-server"
 printf 'github_keychain_account=test-account\n' > "$LC/install.conf"
 printf 'tracked\n' > "$LC/README"
 cp "$SRC" "$L/guard.sh"
@@ -414,6 +433,10 @@ if ! grep -q 'fake-security' "$L/launch" || ! grep -q "$LC/install.conf" "$L/lau
   echo "ABORT: the launcher copy still points at the real keychain or settings file; fix the sed in this test"
   exit 1
 fi
+if [ "$PLATFORM" != Darwin ] && { ! grep -q 'fake-dscl' "$L/launch" || ! grep -q 'fake-getconf' "$L/launch" || grep -q -e /usr/bin/dscl -e DARWIN_USER_TEMP_DIR -e /var/empty "$L/launch"; }; then
+  echo "ABORT: the launcher copy still calls dscl, getconf or /var/empty; fix the sed in this test"
+  exit 1
+fi
 lcheck() {
   if eval "$2"; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: launcher: $1"; fi
 }
@@ -423,12 +446,12 @@ run_launch() { rm -f "$TMP"/out-*; (cd / && "$L/launch") > /dev/null 2> "$TMP/ou
   ENV=/dev/null HOME=/nonexistent TMPDIR=/nonexistent "$L/launch") > "$TMP/out-stdout" 2> "$TMP/out-stderr"
 lcheck "exit status 0" '[ $? -eq 0 ]'
 lcheck "no token or trace on stderr" '! grep -q -e tok-FAKE -e "^+" "$TMP/out-stderr"'
-lcheck "server cwd is the empty root-owned folder" '[ "$(cat "$TMP/out-cwd" 2>/dev/null)" = /var/empty ] || [ "$(cat "$TMP/out-cwd" 2>/dev/null)" = /private/var/empty ]'
+lcheck "server cwd is the empty root-owned folder" '[ "$(cat "$TMP/out-cwd" 2>/dev/null)" = "${EMPTY_DIRS[0]}" ] || [ "$(cat "$TMP/out-cwd" 2>/dev/null)" = "${EMPTY_DIRS[1]:-${EMPTY_DIRS[0]}}" ]'
 lcheck "keychain account read from the settings file" '[ "$(cat "$TMP/out-account" 2>/dev/null)" = test-account ]'
 lcheck "token passed in the environment" 'grep -qx "GITHUB_PERSONAL_ACCESS_TOKEN=tok-FAKE-123" "$TMP/out-vars"'
 lcheck "no other GITHUB_ or shell-injection vars" '! grep -v "^GITHUB_PERSONAL_ACCESS_TOKEN=" "$TMP/out-vars" | grep -q -E "^(GITHUB_|SHELLOPTS=|BASH_FUNC|BASH_ENV=|ENV=|IFS=)"'
-lcheck "HOME from the user record" '[ "$(sed -n "s/^HOME=//p" "$TMP/out-vars")" = "$(/usr/bin/dscl . -read "/Users/$(id -un)" NFSHomeDirectory | sed -n "s/^NFSHomeDirectory: //p")" ]'
-lcheck "TMPDIR from getconf" '[ "$(sed -n "s/^TMPDIR=//p" "$TMP/out-vars")" = "$(getconf DARWIN_USER_TEMP_DIR)" ]'
+lcheck "HOME from the user record" '[ "$(sed -n "s/^HOME=//p" "$TMP/out-vars")" = "$EXPECT_HOME" ]'
+lcheck "TMPDIR from getconf" '[ "$(sed -n "s/^TMPDIR=//p" "$TMP/out-vars")" = "$EXPECT_TMPDIR" ]'
 lcheck "PATH fixed" 'grep -qx "PATH=/usr/bin:/bin" "$TMP/out-vars"'
 lcheck "server args fixed" '[ "$(tr "\n" " " < "$TMP/out-args")" = "stdio --tools $(sed -n "s/^TOOLS=//p" "$HERE/launch") " ]'
 printf 'untracked\n' > "$LC/untracked-file"
