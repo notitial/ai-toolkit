@@ -20,6 +20,9 @@
 # Orchestrator lock runtime state (created on acquire; never committed)
 .workspace-lock/
 
+# The pinned github MCP server binary (downloaded by hand, see tools/github-mcp/README.md)
+tools/github-mcp/bin/
+
 # Local environment files (may hold secrets; never committed)
 .env
 .env.*

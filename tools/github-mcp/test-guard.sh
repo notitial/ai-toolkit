@@ -7,15 +7,20 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 SRC="$HERE/guard.sh"
 # Run a copy with HOME pointed away, so its deny path never writes to the live audit log.
 TMP=$(mktemp -d)
-cleanup() {
-  rm -f "$TMP"/L/* "$TMP"/github-mcp-guard.sh "$TMP"/out-*
-  rmdir "$TMP/L" "$TMP" 2>/dev/null
-}
+cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
-# The guard carries a placeholder owner list that ghm-install fills from ~/.claude/install.conf; the copy under test is
-# rendered with the fixture owners notitial and example-user.
-sed 's|__GITHUB_WRITE_OWNERS__|["notitial","example-user"]|' "$SRC" > "$TMP/github-mcp-guard.sh"
-HOOK="$TMP/github-mcp-guard.sh"
+# The guard checks the checkout it sits in (a clean main) and reads its owners from $HOME/.claude/install.conf, so
+# the copy under test sits in a throwaway checkout on main, with a fixture install.conf under the fake HOME.
+CO="$TMP/co"
+mkdir -p "$CO/tools/github-mcp" "$TMP/.claude"
+cp "$SRC" "$CO/tools/github-mcp/guard.sh"
+cp "$HERE/launch" "$CO/tools/github-mcp/launch"
+printf 'tracked\n' > "$CO/README"
+GIT_Q=(git -C "$CO" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false)
+"${GIT_Q[@]}" init -q -b main && "${GIT_Q[@]}" add -A && "${GIT_Q[@]}" commit -q -m init && "${GIT_Q[@]}" update-ref refs/remotes/origin/main HEAD || { echo "ABORT: cannot build the throwaway checkout"; exit 1; }
+write_conf() { printf '%s\n' "$@" > "$TMP/.claude/install.conf"; }
+write_conf 'github_write_owners=notitial example-user' 'github_keychain_account=test-account'
+HOOK="$CO/tools/github-mcp/guard.sh"
 PASS=0
 FAIL=0
 
@@ -210,7 +215,7 @@ esac
 
 # The template's hook matcher: every tool of the github server, nothing else.
 TEMPLATE="$HERE/../../.claude/skills/setup-claude/templates/safe-permissions.json"
-matcher=$(jq -r '.hooks.PreToolUse[] | select(.hooks[0].command == "/usr/local/libexec/mcp-github/guard.sh") | .matcher' "$TEMPLATE")
+matcher=$(jq -r '.hooks.PreToolUse[] | select(.hooks[0].command == "/bin/bash -p '"'"'<checkout>/tools/github-mcp/guard.sh'"'"' || exit 2") | .matcher' "$TEMPLATE")
 if [ "$matcher" = '^mcp__github__.*$' ]; then
   PASS=$((PASS + 1))
 else
@@ -246,66 +251,303 @@ else
   FAIL=$((FAIL + 1)); echo "FAIL: a deny did not reach the audit logger"
 fi
 rm -f "$TMP/.claude/hooks/audit-logger.sh"
-rmdir "$TMP/.claude/hooks" "$TMP/.claude"
+rmdir "$TMP/.claude/hooks"
 
-# Launcher: run a copy with stand-ins for security and the server, under a hostile environment.
-# Each stand-in records what it saw; the real paths are swapped for the temp folder.
-mkdir "$TMP/L"
-L="$TMP/L"
-sed -e "s|^DIR=.*|DIR=$L|" \
-    -e "s|/usr/bin/security find-generic-password -s mcp-github -a __GITHUB_KEYCHAIN_ACCOUNT__ -w|\"\$DIR/fake-security\"|" \
+# The guard runs from the live checkout: it must sit on a clean main, or every github call is denied, reads included.
+READ_CALL=$(acall pull_request_read '{"method":"get","pullNumber":1}')
+WRITE_CALL=$(acall create_pull_request '{"title":"t","head":"b","base":"main","draft":true}')
+check pass "clean main: a read passes" "$READ_CALL"
+check allow "clean main: a draft PR in a write-owner repo is allowed" "$WRITE_CALL"
+printf 'untracked\n' > "$CO/untracked-file"
+check pass "an untracked file does not turn the guard off" "$READ_CALL"
+rm -f "$CO/untracked-file"
+printf 'edited\n' >> "$CO/README"
+check deny "a tracked file with an edit turns the guard off (read)" "$READ_CALL"
+check deny "a tracked file with an edit turns the guard off (write)" "$WRITE_CALL"
+"${GIT_Q[@]}" checkout -q -- README
+check pass "edit undone: the read passes again" "$READ_CALL"
+"${GIT_Q[@]}" checkout -q -b topic
+check deny "a branch other than main turns the guard off (read)" "$READ_CALL"
+check deny "a branch other than main turns the guard off (write)" "$WRITE_CALL"
+"${GIT_Q[@]}" checkout -q main
+check pass "back on main: the read passes" "$READ_CALL"
+# HEAD must be on origin/main: a commit made locally and never pushed is not reviewed code; main behind origin is.
+printf 'local\n' >> "$CO/README"
+"${GIT_Q[@]}" commit -q -am local
+check deny "a local commit on main that origin/main lacks turns the guard off (read)" "$READ_CALL"
+check deny "a local commit on main that origin/main lacks turns the guard off (write)" "$WRITE_CALL"
+"${GIT_Q[@]}" update-ref refs/remotes/origin/main HEAD
+check pass "the same commit once it is on origin/main: the read passes" "$READ_CALL"
+AHEAD=$("${GIT_Q[@]}" commit-tree 'HEAD^{tree}' -p HEAD -m ahead)
+"${GIT_Q[@]}" update-ref refs/remotes/origin/main "$AHEAD"
+check pass "main behind origin/main (not pulled yet): the read passes" "$READ_CALL"
+"${GIT_Q[@]}" update-ref -d refs/remotes/origin/main
+check deny "no origin/main ref: the guard is off" "$READ_CALL"
+"${GIT_Q[@]}" update-ref refs/remotes/origin/main HEAD
+check pass "origin/main back: the read passes" "$READ_CALL"
+# The two files that execute must equal their committed blobs, even when git is told to ignore the change.
+for f in guard.sh launch; do
+  "${GIT_Q[@]}" update-index --skip-worktree "tools/github-mcp/$f"
+  printf '# edited\n' >> "$CO/tools/github-mcp/$f"
+  check deny "an edit of $f hidden by skip-worktree turns the guard off" "$READ_CALL"
+  "${GIT_Q[@]}" update-index --no-skip-worktree "tools/github-mcp/$f"
+  "${GIT_Q[@]}" checkout -q -- "tools/github-mcp/$f"
+done
+check pass "edits undone: the read passes" "$READ_CALL"
+# The hook's own environment must not steer the check: GIT_DIR and friends point nowhere.
+out=$(printf '%s' "$READ_CALL" | env GIT_DIR=/nonexistent GIT_WORK_TREE=/nonexistent GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=/bin/false DEVELOPER_DIR=/nonexistent HOME="$TMP" bash "$HOOK" 2>/dev/null)
+if [ -z "$out" ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: GIT_* and DEVELOPER_DIR in the hook's environment steered the checkout test: $out"; fi
+# .git/config is one file edit away: a clean filter, an fsmonitor or a work tree planted there must neither run nor
+# redirect the check. The harness's own git calls would run them, so the plant is removed before the next one.
+plant_config() {  # plant_config <checkout>: a filter that would make an edited README look committed, and friends
+  cp "$1/.git/config" "$TMP/config.saved"
+  cp "$1/README" "$TMP/readme.saved"
+  mkdir -p "$1/.git/info" "$TMP/elsewhere"
+  printf '[filter "x"]\n\tclean = touch %s/filter-ran; cat %s/readme.saved\n[core]\n\tfsmonitor = touch %s/fsmonitor-ran\n\tworktree = %s/elsewhere\n' \
+    "$TMP" "$TMP" "$TMP" "$TMP" >> "$1/.git/config"
+  printf '* filter=x\n' > "$1/.git/info/attributes"
+  rm -f "$TMP/filter-ran" "$TMP/fsmonitor-ran"
+}
+unplant_config() {  # unplant_config <checkout>
+  cp "$TMP/config.saved" "$1/.git/config"
+  rm -f "$1/.git/info/attributes"
+  cp "$TMP/readme.saved" "$1/README"
+}
+noexec() { [ ! -e "$TMP/filter-ran" ] && [ ! -e "$TMP/fsmonitor-ran" ]; }
+plant_config "$CO"
+cat "$TMP/readme.saved" > "$CO/README"
+check pass "planted filter, fsmonitor and work tree: an unchanged (stat-dirty) file still passes" "$READ_CALL"
+if noexec; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: the guard ran a filter or fsmonitor from .git/config"; fi
+printf 'edited behind a filter\n' >> "$CO/README"
+check deny "an edit a planted clean filter would hide still denies" "$READ_CALL"
+if noexec; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: the guard ran a filter or fsmonitor from .git/config (edited file)"; fi
+unplant_config "$CO"
+check pass "plant removed: the read passes" "$READ_CALL"
+# A replace ref could make HEAD read as a commit holding an edit, while HEAD and origin/main keep their real ids.
+printf 'forged\n' >> "$CO/README"
+"${GIT_Q[@]}" add README
+FORGED=$("${GIT_Q[@]}" commit-tree "$("${GIT_Q[@]}" write-tree)" -m forged)
+"${GIT_Q[@]}" replace HEAD "$FORGED"
+check deny "an edit hidden behind a replace ref of HEAD denies" "$READ_CALL"
+"${GIT_Q[@]}" replace -d HEAD >/dev/null
+"${GIT_Q[@]}" reset -q --hard HEAD
+check pass "replace ref removed: the read passes" "$READ_CALL"
+# A promisor remote in .git/config would make git fetch a missing object from inside a read command, running the
+# remote's upload-pack command: no lazy fetch and no transport may run.
+plant_promisor() {  # plant_promisor <checkout>: main points at a missing object, origin is a promisor
+  cp "$1/.git/config" "$TMP/config.saved"
+  MAIN_SAVED=$(cat "$1/.git/refs/heads/main" 2>/dev/null || git -C "$1" rev-parse refs/heads/main)
+  git init -q --bare "$TMP/promisor.git" 2>/dev/null
+  printf '[core]\n\trepositoryformatversion = 1\n[extensions]\n\tpartialClone = origin\n[remote "origin"]\n\turl = %s/promisor.git\n\tpromisor = true\n\tuploadpack = touch %s/fetch-ran; git-upload-pack\n' \
+    "$TMP" "$TMP" >> "$1/.git/config"
+  printf '1234567890123456789012345678901234567890\n' > "$1/.git/refs/heads/main"
+  rm -f "$TMP/fetch-ran"
+}
+unplant_promisor() {  # unplant_promisor <checkout>
+  printf '%s\n' "$MAIN_SAVED" > "$1/.git/refs/heads/main"
+  cp "$TMP/config.saved" "$1/.git/config"
+}
+plant_promisor "$CO"
+check deny "a promisor remote and a missing object: denies" "$READ_CALL"
+if [ ! -e "$TMP/fetch-ran" ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: the guard ran a lazy fetch's upload-pack command from .git/config"; fi
+unplant_promisor "$CO"
+check pass "promisor removed: the read passes" "$READ_CALL"
+# A copy of the guard elsewhere in the checkout must not pass on the real files.
+mkdir -p "$CO/.archive/x"
+cp "$CO/tools/github-mcp/guard.sh" "$CO/.archive/x/guard.sh"
+out=$(printf '%s' "$READ_CALL" | HOME="$TMP" bash "$CO/.archive/x/guard.sh" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)
+if [ "$out" = deny ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: a guard copy two folders below the checkout root passed: '$out'"; fi
+rm -rf "$CO/.archive"
+# The check is one block, kept identical in the guard and the launcher.
+if diff <(sed -n '/^# >>> reviewed-code check/,/^# <<< reviewed-code check/p' "$SRC") \
+        <(sed -n '/^# >>> reviewed-code check/,/^# <<< reviewed-code check/p' "$HERE/launch") >/dev/null \
+   && [ -n "$(sed -n '/^# >>> reviewed-code check/p' "$SRC")" ]; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1)); echo "FAIL: the reviewed-code check differs between guard.sh and launch"
+fi
+mkdir -p "$TMP/nogit/a/b" && cp "$SRC" "$TMP/nogit/a/b/guard.sh"
+HOOK_REAL=$HOOK
+HOOK="$TMP/nogit/a/b/guard.sh"
+check deny "a guard outside any git checkout is off (read)" "$READ_CALL"
+HOOK=$HOOK_REAL
+
+# The owners come from ~/.claude/install.conf at call time; a missing or invalid setting denies owner-bearing writes.
+write_conf 'github_write_owners=notitial' 'github_keychain_account=test-account'
+check deny "an owner missing from install.conf is denied" "$(call create_pull_request '{"owner":"example-user","repo":"r","title":"t","head":"b","base":"main","draft":true}')"
+check allow "an owner listed in install.conf passes" "$WRITE_CALL"
+for bad in 'github_write_owners=' 'github_write_owners=Notitial' 'github_write_owners=notitial;x' 'github_write_owners=notitial  example-user' \
+  'github_write_owners=-notitial' 'github_write_owners=["notitial"]' 'github_write_owners=notitial/x'; do
+  write_conf "$bad"
+  check deny "invalid owners ($bad): an owner-bearing write is denied" "$WRITE_CALL"
+  check pass "invalid owners ($bad): a read still passes" "$READ_CALL"
+done
+write_conf 'github_keychain_account=test-account'
+check deny "no owners line: an owner-bearing write is denied" "$WRITE_CALL"
+rm -f "$TMP/.claude/install.conf"
+check deny "no install.conf: an owner-bearing write is denied" "$WRITE_CALL"
+check pass "no install.conf: a read still passes" "$READ_CALL"
+write_conf 'github_write_owners=evil-owner' 'github_write_owners=notitial'
+check deny "only the first owners line counts" "$WRITE_CALL"
+write_conf 'github_write_owners=notitial example-user' 'github_keychain_account=test-account'
+
+# Launcher: run a copy inside a throwaway checkout, with stand-ins for security and the server, under a hostile
+# environment. Each stand-in records what it saw; the keychain call and the settings path are swapped for the temp folder.
+LC="$TMP/lc"
+L="$LC/tools/github-mcp"
+mkdir -p "$L/bin"
+sed -e "s|/usr/bin/security find-generic-password -s mcp-github -a \"\$acct\" -w|\"\$DIR/fake-security\" \"\$acct\"|" \
+    -e "s|\"\$HOME/.claude/install.conf\"|\"$LC/install.conf\"|" \
     "$HERE/launch" > "$L/launch"
-printf '#!/bin/sh\nprintf %%s tok-FAKE-123\n' > "$L/fake-security"
-printf '#!/bin/sh\n/usr/bin/env > "%s/out-vars"\npwd > "%s/out-cwd"\nprintf "%%s\\n" "$@" > "%s/out-args"\n' "$TMP" "$TMP" "$TMP" > "$L/github-mcp-server"
-chmod 755 "$L/launch" "$L/fake-security" "$L/github-mcp-server"
-# Abort unless both swaps took: otherwise the copy would read the real keychain or exec the installed launcher.
-if ! grep -q 'fake-security' "$L/launch" || grep -q -e /usr/bin/security -e '^DIR=/usr/local' "$L/launch"; then
-  echo "ABORT: the launcher copy still points at the real keychain or install path; fix the sed in this test"
+printf '#!/bin/sh\nprintf %%s "$1" > "%s/out-account"\nprintf %%s tok-FAKE-123\n' "$TMP" > "$L/fake-security"
+printf '#!/bin/sh\n/usr/bin/env > "%s/out-vars"\npwd > "%s/out-cwd"\nprintf "%%s\\n" "$@" > "%s/out-args"\n' "$TMP" "$TMP" "$TMP" > "$L/bin/github-mcp-server"
+chmod 755 "$L/launch" "$L/fake-security" "$L/bin/github-mcp-server"
+printf 'github_keychain_account=test-account\n' > "$LC/install.conf"
+printf 'tracked\n' > "$LC/README"
+cp "$SRC" "$L/guard.sh"
+# The pin the launcher checks: one shasum line for the (untracked) fake server, committed like the real one.
+(cd "$L/bin" && /usr/bin/shasum -a 256 github-mcp-server) > "$L/server.sha256"
+GIT_L=(git -C "$LC" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false)
+"${GIT_L[@]}" init -q -b main && "${GIT_L[@]}" add README tools/github-mcp/launch tools/github-mcp/guard.sh tools/github-mcp/server.sha256 && "${GIT_L[@]}" commit -q -m init && "${GIT_L[@]}" update-ref refs/remotes/origin/main HEAD || { echo "ABORT: cannot build the launcher checkout"; exit 1; }
+# Abort unless both swaps took: otherwise the copy would read the real keychain or the real settings file.
+if ! grep -q 'fake-security' "$L/launch" || ! grep -q "$LC/install.conf" "$L/launch" || grep -q -e /usr/bin/security -e '"$HOME/.claude/install.conf"' "$L/launch"; then
+  echo "ABORT: the launcher copy still points at the real keychain or settings file; fix the sed in this test"
   exit 1
 fi
 lcheck() {
   if eval "$2"; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: launcher: $1"; fi
 }
+run_launch() { rm -f "$TMP"/out-*; (cd / && "$L/launch") > /dev/null 2> "$TMP/out-stderr"; }
 (cd / && env SHELLOPTS=xtrace 'BASH_FUNC_cd%%=() { builtin cd /tmp; }' IFS=x GITHUB_HOST=evil.example \
   GITHUB_TOOLS=all GITHUB_TOOLSETS=all GITHUB_MCP_TOOL_GET_ME_DESCRIPTION=injected BASH_ENV=/dev/null \
   ENV=/dev/null HOME=/nonexistent TMPDIR=/nonexistent "$L/launch") > "$TMP/out-stdout" 2> "$TMP/out-stderr"
 lcheck "exit status 0" '[ $? -eq 0 ]'
 lcheck "no token or trace on stderr" '! grep -q -e tok-FAKE -e "^+" "$TMP/out-stderr"'
-lcheck "server cwd is its own folder" '[ "$(cat "$TMP/out-cwd" 2>/dev/null)" = "$(cd "$L" && pwd -P)" ] || [ "$(cat "$TMP/out-cwd" 2>/dev/null)" = "$L" ]'
+lcheck "server cwd is the empty root-owned folder" '[ "$(cat "$TMP/out-cwd" 2>/dev/null)" = /var/empty ] || [ "$(cat "$TMP/out-cwd" 2>/dev/null)" = /private/var/empty ]'
+lcheck "keychain account read from the settings file" '[ "$(cat "$TMP/out-account" 2>/dev/null)" = test-account ]'
 lcheck "token passed in the environment" 'grep -qx "GITHUB_PERSONAL_ACCESS_TOKEN=tok-FAKE-123" "$TMP/out-vars"'
 lcheck "no other GITHUB_ or shell-injection vars" '! grep -v "^GITHUB_PERSONAL_ACCESS_TOKEN=" "$TMP/out-vars" | grep -q -E "^(GITHUB_|SHELLOPTS=|BASH_FUNC|BASH_ENV=|ENV=|IFS=)"'
 lcheck "HOME from the user record" '[ "$(sed -n "s/^HOME=//p" "$TMP/out-vars")" = "$(/usr/bin/dscl . -read "/Users/$(id -un)" NFSHomeDirectory | sed -n "s/^NFSHomeDirectory: //p")" ]'
 lcheck "TMPDIR from getconf" '[ "$(sed -n "s/^TMPDIR=//p" "$TMP/out-vars")" = "$(getconf DARWIN_USER_TEMP_DIR)" ]'
 lcheck "PATH fixed" 'grep -qx "PATH=/usr/bin:/bin" "$TMP/out-vars"'
 lcheck "server args fixed" '[ "$(tr "\n" " " < "$TMP/out-args")" = "stdio --tools $(sed -n "s/^TOOLS=//p" "$HERE/launch") " ]'
+printf 'untracked\n' > "$LC/untracked-file"
+run_launch
+lcheck "an untracked file does not stop it" '[ $? -eq 0 ] && [ -e "$TMP/out-vars" ]'
+rm -f "$LC/untracked-file"
 printf '#!/bin/sh\nexit 44\n' > "$L/fake-security"
-rm -f "$TMP"/out-*
-(cd / && "$L/launch") > /dev/null 2> "$TMP/out-stderr"
+run_launch
 lcheck "no token: refuses to start" '[ $? -ne 0 ] && grep -q "refusing to start" "$TMP/out-stderr" && [ ! -e "$TMP/out-vars" ]'
+printf '#!/bin/sh\nprintf %%s "$1" > "%s/out-account"\nprintf %%s tok-FAKE-123\n' "$TMP" > "$L/fake-security"
+for bad in 'a b' 'x;y' '' '$(id)'; do
+  printf 'github_keychain_account=%s\n' "$bad" > "$LC/install.conf"
+  run_launch
+  lcheck "invalid account ($bad): refuses to start" '[ $? -ne 0 ] && grep -q "github_keychain_account" "$TMP/out-stderr" && [ ! -e "$TMP/out-vars" ] && [ ! -e "$TMP/out-account" ]'
+done
+rm -f "$LC/install.conf"
+run_launch
+lcheck "no settings file: refuses to start" '[ $? -ne 0 ] && grep -q "github_keychain_account" "$TMP/out-stderr" && [ ! -e "$TMP/out-vars" ]'
+printf 'github_keychain_account=test-account\n' > "$LC/install.conf"
+printf 'edited\n' >> "$LC/README"
+run_launch
+lcheck "a tracked file with an edit: refuses to start" '[ $? -ne 0 ] && grep -q "not reviewed code" "$TMP/out-stderr" && [ ! -e "$TMP/out-vars" ]'
+"${GIT_L[@]}" checkout -q -- README
+"${GIT_L[@]}" checkout -q -b topic
+run_launch
+lcheck "a branch other than main: refuses to start" '[ $? -ne 0 ] && grep -q "not reviewed code" "$TMP/out-stderr" && [ ! -e "$TMP/out-vars" ]'
+"${GIT_L[@]}" checkout -q main
+run_launch
+lcheck "back on a clean main: starts again" '[ $? -eq 0 ] && [ -e "$TMP/out-vars" ]'
+# HEAD must be on origin/main.
+printf 'local\n' >> "$LC/README"
+"${GIT_L[@]}" commit -q -am local
+run_launch
+lcheck "a local commit that origin/main lacks: refuses to start" '[ $? -ne 0 ] && grep -q "not reviewed code" "$TMP/out-stderr" && [ ! -e "$TMP/out-vars" ]'
+"${GIT_L[@]}" update-ref refs/remotes/origin/main HEAD
+run_launch
+lcheck "the same commit on origin/main: starts" '[ $? -eq 0 ] && [ -e "$TMP/out-vars" ]'
+# The files that execute, and the pin, must equal their committed blobs even when git is told to ignore a change.
+for f in launch guard.sh server.sha256; do
+  "${GIT_L[@]}" update-index --skip-worktree "tools/github-mcp/$f"
+  cp "$L/$f" "$TMP/saved-$f"
+  printf '# edited\n' >> "$L/$f"
+  run_launch
+  lcheck "an edit of $f hidden by skip-worktree: refuses to start" '[ $? -ne 0 ] && [ ! -e "$TMP/out-vars" ]'
+  cp "$TMP/saved-$f" "$L/$f"
+  "${GIT_L[@]}" update-index --no-skip-worktree "tools/github-mcp/$f"
+done
+run_launch
+lcheck "edits undone: starts again" '[ $? -eq 0 ] && [ -e "$TMP/out-vars" ]'
+# The server binary must match the pinned hash: a swap is caught before anything runs with the token.
+cp "$L/bin/github-mcp-server" "$TMP/saved-server"
+printf '#!/bin/sh\ntouch "%s/evil-ran"\n' "$TMP" > "$L/bin/github-mcp-server"
+chmod 755 "$L/bin/github-mcp-server"
+run_launch
+lcheck "a swapped server binary: refuses to start, never runs it" '[ $? -ne 0 ] && grep -q "does not match" "$TMP/out-stderr" && [ ! -e "$TMP/evil-ran" ] && [ ! -e "$TMP/out-vars" ]'
+rm -f "$L/bin/github-mcp-server"
+run_launch
+lcheck "no server binary: refuses to start" '[ $? -ne 0 ] && grep -q "does not match" "$TMP/out-stderr"'
+cp "$TMP/saved-server" "$L/bin/github-mcp-server"
+chmod 755 "$L/bin/github-mcp-server"
+# A malformed pin that is committed and on origin/main: only the pin check can refuse.
+printf 'not-a-hash  github-mcp-server\n' > "$L/server.sha256"
+"${GIT_L[@]}" commit -q -am badpin
+"${GIT_L[@]}" update-ref refs/remotes/origin/main HEAD
+run_launch
+lcheck "a malformed committed pin: refuses to start at the pin check" '[ $? -ne 0 ] && grep -q "does not match" "$TMP/out-stderr" && [ ! -e "$TMP/out-vars" ]'
+(cd "$L/bin" && /usr/bin/shasum -a 256 github-mcp-server) > "$L/server.sha256"
+"${GIT_L[@]}" commit -q -am goodpin
+"${GIT_L[@]}" update-ref refs/remotes/origin/main HEAD
+run_launch
+lcheck "pin restored: starts again" '[ $? -eq 0 ] && [ -e "$TMP/out-vars" ]'
+# A tool on the caller's PATH must not decide where the launcher looks for itself.
+mkdir -p "$TMP/evilbin"
+printf '#!/bin/sh\ntouch "%s/evil-dirname"\nprintf /tmp/evil\n' "$TMP" > "$TMP/evilbin/dirname"
+chmod 755 "$TMP/evilbin/dirname"
+rm -f "$TMP"/out-*
+(cd / && env PATH="$TMP/evilbin:$PATH" "$L/launch") > /dev/null 2> "$TMP/out-stderr"
+lcheck "a dirname earlier on PATH is not used" '[ $? -eq 0 ] && [ ! -e "$TMP/evil-dirname" ] && [ -e "$TMP/out-vars" ]'
+# The launcher's check runs no filter or fsmonitor planted in .git/config either.
+plant_config "$LC"
+printf 'edited behind a filter\n' >> "$LC/README"
+run_launch
+lcheck "an edit a planted clean filter would hide: refuses to start, runs nothing from .git/config" '[ $? -ne 0 ] && noexec && [ ! -e "$TMP/out-vars" ]'
+cat "$TMP/readme.saved" > "$LC/README"
+rm -f "$TMP/filter-ran" "$TMP/fsmonitor-ran"
+run_launch
+lcheck "planted config, unchanged file: starts, runs nothing from .git/config" '[ $? -eq 0 ] && noexec && [ -e "$TMP/out-vars" ]'
+unplant_config "$LC"
+plant_promisor "$LC"
+run_launch
+lcheck "a promisor remote and a missing object: refuses to start, runs no fetch" '[ $? -ne 0 ] && [ ! -e "$TMP/fetch-ran" ] && [ ! -e "$TMP/out-vars" ]'
+unplant_promisor "$LC"
+run_launch
+lcheck "promisor removed: starts again" '[ $? -eq 0 ] && [ -e "$TMP/out-vars" ]'
+# A copy of the launcher elsewhere in the checkout refuses: it would read the pin and binary beside itself.
+mkdir -p "$LC/.archive/x/bin"
+cp "$L/launch" "$L/server.sha256" "$LC/.archive/x/"
+cp "$L/bin/github-mcp-server" "$LC/.archive/x/bin/"
+rm -f "$TMP"/out-*
+(cd / && "$LC/.archive/x/launch") > /dev/null 2> "$TMP/out-stderr"
+lcheck "a launcher copy two folders below the root: refuses to start" '[ $? -ne 0 ] && [ ! -e "$TMP/out-vars" ]'
+rm -rf "$LC/.archive"
+# A checkout path with a space gets no guard hook from /setup-claude, so the launcher refuses to start from it.
+mkdir -p "$TMP/with space"
+cp -R "$LC" "$TMP/with space/lc"
+rm -f "$TMP"/out-*
+(cd / && "$TMP/with space/lc/tools/github-mcp/launch") > /dev/null 2> "$TMP/out-stderr"
+lcheck "a checkout path with a space: refuses to start" '[ $? -ne 0 ] && grep -q "not a plain path" "$TMP/out-stderr" && [ ! -e "$TMP/out-vars" ]'
 
-# Install-time settings: the shipped guard and launcher hold placeholders that ghm-install fills from
-# ~/.claude/install.conf. An unrendered guard fails closed; each placeholder sits only where the render expects it.
-HOOK_RENDERED=$HOOK
-cp "$SRC" "$TMP/out-unrendered-guard.sh"
-HOOK="$TMP/out-unrendered-guard.sh"
-check deny "unrendered guard: an owner-bearing write is denied" "$(acall create_pull_request '{"title":"t","head":"b","base":"main","draft":true}')"
-check pass "unrendered guard: a read still passes" "$(acall pull_request_read '{"method":"get","pullNumber":1}')"
-HOOK=$HOOK_RENDERED
-rm -f "$TMP/out-unrendered-guard.sh"
-if [ "$(grep -c '__GITHUB_WRITE_OWNERS__' "$SRC")" = 1 ] && grep -qx "WRITE_OWNERS='__GITHUB_WRITE_OWNERS__'" "$SRC"; then
+# Nothing is rendered or root-installed any more: no placeholder, no install path left in either file.
+if ! grep -q '__[A-Z][A-Z0-9_]*__' "$SRC" "$HERE/launch"; then
   PASS=$((PASS + 1))
 else
-  FAIL=$((FAIL + 1)); echo "FAIL: guard.sh does not hold its owner placeholder exactly once, as WRITE_OWNERS"
+  FAIL=$((FAIL + 1)); echo "FAIL: a placeholder is left in guard.sh or launch"
 fi
-if [ "$(grep -c '__GITHUB_KEYCHAIN_ACCOUNT__' "$HERE/launch")" = 2 ] && grep -q -- '-a __GITHUB_KEYCHAIN_ACCOUNT__ -w' "$HERE/launch"; then
+if ! grep -q 'libexec' "$SRC" "$HERE/launch"; then
   PASS=$((PASS + 1))
 else
-  FAIL=$((FAIL + 1)); echo "FAIL: launch does not hold its account placeholder on exactly its two lines (the keychain read and its error)"
-fi
-if ! grep -q '__[A-Z][A-Z0-9_]*__' "$HOOK"; then
-  PASS=$((PASS + 1))
-else
-  FAIL=$((FAIL + 1)); echo "FAIL: the rendered copy under test still holds a placeholder"
+  FAIL=$((FAIL + 1)); echo "FAIL: guard.sh or launch still names the root install folder"
 fi
 
 echo "pass=$PASS fail=$FAIL"

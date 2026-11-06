@@ -1,9 +1,11 @@
 #!/bin/bash -p
 # Pre-tool-use hook: guards the github MCP server (github/github-mcp-server) by argument, where tool-name permission
-# rules cannot reach (v2 bundles reads and writes behind a `method` argument). Installed root-owned at
-# /usr/local/libexec/mcp-github/guard.sh (source: tools/github-mcp/guard.sh), so no session can edit the live copy, and
-# wired in ~/.claude/settings.json for PreToolUse on ^mcp__github__.*$.
+# rules cannot reach (v2 bundles reads and writes behind a `method` argument). Runs from the live checkout
+# (tools/github-mcp/guard.sh), wired in ~/.claude/settings.json for PreToolUse on ^mcp__github__.*$.
 #
+# - Every call is denied unless the checkout this file sits in is reviewed code: on main with no tracked change, HEAD
+#   on origin/main, and this file and launch equal to their committed blobs. A branch, a half-done edit or a local
+#   commit of the guard would otherwise go live.
 # - Reads pass. A tool in neither READ_TOOLS nor WRITE_TOOLS is denied, so a server upgrade stays shut until reviewed.
 # - Every write must target a repo of WRITE_OWNERS.
 # - actions_run_trigger: re-run, re-run failed jobs, cancel and dispatch ask; log deletion is denied.
@@ -21,6 +23,10 @@ STATIC_DENY='{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDeci
 
 PATH=/usr/bin:/bin
 JQ=/usr/bin/jq
+# The hook inherits the session's environment: drop what steers git (GIT_DIR, GIT_WORK_TREE, GIT_CONFIG_*, ...) and the
+# developer-tools lookup behind /usr/bin/git, so the checkout test below reads the real checkout.
+for _v in $(/usr/bin/env | /usr/bin/sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$_v"; done
+unset DEVELOPER_DIR _v
 
 if [ ! -x "$JQ" ]; then
   printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"github-mcp-guard: jq unavailable - github MCP calls blocked (fail-closed)."}}'
@@ -71,14 +77,61 @@ case "$TOOL_NAME" in
   *) exit 0 ;;
 esac
 
-# Must match the --tools list in tools/github-mcp/launch (installed beside this file).
+# The checkout this file sits in must be reviewed code: on main, every tracked file equal to its blob at HEAD, HEAD on
+# origin/main (a commit made locally and never pushed does not count; main behind origin does). Anything else, git
+# missing included, denies: the guard changes by merging and pulling, never by working in the live checkout.
+DIR=$(cd "$(/usr/bin/dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)
+ROOT=$(cd "$DIR/../.." 2>/dev/null && pwd -P)
+# This file must be the checkout's own tools/github-mcp/guard.sh: a copy elsewhere would pass on the real files.
+[ -n "$DIR" ] && [ "$DIR" = "$ROOT/tools/github-mcp" ] || ROOT=
+LIVE_FILES="tools/github-mcp/guard.sh tools/github-mcp/launch"
+# >>> reviewed-code check: keep this block identical in guard.sh and launch (test-guard.sh compares them).
+# git reads the checkout's own .git/config, which a file edit can change, so only commands that run no filter, hook,
+# external diff or textconv are used: the index against HEAD (diff-index --cached) and each tracked file hashed with
+# --no-filters against the index. The work tree, replace refs, grafts, the commit-graph and trace2 are pinned so that
+# .git/config cannot redirect them, and no pager, lazy fetch or transport runs (a promisor remote named there would
+# otherwise run its upload-pack command on a missing object). Only plain files are accepted; a symlink, a submodule
+# or a conflict denies, and so does a grep that fails.
+live_git() {
+  [ -n "$ROOT" ] && [ -d "$ROOT/.git" ] || return 1
+  /usr/bin/env GIT_DIR="$ROOT/.git" GIT_WORK_TREE="$ROOT" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_ATTR_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 GIT_NO_REPLACE_OBJECTS=1 GIT_GRAFT_FILE=/dev/null GIT_TRACE2=0 \
+    GIT_TRACE2_EVENT=0 GIT_TRACE2_PERF=0 GIT_NO_LAZY_FETCH=1 GIT_ALLOW_PROTOCOL=none /usr/bin/git --no-pager \
+    -c core.fsmonitor=false -c core.commitGraph=false \
+    -c core.useReplaceRefs=false -c core.hooksPath=/dev/null -C "$ROOT" "$@" 2>/dev/null
+}
+live_main_ok() {
+  [ "$(live_git symbolic-ref -q HEAD </dev/null)" = refs/heads/main ] || return 1
+  live_git diff-index --cached --quiet --no-ext-diff --no-textconv HEAD -- </dev/null || return 1
+  _idx=$(live_git ls-files -s </dev/null) && [ -n "$_idx" ] || return 1
+  printf '%s\n' "$_idx" | /usr/bin/grep -Eqv '^100(644|755) [0-9a-f]{40,64} 0[[:blank:]]'
+  [ $? -eq 1 ] || return 1
+  _want=$(printf '%s\n' "$_idx" | /usr/bin/cut -d ' ' -f 2)
+  _got=$(printf '%s\n' "$_idx" | /usr/bin/cut -f 2- | live_git hash-object --no-filters --stdin-paths) || return 1
+  [ "$_want" = "$_got" ] || return 1
+  live_git merge-base --is-ancestor HEAD refs/remotes/origin/main </dev/null || return 1
+  for _f in $LIVE_FILES; do
+    [ -n "$(live_git rev-parse -q --verify "HEAD:$_f" </dev/null)" ] || return 1
+  done
+}
+# <<< reviewed-code check
+if ! live_main_ok; then
+  decide deny "the checkout this guard runs from is not reviewed code (not on main, a tracked file changed, HEAD not on origin/main, or git unavailable); github MCP calls are off until it is (work in a /tmp clone, then merge and pull)."
+fi
+
+# Must match the --tools list in tools/github-mcp/launch (beside this file).
 READ_TOOLS=" get_me pull_request_read list_pull_requests search_pull_requests issue_read list_issues search_issues get_file_contents get_commit list_commits list_branches actions_get actions_list get_job_logs "
 WRITE_TOOLS=" create_pull_request add_issue_comment add_reply_to_pull_request_comment actions_run_trigger update_pull_request "
-# Owners whose repos the write tools may target (lowercase JSON array): the github_write_owners install setting
-# (~/.claude/install.conf), filled in by ghm-install when it makes the root-owned copy and never read from disk at
-# call time. An unrendered copy keeps the placeholder, which is not JSON, so every owner-bearing write is denied.
-# The repo name must be a plain GitHub name.
-WRITE_OWNERS='__GITHUB_WRITE_OWNERS__'
+# Owners whose repos the write tools may target (lowercase JSON array): the github_write_owners install setting,
+# read from ~/.claude/install.conf at call time (/setup-claude writes it; the template denies edits of that file and
+# asks on a shell command that names it). Only plain lowercase owner names are accepted. A missing or invalid
+# setting leaves an empty list, so every owner-bearing write is denied. The repo name must be a plain GitHub name.
+WRITE_OWNERS='[]'
+OWNERS_LINE=$(/usr/bin/sed -n 's/^github_write_owners=//p' "$HOME/.claude/install.conf" </dev/null 2>/dev/null | /usr/bin/head -n 1)
+OWNERS_RE='^[abcdefghijklmnopqrstuvwxyz0123456789][abcdefghijklmnopqrstuvwxyz0123456789-]*( [abcdefghijklmnopqrstuvwxyz0123456789][abcdefghijklmnopqrstuvwxyz0123456789-]*)*$'
+if [[ "$OWNERS_LINE" =~ $OWNERS_RE ]]; then
+  WRITE_OWNERS=$(printf '%s\n' "$OWNERS_LINE" | "$JQ" -R -c 'split(" ")' 2>/dev/null) || WRITE_OWNERS='[]'
+fi
 
 case "$TOOL" in
   ''|*[!a-z_]*) decide deny "$(show '.tool_name') is not a valid github MCP tool name; blocked." ;;

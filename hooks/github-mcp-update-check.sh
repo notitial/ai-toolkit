@@ -2,8 +2,8 @@
 # PreToolUse hook (matcher ^mcp__github__.*$): tells the user when the pinned github-mcp-server has a newer
 # release, or an advisory that applies to the installed version.
 #
-# Why: the server is a pinned, root-installed binary (tools/github-mcp/README.md), so nothing upgrades it on its
-# own. The check runs where the server is used, against the binary installed on this machine.
+# Why: the server is a pinned binary kept in the checkout (tools/github-mcp/README.md), so nothing upgrades it on
+# its own. The check runs where the server is used, against the binary installed on this machine.
 #
 # How: most calls only test a few files in the state directory. When the last-check stamp is 7 or more days old,
 # the call moves it to 6 days old (so nothing else starts a check for about a day) and starts a copy of itself in
@@ -18,7 +18,15 @@
 #
 # Never blocks: no permission decision, no set -e, and every path exits 0. bash 3.2; macOS date and find.
 
-BIN=/usr/local/libexec/mcp-github/github-mcp-server
+# The binary sits in the checkout this hook is linked from (tools/github-mcp/bin/, not tracked).
+here=$0 hops=0
+while [ -L "$here" ] && [ "$hops" -lt 20 ]; do
+  hops=$((hops + 1))
+  link=$(/usr/bin/readlink "$here")
+  case $link in /*) here=$link ;; *) here=$(/usr/bin/dirname "$here")/$link ;; esac
+done
+BIN=$(cd "$(/usr/bin/dirname "$here")/.." 2>/dev/null && pwd -P)/tools/github-mcp/bin/github-mcp-server
+ROOT=${BIN%/tools/github-mcp/bin/github-mcp-server}
 CURL=/usr/bin/curl
 API=https://api.github.com
 STATE="${XDG_CACHE_HOME:-$HOME/.cache}/mcp-github"
@@ -91,8 +99,33 @@ check() {
   touch "$CHECKED" 2>/dev/null
 }
 
+# hgit: git on the checkout with nothing from the session's environment, and nothing from its .git/config that runs a
+# command or redirects an object (the same pins as the guard's live_git). Only symbolic-ref, cat-file and merge-base
+# are used.
+hgit() {
+  [ -n "$ROOT" ] && [ -d "$ROOT/.git" ] || return 1
+  /usr/bin/env -i PATH=/usr/bin:/bin GIT_DIR="$ROOT/.git" GIT_WORK_TREE="$ROOT" GIT_CONFIG_NOSYSTEM=1 \
+    GIT_CONFIG_GLOBAL=/dev/null GIT_OPTIONAL_LOCKS=0 GIT_NO_REPLACE_OBJECTS=1 GIT_GRAFT_FILE=/dev/null GIT_TRACE2=0 \
+    GIT_TRACE2_EVENT=0 GIT_TRACE2_PERF=0 GIT_NO_LAZY_FETCH=1 GIT_ALLOW_PROTOCOL=none /usr/bin/git --no-pager \
+    -c core.fsmonitor=false -c core.commitGraph=false \
+    -c core.useReplaceRefs=false -c core.hooksPath=/dev/null -C "$ROOT" "$@" </dev/null 2>/dev/null
+}
+
+# bin_pinned: the binary matches the hash in server.sha256 as committed at main's HEAD, which origin/main holds (a pin
+# edited in the work tree, committed only on a branch, or from an older commit through a detached HEAD does not count). A binary that does not is never run here: this
+# hook would hand it the session's environment.
+bin_pinned() {
+  local want got
+  [ "$(hgit symbolic-ref -q HEAD)" = refs/heads/main ] || return 1
+  hgit merge-base --is-ancestor HEAD refs/remotes/origin/main || return 1
+  want=$(hgit cat-file blob HEAD:tools/github-mcp/server.sha256 | sed -n 's/^\([0-9a-f]\{64\}\)  *github-mcp-server$/\1/p' | head -n 1)
+  got=$(/usr/bin/shasum -a 256 "$BIN" 2>/dev/null | sed -n 's/^\([0-9a-f]\{64\}\)  .*/\1/p')
+  [ -n "$want" ] && [ "$want" = "$got" ]
+}
+
 command -v jq >/dev/null 2>&1 || exit 0
 [ -x "$BIN" ] || exit 0
+bin_pinned || exit 0
 mkdir -p "$STATE" 2>/dev/null || exit 0
 if [ "${1:-}" = --check ]; then
   check

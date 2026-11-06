@@ -2,7 +2,6 @@
 # What the toolkit installs outside the checkout, and whether it is current. Never writes anything.
 #
 #   bash tools/install-copies.sh status            one line per piece; exit 1 if any needs attention
-#   bash tools/install-copies.sh render [--show]   a github-mcp file on stdin, filled in from the settings
 #   bash tools/install-copies.sh automode [--valued | --for-cleanup]   the setup template's autoMode lists, filled in
 #
 # Pieces `status` checks (/setup-claude Step 8b, and the `ait-status` zsh helper):
@@ -10,8 +9,8 @@
 #                  never sourced. Required: github_write_owners, github_keychain_account; optional:
 #                  github_username, lan_host, router_ip. Any other well-formed key (lowercase letters and _) is
 #                  skipped, so a file another installer added its own keys to still reads; `status` lists them.
-#   github-mcp     the root-owned launcher and guard (/usr/local/libexec/mcp-github): main rendered with the settings,
-#                  then the owner and mode of the folder and both files. `ghm-install` (tools/ait.zsh) installs them.
+#   github-mcp     the launcher and the guard run from this checkout: it is on a clean main, the pinned server binary
+#                  is in tools/github-mcp/bin/, the `github` MCP server and the guard hook point at this checkout.
 #   ~/.zshrc       sources ~/.claude/tools/shell-init.zsh, which loads the zsh helpers.
 #   links          every agent, hook, rule, global skill and tool script with no link under ~/.claude, or a wrong one.
 # Tests: bash tools/test-install-copies.sh. The ICOPIES_* overrides are honoured only when ICOPIES_TESTING=1.
@@ -19,23 +18,43 @@
 set -u
 
 if [ "${ICOPIES_TESTING:-0}" != 1 ]; then
-  unset ICOPIES_ROOT ICOPIES_HOME ICOPIES_REF ICOPIES_MCP_DIR ICOPIES_ZDOTDIR ICOPIES_SKIP_PERM_CHECK
+  unset ICOPIES_ROOT ICOPIES_HOME ICOPIES_REF ICOPIES_ZDOTDIR
 fi
 
 SELF_DIR=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 ROOT="${ICOPIES_ROOT:-$(cd "$SELF_DIR/.." && pwd -P)}"
 HOME_DIR="${ICOPIES_HOME:-$HOME}"
 REF="${ICOPIES_REF:-main}"
-MCP_DIR="${ICOPIES_MCP_DIR:-/usr/local/libexec/mcp-github}"
-MCP_PERM='root:wheel 755'
 CLAUDE_DIR="$HOME_DIR/.claude"
 CONF="$CLAUDE_DIR/install.conf"
 ZDOT="${ICOPIES_ZDOTDIR:-${ZDOTDIR:-$HOME_DIR}}"
-STAT=/usr/bin/stat  # BSD stat flags; a GNU stat earlier on PATH reads them differently
 
 BAD=0
 
-g() { command git -C "$ROOT" "$@"; }
+# g: git on this checkout, pinned like the guard's live_git (tools/github-mcp/guard.sh): its .git/config is a file
+# edit away, so no fsmonitor, hook, pager, lazy fetch, transport, replace ref, graft, commit-graph or trace2 target from it, and the work tree is
+# this checkout whatever core.worktree says. Callers use only commands that run no filter or external diff.
+g() {
+  /usr/bin/env GIT_DIR="$ROOT/.git" GIT_WORK_TREE="$ROOT" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_ATTR_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 GIT_NO_REPLACE_OBJECTS=1 GIT_GRAFT_FILE=/dev/null GIT_TRACE2=0 \
+    GIT_TRACE2_EVENT=0 GIT_TRACE2_PERF=0 GIT_NO_LAZY_FETCH=1 GIT_ALLOW_PROTOCOL=none /usr/bin/git --no-pager \
+    -c core.fsmonitor=false -c core.commitGraph=false \
+    -c core.useReplaceRefs=false -c core.hooksPath=/dev/null -C "$ROOT" "$@"
+}
+# tracked_changes: prints a line when any tracked file differs from HEAD (index against HEAD, then each file hashed
+# with --no-filters against the index, as the guard checks it); prints nothing for a clean checkout.
+tracked_changes() {
+  local idx
+  g diff-index --cached --quiet --no-ext-diff --no-textconv HEAD -- 2>/dev/null || echo "staged changes"
+  idx=$(g ls-files -s 2>/dev/null) || { echo "index unreadable"; return; }
+  [ -n "$idx" ] || return 0
+  printf '%s\n' "$idx" | grep -Eqv '^100(644|755) [0-9a-f]{40,64} 0[[:blank:]]'
+  [ $? -eq 1 ] || echo "a symlink, submodule or conflict"
+  [ "$(printf '%s\n' "$idx" | cut -d ' ' -f 2)" = "$(printf '%s\n' "$idx" | cut -f 2- | g hash-object --no-filters --stdin-paths 2>/dev/null)" ] ||
+    echo "a tracked file differs"
+}
+# redact: a token-shaped value in a printed command is hidden, so a status line never carries a secret
+redact() { sed -E 's/(gh[pousr]_|github_pat_)[A-Za-z0-9_]+/[REDACTED]/g'; }
 note() { printf '%s\n' "$*"; }
 fail() { printf '%s\n' "$*" >&2; }
 
@@ -85,14 +104,6 @@ read_conf() {
   return 0
 }
 
-# render_mcp: a github-mcp file on stdin with its placeholders filled from the settings read by read_conf (the owners
-# as a compact lowercase JSON array, in the order given), on stdout.
-render_mcp() {
-  local o json=""
-  for o in $CONF_OWNERS; do json="$json${json:+,}\"$o\""; done
-  sed -e "s|__GITHUB_WRITE_OWNERS__|[$json]|g" -e "s|__GITHUB_KEYCHAIN_ACCOUNT__|$CONF_ACCOUNT|g"
-}
-
 status_install_conf() {
   read_conf
   case $? in
@@ -110,40 +121,82 @@ status_ref() {
   fi
   o=$(g rev-parse --verify -q "refs/remotes/origin/$REF^{commit}" 2>/dev/null) || return 0
   [ "$o" = "$REF_SHA" ] && return 0
-  g merge-base --is-ancestor "$o" "$REF_SHA" 2>/dev/null && return 0
+  g merge-base --is-ancestor "$o" "$REF_SHA" >/dev/null 2>&1 && return 0
   line STALE "$REF is behind origin/$REF as of the last fetch" "fast-forward $REF, then re-run"
   return 0
 }
 
-# perm_ok <path>: owner, group and mode are MCP_PERM (always true with ICOPIES_SKIP_PERM_CHECK=1). Sets PERM.
-perm_ok() {
-  PERM=$("$STAT" -f '%Su:%Sg %Lp' "$1" 2>/dev/null)
-  [ "${ICOPIES_SKIP_PERM_CHECK:-0}" = 1 ] || [ "$PERM" = "$MCP_PERM" ]
-}
+BIN_REL=tools/github-mcp/bin/github-mcp-server
 
+# The launcher and the guard run from this checkout: it must be reviewed code (on main, no tracked change, HEAD on
+# origin/main), the pinned server binary must sit beside them, and the `github` MCP server and the guard hook must
+# point here (a copy elsewhere, or the old root-owned folder, is stale).
 status_github_mcp() {
-  local f fix="ghm-install (needs sudo)"
-  [ -n "$REF_SHA" ] || return
-  if [ ! -d "$MCP_DIR" ]; then
-    line MISSING "github-mcp ($MCP_DIR does not exist)" "$fix"
-    return
-  fi
-  perm_ok "$MCP_DIR" || line STALE "github-mcp folder (owner/mode is '$PERM', want '$MCP_PERM')" "$fix"
-  read_conf
-  case $? in
-    0) ;;
-    1) line MISSING "github-mcp (install settings; run /setup-claude)"; return ;;
-    *) line STALE "github-mcp (install settings: $CONF_ERR; run /setup-claude)"; return ;;
+  local br dirty want cfg have cmds nproj pin got
+  # /setup-claude skips the guard hook for a path with other characters, and the launcher refuses one: name that cause
+  # instead of sending the user to /setup-claude or to `claude mcp add`, which cannot fix it.
+  case $ROOT in
+    *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._+-]*)
+      line STALE "github-mcp checkout path ($ROOT has characters other than letters, digits and / . _ + -: /setup-claude writes no guard hook and the launcher refuses to start)" "move the checkout to a plain path, then run /setup-claude"
+      return ;;
   esac
-  for f in launch guard.sh; do
-    if ! blob "tools/github-mcp/$f" | render_mcp | cmp -s - "$MCP_DIR/$f"; then
-      line STALE "github-mcp $f (differs from $REF)" "$fix"
-    elif ! perm_ok "$MCP_DIR/$f"; then
-      line STALE "github-mcp $f (owner/mode is '$PERM', want '$MCP_PERM')" "$fix"
+  br=$(g symbolic-ref -q HEAD 2>/dev/null)
+  case $br in refs/heads/*) br=${br#refs/heads/} ;; '') ;; *) br="HEAD at $br" ;; esac
+  dirty=$(tracked_changes)
+  if [ "$br" != main ] || [ -n "$dirty" ]; then
+    line STALE "github-mcp checkout (${br:-no branch}${dirty:+, with edits}: the guard and the launcher are off)" "work in a /tmp clone; put this checkout back on a clean main"
+  elif [ -z "$(g rev-parse -q --verify HEAD:tools/github-mcp/server.sha256 2>/dev/null)" ]; then
+    line STALE "github-mcp checkout (tools/github-mcp/server.sha256 is not committed on main yet: the launcher is off)" "record the binary's hash through a PR (tools/github-mcp/README.md, Install)"
+  elif ! g merge-base --is-ancestor HEAD refs/remotes/origin/main >/dev/null 2>&1; then
+    line STALE "github-mcp checkout (main holds commits that origin/main lacks, or origin/main is unknown: the guard and the launcher are off)" "push them through a PR, or reset main to origin/main"
+  else
+    line ok "github-mcp checkout is on a clean main"
+  fi
+  if [ -e "$ROOT/$BIN_REL" ] && [ ! -x "$ROOT/$BIN_REL" ]; then
+    line STALE "github-mcp server binary (not executable)" "chmod 755 $BIN_REL"
+  elif [ -x "$ROOT/$BIN_REL" ]; then
+    pin=$(g cat-file blob HEAD:tools/github-mcp/server.sha256 2>/dev/null | sed -n 's/^\([0-9a-f]\{64\}\)  *github-mcp-server$/\1/p' | head -n 1)
+    got=$(/usr/bin/shasum -a 256 "$ROOT/$BIN_REL" 2>/dev/null | sed -n 's/^\([0-9a-f]\{64\}\)  .*/\1/p')
+    if [ -z "$pin" ]; then
+      line STALE "github-mcp server binary (tools/github-mcp/server.sha256 at HEAD is missing or malformed: the launcher refuses to start it)" "tools/github-mcp/README.md, Install"
+    elif [ "$pin" = "$got" ]; then
+      line ok "github-mcp server binary"
     else
-      line ok "github-mcp $f"
+      line STALE "github-mcp server binary (does not match tools/github-mcp/server.sha256: the launcher refuses to start it)" "tools/github-mcp/README.md, Install"
     fi
-  done
+  else
+    line MISSING "github-mcp server binary ($BIN_REL)" "tools/github-mcp/README.md, Install"
+  fi
+  command -v jq >/dev/null 2>&1 || { line MISSING "github-mcp wiring (needs jq to read the settings)" "brew install jq"; return; }
+  want="$ROOT/tools/github-mcp/launch"
+  cfg="$HOME_DIR/.claude.json"
+  # The registered command, with a note when it carries arguments or an environment (an argument such as --clean-env
+  # skips the launcher's first stage).
+  # A server with no command (an http or sse one) shows its URL and type, so it reads as STALE, never as unregistered.
+  have=$(jq -r '.mcpServers.github as $s | if ($s | type) != "object" then ""
+    elif ($s.command // "") == "" then (($s.url // "no command") | tostring) + " (type " + (($s.type // "unknown") | tostring) + ")"
+    else $s.command + (if (($s.args // []) | length) > 0 or (($s.env // {}) | length) > 0 then " (with arguments or environment)" else "" end) end' "$cfg" 2>/dev/null | redact)
+  if [ "$have" = "$want" ]; then
+    line ok "github MCP server registered at this checkout"
+  elif [ -z "$have" ]; then
+    line MISSING "github MCP server (not registered in ~/.claude.json)" "claude mcp add --scope user github -- $want"
+  else
+    line STALE "github MCP server (registered at $have)" "claude mcp remove --scope user github, then claude mcp add --scope user github -- $want"
+  fi
+  # A project-scope server named github would outrank the user-scope one and skip the launcher and its tool list.
+  nproj=$(jq -r '[.projects[]? | .mcpServers.github? | select(type == "object")] | length' "$cfg" 2>/dev/null)
+  if [ "${nproj:-0}" != 0 ]; then
+    line STALE "github MCP server (also defined at project scope in $nproj place(s) of ~/.claude.json)" "claude mcp remove --scope local github, in each project"
+  fi
+  want="/bin/bash -p '$ROOT/tools/github-mcp/guard.sh' || exit 2"
+  cmds=$(jq -r '[.hooks.PreToolUse[]? | select(.matcher == "^mcp__github__.*$") | .hooks[]?.command | select(type == "string" and test("(github-mcp|mcp-github)/guard[.]sh"))] | .[]' "$CLAUDE_DIR/settings.json" 2>/dev/null | redact)
+  if printf '%s\n' "$cmds" | grep -Fxq -- "$want"; then
+    line ok "github MCP guard hook points at this checkout"
+  elif [ -z "$cmds" ]; then
+    line MISSING "github MCP guard hook (none in ~/.claude/settings.json)" "/setup-claude"
+  else
+    line STALE "github MCP guard hook (points at $(printf '%s' "$cmds" | head -n 1))" "/setup-claude"
+  fi
 }
 
 status_zshrc() {
@@ -199,31 +252,11 @@ cmd_status() {
   return 1
 }
 
-# render [--show]: a github-mcp file on stdin, filled in from the settings, on stdout (--show: the two values instead).
-# Exit 3 with no settings file, 1 when it is invalid or a placeholder is left (nothing printed then).
-cmd_render() {
-  local out rc
-  read_conf
-  rc=$?
-  [ "$rc" = 1 ] && { fail "no install settings (~/.claude/install.conf); run /setup-claude"; return 3; }
-  [ "$rc" = 0 ] || { fail "install settings invalid ($CONF_ERR); run /setup-claude"; return 1; }
-  if [ "${1:-}" = --show ]; then
-    printf 'github_write_owners: %s\ngithub_keychain_account: %s\n' "$CONF_OWNERS" "$CONF_ACCOUNT"
-    return 0
-  fi
-  out=$(render_mcp) || { fail "the render failed"; return 1; }
-  if printf '%s' "$out" | grep -Eq '__[A-Z][A-Z0-9_]*__'; then fail "a placeholder is left; not rendered"; return 1; fi
-  printf '%s\n' "$out"
-}
-
-# installed_owners: the owner list of the installed guard, or nothing when there is none.
-installed_owners() { sed -n "s/^WRITE_OWNERS='\(\[[^']*\]\)'\$/\1/p" "$MCP_DIR/guard.sh" 2>/dev/null | head -n 1; }
-
 # automode [--valued | --for-cleanup]: the setup template's autoMode lists (keys starting with _ left out) as JSON, each
 # <username>, <host> and <router.ip> filled from the github_username, lan_host and router_ip settings; an entry naming
 # an unset one is dropped, so no placeholder is ever printed. No settings file: every such entry is dropped. A
-# <username> entry widens what the classifier trusts, so it is kept only while github_username is among the write
-# owners of the installed guard; otherwise it is dropped and the reason goes to stderr.
+# <username> entry widens what the classifier trusts, so it is kept only while github_username is among the
+# github_write_owners of install.conf (what the guard reads); otherwise it is dropped and the reason goes to stderr.
 # --valued: only the entries that carry an install.conf value (the ones /setup-claude adds only on the user's go).
 # --for-cleanup: every placeholder filled without the guard check, to match lines for removal, never to add any.
 # Exit 1 on an invalid settings file, 2 on an unknown option.
@@ -235,9 +268,9 @@ cmd_automode() {
   command -v jq >/dev/null 2>&1 || { fail "automode needs jq"; return 1; }
   u=$CONF_GITHUB_USERNAME
   if [ -n "$u" ] && [ "$mode" != --for-cleanup ]; then
-    case $(installed_owners) in
-      *"\"$u\""*) ;;
-      *) echo "automode: the <username> entries are left out: github_username ($u) is not a write owner in the installed guard ($MCP_DIR/guard.sh); run ghm-install first" >&2
+    case " $CONF_OWNERS " in
+      *" $u "*) ;;
+      *) echo "automode: the <username> entries are left out: github_username ($u) is not in github_write_owners in $CONF" >&2
          u="" ;;
     esac
   fi
@@ -254,7 +287,6 @@ cmd_automode() {
 
 case "${1:-}" in
   status) cmd_status ;;
-  render) shift; cmd_render "$@" ;;
   automode) shift; cmd_automode "$@" ;;
-  *) fail "usage: install-copies.sh status | render [--show] | automode [--valued | --for-cleanup]"; exit 2 ;;
+  *) fail "usage: install-copies.sh status | automode [--valued | --for-cleanup]"; exit 2 ;;
 esac
