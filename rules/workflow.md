@@ -61,7 +61,8 @@ denies a post, give the user the `gh` command in a markdown code block instead.
    starting `<!-- claude-review:summary`). The App posts APPROVE or REQUEST_CHANGES. A review that did not finish
    shows "No verdict" in the overview comment, or posts nothing at all for the head (a green `Publish the review`
    with no App review and no overview for it). Silence is never "no findings": tell the user. After a "No verdict"
-   overview only a new full review runs it again; after nothing at all, the next push is reviewed afresh.
+   overview only a new full review runs it again; after nothing at all, the next push is reviewed afresh only if the
+   App has never commented on the PR; otherwise ask the user.
 3. Fix each finding on the branch, or reply in its thread (`add_reply_to_pull_request_comment`) with why it isn't a
    bug. A finding in the review body has no thread: fix it and say so in the handover.
 4. Pushes after the first review are skipped, so after pushing fixes or replies, comment

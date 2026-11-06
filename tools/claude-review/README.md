@@ -248,7 +248,7 @@ denies a post, give the user the `gh` command instead.
    `<!-- claude-review:summary`). A review that did not finish shows "No verdict" in the overview comment, or posts
    nothing at all for the head (a green `Publish the review` with no App review and no overview for it). Silence is never
    "no findings": tell the user. After a "No verdict" overview only a new full review runs it again; after nothing at
-   all, the next push is reviewed afresh.
+   all, the next push is reviewed afresh only if the App has never commented on the PR; otherwise ask the user.
 3. Fix each finding, or reply in its thread (`add_reply_to_pull_request_comment`) with why it isn't a bug.
 4. Pushes after the first review are skipped. After pushing fixes or replies, and once no review is running, comment
    `@claude review --comments` (`add_issue_comment`, top level): it judges the open threads, replies and resolves
