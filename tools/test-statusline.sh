@@ -206,12 +206,16 @@ wait_sum() {  # wait_sum: until the cached sum is for the transcript's current s
   for i in $(seq 1 60); do [ "$(cut -f1 "$T/apicache/s1.tsv" 2>/dev/null)" = "$want" ] && return 0; sleep 0.1; done
   return 1
 }
+cached_fill() { plain | sed -n 's/.*cached \([▓░]*\).*/\1/p' | grep -o '▓' | wc -l | tr -d ' '; }
 render_api "$API"; check "API render exits 0" 0 $?
 check "first render: Input placeholder, no wait" 1 "$(plain | grep -c 'Input …')"
+check "first render: no cached segment" 0 "$(seg_count cached)"
 wait_sum; check "the detached sum finishes" 0 $?
 render_api "$API"
-check "Input total (fresh + create + read, one usage per message id)" 1 "$(plain | grep -c 'Input 2.0k ')"
-check "hot share" 1 "$(plain | grep -c ' 85% hot')"
+# fresh 100, writes 200 (no 5m/1h split: all 5-minute), reads 1700: weighted 100 + 250 + 170 = 520
+check "layout: cached bar, then Input raw / weighted, then Output" 1 "$(plain | grep -c 'cached [▓░]*  Input 2.0k / 520  Output 60 ')"
+check "cached bar: the read share of all input (85% of 12 cells)" 10 "$(cached_fill)"
+check "no percentage or 'hot' left in the API view" 0 "$(plain | grep -c '% hot\|hot ')"
 check "Output total" 1 "$(plain | grep -c 'Output 60 ')"
 check "Cost from stdin" 1 "$(plain | grep -c 'Cost \$1.24$')"
 check "no Limit or Weekly in the API view" 0 "$(seg_count 'Limit\|Weekly')"
@@ -219,8 +223,8 @@ check "the key value is never printed" 0 "$(cat "$T/out.txt" "$T/err.txt" | grep
 check "cache file is private" 600 "$(stat -f%Lp "$T/apicache/s1.tsv" 2>/dev/null || stat -c%a "$T/apicache/s1.tsv")"
 msg C 0 0 2000 40 >> "$TR"
 render_api "$API"; wait_sum; render_api "$API"
-check "a grown transcript is summed again" 1 "$(plain | grep -c 'Input 4.0k ')"
-check "hot share after growth" 1 "$(plain | grep -c ' 93% hot')"
+check "a grown transcript is summed again" 1 "$(plain | grep -c 'Input 4.0k / 720 ')"
+check "cached bar after growth (93%)" 11 "$(cached_fill)"
 check "no stderr from the API view" "" "$(cat "$T/err.txt")"
 render_api "$LIVE"; check "rate_limits present: Limit shown even with a key" 1 "$(seg_count Limit)"
 check "rate_limits present: no Input segment" 0 "$(seg_count Input)"
@@ -246,15 +250,15 @@ wait_key() {  # wait_key <session> <size>: until that session's cached sum is fo
 }
 render_api "$API4"; wait_key s4 "$(size4)"; check "the sum covers the subagent files" 0 $?
 render_api "$API4"
-check "Input includes subagent transcripts (a last line without a newline, a .meta.json ignored)" 1 "$(plain | grep -c 'Input 2.5k ')"
+check "Input includes subagent transcripts (a last line without a newline, a .meta.json ignored)" 1 "$(plain | grep -c 'Input 2.5k / 340 ')"
 check "Output includes subagent transcripts" 1 "$(plain | grep -c 'Output 150 ')"
-check "hot share includes subagent transcripts" 1 "$(plain | grep -c ' 96% hot')"
+check "cached bar includes subagent transcripts (96%)" 12 "$(cached_fill)"
 msg S3 0 0 1500 20 >> "$SUB/agent-a.jsonl"
 render_api "$API4"; wait_key s4 "$(size4)"; check "growth in a subagent file alone is summed again" 0 $?
 render_api "$API4"
-check "Input after subagent growth" 1 "$(plain | grep -c 'Input 4.0k ')"
+check "Input after subagent growth" 1 "$(plain | grep -c 'Input 4.0k / 490 ')"
 check "Output after subagent growth" 1 "$(plain | grep -c 'Output 170 ')"
-check "hot share after subagent growth" 1 "$(plain | grep -c ' 98% hot')"
+check "cached bar after subagent growth (98%)" 12 "$(cached_fill)"
 check "no stderr with subagent transcripts" "" "$(cat "$T/err.txt")"
 # a path with spaces; an unreadable subagent file is left out, the rest still summed
 mkdir -p "$T/sp ace/t5/subagents"; TR5="$T/sp ace/t5.jsonl"
@@ -262,7 +266,7 @@ msg N1 10 0 90 5 > "$TR5"; msg N2 0 0 100 7 > "$T/sp ace/t5/subagents/agent-a.js
 chmod 000 "$T/sp ace/t5/subagents/agent-b.jsonl"
 API5=$(printf '%s' "$API" | jq -c --arg t "$TR5" '.transcript_path = $t | .session_id = "s5"')
 render_api "$API5"; wait_key s5 "$(cat "$TR5" "$T/sp ace/t5/subagents/agent-a.jsonl" | wc -c | tr -d ' ')"; check "spaces in the path, unreadable subagent file skipped" 0 $?
-render_api "$API5"; check "spaces in the path: Input" 1 "$(plain | grep -c 'Input 200 ')"
+render_api "$API5"; check "spaces in the path: Input" 1 "$(plain | grep -c 'Input 200 / 29 ')"
 check "unreadable subagent file: Output without it" 1 "$(plain | grep -c 'Output 12 ')"
 chmod 644 "$T/sp ace/t5/subagents/agent-b.jsonl"
 
@@ -278,8 +282,26 @@ API2=$(printf '%s' "$API" | jq -c --arg t "$TR2" '.transcript_path = $t | .sessi
 render_api "$API2"
 for i in $(seq 1 60); do [ -s "$T/apicache/s2.tsv" ] && break; sleep 0.1; done
 render_api "$API2"
-check "streamed duplicates: the largest output wins; ids without requestId dedupe; strings count 0" 1 "$(plain | grep -c 'Input 200 .* Output 100 ')"
-check "an unreadable usage line does not stop the sum" 1 "$(plain | grep -c ' 93% hot')"
+check "streamed duplicates: the largest output wins; ids without requestId dedupe; strings count 0" 1 "$(plain | grep -c 'Input 200 / 34  Output 100 ')"
+check "an unreadable usage line does not stop the sum" 11 "$(cached_fill)"
+# the 5-minute and 1-hour writes from usage.cache_creation: fresh 100 + 5m 400 x1.25 + 1h 600 x2 = 1800. Any part of
+# cache_creation_input_tokens the split leaves out counts as 5-minute writes: only 1h 1000 of 1000 gives 2000; only
+# 5m 300 of 1000 gives 1000 x1.25 = 1250. Raw 3.1k, weighted 5050.
+TR6="$T/transcript6.jsonl"
+{ printf '{"type":"assistant","message":{"id":"msg_G","usage":{"input_tokens":100,"cache_creation_input_tokens":1000,"cache_read_input_tokens":0,"output_tokens":1,"cache_creation":{"ephemeral_5m_input_tokens":400,"ephemeral_1h_input_tokens":600}}}}\n'
+  printf '{"type":"assistant","message":{"id":"msg_H","usage":{"input_tokens":0,"cache_creation_input_tokens":1000,"cache_read_input_tokens":0,"output_tokens":1,"cache_creation":{"ephemeral_1h_input_tokens":1000}}}}\n'
+  printf '{"type":"assistant","message":{"id":"msg_I","usage":{"input_tokens":0,"cache_creation_input_tokens":1000,"cache_read_input_tokens":0,"output_tokens":1,"cache_creation":{"ephemeral_5m_input_tokens":300}}}}\n'; } > "$TR6"
+API6=$(printf '%s' "$API" | jq -c --arg t "$TR6" '.transcript_path = $t | .session_id = "s6"')
+render_api "$API6"; wait_key s6 "$(wc -c < "$TR6" | tr -d ' ')"; check "split writes: summed" 0 $?
+render_api "$API6"
+check "split writes: raw total and cost-weighted figure" 1 "$(plain | grep -c 'Input 3.1k / 5.0k ')"
+check "split writes: six columns in the cache file" 6 "$(awk -F'\t' '{print NF}' "$T/apicache/s6.tsv")"
+# a five-column cache file from before the split, at the transcript's current size, is stale: summed again, not misread
+printf '%s\t100\t200\t1700\t60\n' "$(wc -c < "$TR" | tr -d ' ')" > "$T/apicache/s1.tsv"
+render_api "$API"; check "old five-column cache: placeholder while it is summed again" 1 "$(plain | grep -c 'Input …')"
+for i in $(seq 1 60); do [ "$(awk -F'\t' '{print NF}' "$T/apicache/s1.tsv" 2>/dev/null)" = 6 ] && break; sleep 0.1; done
+render_api "$API"
+check "old five-column cache: re-summed into six columns" 1 "$(plain | grep -c 'Input 4.0k / 720 ')"
 # a fresh marker means a job is running: no second one starts
 printf '%s' "$API2" | jq -c '.session_id = "s3"' > "$T/api3.json"
 : > "$T/apicache/s3.run"
