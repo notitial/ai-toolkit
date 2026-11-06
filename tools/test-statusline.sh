@@ -4,6 +4,7 @@
 # Run: bash tools/test-statusline.sh   (STATUSLINE=<path> tests another copy.)
 set -u
 unset ANTHROPIC_API_KEY  # a key in the caller's environment would switch every render to the API view
+unset CLAUDE_CODE_OAUTH_TOKEN  # a token in the caller's environment would turn the readings file off in the cases that unset CLAUDE_CONFIG_DIR
 HERE=$(cd "$(dirname "$0")" && pwd -P)
 SL=${STATUSLINE:-$HERE/statusline.sh}
 VECTORS=${VECTORS:-$HERE/pace-vectors.tsv}
@@ -68,6 +69,31 @@ printf '{}\n' > "$T/cfg/.claude.json"
 render "$LIVE"; [ -s "$T/out.txt" ] && ok || bad "unknown account: status line still printed"
 check "unknown account writes no readings" 0 "$(find "$T/uw" -name 'readings-*' 2>/dev/null | wc -l | tr -d ' ')"
 check "unknown account: Limit and Weekly still render" 2 "$(sed "s/$(printf '\033')\[[0-9;]*m//g" "$T/out.txt" | grep -o 'Limit\|Weekly' | wc -l | tr -d ' ')"
+
+# ---- a token session on the shared login keeps no store: ~/.claude.json names the stored login, not the token's account
+rm -rf "$T/uw"
+printf '{"accountUuid":"11111111-2222-3333-4444-555555555555"}\n' | tee "$T/home/.claude.json" > "$T/cfg/.claude.json"
+tok_render() {  # tok_render <json> [config dir]; a token session, with or without its own config dir
+  printf '%s' "$1" | env -u CLAUDE_CONFIG_DIR HOME="$T/home" USAGE_WATCHER_DIR="$T/uw" CLAUDE_CODE_OAUTH_TOKEN=x \
+    ${2:+CLAUDE_CONFIG_DIR="$2"} bash "$SL" > "$T/out.txt" 2>"$T/err.txt"
+}
+printf '%s' "$LIVE" | env -u CLAUDE_CONFIG_DIR HOME="$T/home" USAGE_WATCHER_DIR="$T/uw" bash "$SL" > "$T/out.txt" 2>"$T/err.txt"
+check "shared login without a token: readings written" 1 "$(find "$T/uw" -name "readings-$FP.json" 2>/dev/null | wc -l | tr -d ' ')"
+before_tok=$(cat "$R" 2>/dev/null)
+TOKLIVE='{"model":{"display_name":"Opus"},"context_window":{"used_percentage":10,"context_window_size":1000000},
+ "rate_limits":{"five_hour":{"used_percentage":7,"resets_at":'$((NOW + 3600))'}},"session_id":"s2"}'
+tok_render "$TOKLIVE"; check "token session, shared login: exits 0" 0 $?
+check "token session, shared login: the stored login's readings are untouched" "$before_tok" "$(cat "$R" 2>/dev/null)"
+check "token session, shared login: no other readings file" 1 "$(find "$T/uw" -name 'readings-*' 2>/dev/null | wc -l | tr -d ' ')"
+check "token session, shared login: its live Limit still renders" 1 "$(sed "s/$(printf '\033')\[[0-9;]*m//g" "$T/out.txt" | grep -c 'Limit.* 7%')"
+tok_render "$IDLE"
+check "token session, shared login: the Weekly segment still renders" 1 "$(sed "s/$(printf '\033')\[[0-9;]*m//g" "$T/out.txt" | grep -c 'Weekly')"
+check "token session, shared login: borrows no Weekly from the stored login" 0 "$(sed "s/$(printf '\033')\[[0-9;]*m//g" "$T/out.txt" | grep -c 'Weekly.* 61%')"
+rm -rf "$T/uw"
+tok_render "$TOKLIVE" "$T/cfg"
+check "token session with its own config dir: readings written" 7 "$(jq -r .five_hour.used_percentage "$R" 2>/dev/null)"
+rm -rf "$T/uw"
+rm -f "$T/home/.claude.json"
 
 # ---- context bar: scaled to autoCompactWindow, capped at the harness window, else 250000
 printf '{"accountUuid":"11111111-2222-3333-4444-555555555555"}\n' > "$T/cfg/.claude.json"
