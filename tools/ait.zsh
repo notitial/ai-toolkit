@@ -4,7 +4,8 @@
 #   ait-status   everything /setup-claude checks (bash tools/install-copies.sh status)
 #   ghm-status   the github MCP lines of ait-status: the checkout on a clean main, the server binary, the server
 #                registration and the guard hook, all pointing at this checkout
-#   ghm-test     the github MCP suites; run them in your /tmp clone before you merge
+#   ghm-test     the github MCP suites of this (live) checkout, i.e. of main; to test a branch, run
+#                bash tools/github-mcp/test-guard.sh and test-update-check.sh in its /tmp clone
 # The launcher and the guard run from the live checkout (it stays on main and only moves with a fast-forward pull
 # after a merge), so there is nothing to install: a merge plus the pull is the install.
 # Tests: bash tools/test-ait.sh

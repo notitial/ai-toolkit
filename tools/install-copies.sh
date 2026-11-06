@@ -31,7 +31,28 @@ ZDOT="${ICOPIES_ZDOTDIR:-${ZDOTDIR:-$HOME_DIR}}"
 
 BAD=0
 
-g() { command git -C "$ROOT" "$@"; }
+# g: git on this checkout, pinned like the guard's live_git (tools/github-mcp/guard.sh): its .git/config is a file
+# edit away, so no fsmonitor, hook, replace ref, graft, commit-graph or trace2 target from it, and the work tree is
+# this checkout whatever core.worktree says. Callers use only commands that run no filter or external diff.
+g() {
+  /usr/bin/env GIT_DIR="$ROOT/.git" GIT_WORK_TREE="$ROOT" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_ATTR_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 GIT_NO_REPLACE_OBJECTS=1 GIT_GRAFT_FILE=/dev/null GIT_TRACE2=0 \
+    GIT_TRACE2_EVENT=0 GIT_TRACE2_PERF=0 /usr/bin/git -c core.fsmonitor=false -c core.commitGraph=false \
+    -c core.useReplaceRefs=false -c core.hooksPath=/dev/null -C "$ROOT" "$@"
+}
+# tracked_changes: prints a line when any tracked file differs from HEAD (index against HEAD, then each file hashed
+# with --no-filters against the index, as the guard checks it); prints nothing for a clean checkout.
+tracked_changes() {
+  local idx
+  g diff-index --cached --quiet --no-ext-diff --no-textconv HEAD -- 2>/dev/null || echo "staged changes"
+  idx=$(g ls-files -s 2>/dev/null) || { echo "index unreadable"; return; }
+  [ -n "$idx" ] || return 0
+  printf '%s\n' "$idx" | grep -Eqv '^100(644|755) [0-9a-f]{40,64} 0[[:blank:]]' && echo "a symlink, submodule or conflict"
+  [ "$(printf '%s\n' "$idx" | cut -d ' ' -f 2)" = "$(printf '%s\n' "$idx" | cut -f 2- | g hash-object --no-filters --stdin-paths 2>/dev/null)" ] ||
+    echo "a tracked file differs"
+}
+# redact: a token-shaped value in a printed command is hidden, so a status line never carries a secret
+redact() { sed -E 's/(gh[pousr]_|github_pat_)[A-Za-z0-9_]+/[REDACTED]/g'; }
 note() { printf '%s\n' "$*"; }
 fail() { printf '%s\n' "$*" >&2; }
 
@@ -105,27 +126,46 @@ status_ref() {
 
 BIN_REL=tools/github-mcp/bin/github-mcp-server
 
-# The launcher and the guard run from this checkout: it must be on a clean main, the pinned server binary must sit
-# beside them, and the `github` MCP server and the guard hook must point here (a copy elsewhere, or the old
-# root-owned folder, is stale).
+# The launcher and the guard run from this checkout: it must be reviewed code (on main, no tracked change, HEAD on
+# origin/main), the pinned server binary must sit beside them, and the `github` MCP server and the guard hook must
+# point here (a copy elsewhere, or the old root-owned folder, is stale).
 status_github_mcp() {
-  local br dirty want cfg have cmds
-  br=$(g branch --show-current 2>/dev/null)
-  dirty=$(g status --porcelain --untracked-files=no 2>/dev/null)
-  if [ "$br" = main ] && [ -z "$dirty" ]; then
-    line ok "github-mcp checkout is on a clean main"
-  else
+  local br dirty want cfg have cmds nproj pin got
+  br=$(g symbolic-ref -q --short HEAD 2>/dev/null)
+  dirty=$(tracked_changes)
+  if [ "$br" != main ] || [ -n "$dirty" ]; then
     line STALE "github-mcp checkout (${br:-no branch}${dirty:+, with edits}: the guard and the launcher are off)" "work in a /tmp clone; put this checkout back on a clean main"
+  elif [ -z "$(g rev-parse -q --verify HEAD:tools/github-mcp/server.sha256 2>/dev/null)" ]; then
+    line STALE "github-mcp checkout (tools/github-mcp/server.sha256 is not committed on main yet: the launcher is off)" "record the binary's hash through a PR (tools/github-mcp/README.md, Install)"
+  elif ! g merge-base --is-ancestor HEAD refs/remotes/origin/main >/dev/null 2>&1; then
+    line STALE "github-mcp checkout (main holds commits that origin/main lacks, or origin/main is unknown: the guard and the launcher are off)" "push them through a PR, or reset main to origin/main"
+  else
+    line ok "github-mcp checkout is on a clean main"
   fi
-  if [ -x "$ROOT/$BIN_REL" ]; then
-    line ok "github-mcp server binary"
+  if [ -e "$ROOT/$BIN_REL" ] && [ ! -x "$ROOT/$BIN_REL" ]; then
+    line STALE "github-mcp server binary (not executable)" "chmod 755 $BIN_REL"
+  elif [ -x "$ROOT/$BIN_REL" ]; then
+    pin=$(g cat-file blob HEAD:tools/github-mcp/server.sha256 2>/dev/null | sed -n 's/^\([0-9a-f]\{64\}\)  *github-mcp-server$/\1/p' | head -n 1)
+    got=$(/usr/bin/shasum -a 256 "$ROOT/$BIN_REL" 2>/dev/null | sed -n 's/^\([0-9a-f]\{64\}\)  .*/\1/p')
+    if [ -z "$pin" ]; then
+      line STALE "github-mcp server binary (tools/github-mcp/server.sha256 at HEAD is missing or malformed: the launcher refuses to start it)" "tools/github-mcp/README.md, Install"
+    elif [ "$pin" = "$got" ]; then
+      line ok "github-mcp server binary"
+    else
+      line STALE "github-mcp server binary (does not match tools/github-mcp/server.sha256: the launcher refuses to start it)" "tools/github-mcp/README.md, Install"
+    fi
   else
     line MISSING "github-mcp server binary ($BIN_REL)" "tools/github-mcp/README.md, Install"
   fi
   command -v jq >/dev/null 2>&1 || { line MISSING "github-mcp wiring (needs jq to read the settings)" "brew install jq"; return; }
   want="$ROOT/tools/github-mcp/launch"
   cfg="$HOME_DIR/.claude.json"
-  have=$(jq -r 'if (.mcpServers.github | type) == "object" then (.mcpServers.github.command // "") else "" end' "$cfg" 2>/dev/null)
+  # The registered command, with a note when it carries arguments or an environment (an argument such as --clean-env
+  # skips the launcher's first stage).
+  # A server with no command (an http or sse one) shows its URL and type, so it reads as STALE, never as unregistered.
+  have=$(jq -r '.mcpServers.github as $s | if ($s | type) != "object" then ""
+    elif ($s.command // "") == "" then (($s.url // "no command") | tostring) + " (type " + (($s.type // "unknown") | tostring) + ")"
+    else $s.command + (if (($s.args // []) | length) > 0 or (($s.env // {}) | length) > 0 then " (with arguments or environment)" else "" end) end' "$cfg" 2>/dev/null | redact)
   if [ "$have" = "$want" ]; then
     line ok "github MCP server registered at this checkout"
   elif [ -z "$have" ]; then
@@ -133,8 +173,13 @@ status_github_mcp() {
   else
     line STALE "github MCP server (registered at $have)" "claude mcp remove --scope user github, then claude mcp add --scope user github -- $want"
   fi
-  want="$ROOT/tools/github-mcp/guard.sh"
-  cmds=$(jq -r '[.hooks.PreToolUse[]? | select(.matcher == "^mcp__github__.*$") | .hooks[]?.command] | .[]' "$CLAUDE_DIR/settings.json" 2>/dev/null)
+  # A project-scope server named github would outrank the user-scope one and skip the launcher and its tool list.
+  nproj=$(jq -r '[.projects[]? | .mcpServers.github? | select(type == "object")] | length' "$cfg" 2>/dev/null)
+  if [ "${nproj:-0}" != 0 ]; then
+    line STALE "github MCP server (also defined at project scope in $nproj place(s) of ~/.claude.json)" "claude mcp remove --scope local github, in each project"
+  fi
+  want="/bin/bash -p '$ROOT/tools/github-mcp/guard.sh' || exit 2"
+  cmds=$(jq -r '[.hooks.PreToolUse[]? | select(.matcher == "^mcp__github__.*$") | .hooks[]?.command | select(type == "string" and test("(github-mcp|mcp-github)/guard[.]sh"))] | .[]' "$CLAUDE_DIR/settings.json" 2>/dev/null | redact)
   if printf '%s\n' "$cmds" | grep -Fxq -- "$want"; then
     line ok "github MCP guard hook points at this checkout"
   elif [ -z "$cmds" ]; then

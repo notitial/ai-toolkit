@@ -65,7 +65,7 @@ The live checkout is what `/setup-claude` links into `~/.claude` (hooks, rules, 
 - `.archive/` (STATE.md, handoffs) stays in the live checkout: it is gitignored, so a clone has none.
 - `/tmp` is wiped on reboot: push the branch before stopping or handing over.
 - A long-lived session may still run in the live folder, since the tool that tracks it keys it to the folder it started in; it edits in its clone.
-- `/setup-claude` backs this with permission rules: asks on edits of `~/.claude/settings.json` and `settings.local.json`, denies on the live checkout's `hooks/`, `tools/github-mcp/`, `tools/shell-init.zsh` and `tools/ait.zsh`. A shell write (`sed -i`, a redirect, `git checkout` in the live checkout) is not an Edit, so no rule stops it: the clone discipline is the control.
+- `/setup-claude` backs this with permission rules: asks on edits of `~/.claude/settings.json` and `settings.local.json`, denies on the live checkout's `.git/`, `hooks/`, `rules/`, `agents/`, `skills/`, `tools/github-mcp/`, `tools/workspace-lock/`, `tools/statusline.sh`, `tools/shell-init.zsh` and `tools/ait.zsh`. A shell write (`sed -i`, a redirect, `git checkout` in the live checkout) is not an Edit, so no rule stops it: the clone discipline is the control.
 
 ## Key Paths
 
@@ -82,7 +82,7 @@ The live checkout is what `/setup-claude` links into `~/.claude` (hooks, rules, 
 | `tools/` | Reusable tooling (statusline, scripts) |
 | `tools/workspace-lock/` | Advisory lock serializing independent unattended orchestrators (used by the `unattended-run` skill) |
 | `tools/claude-review/` | The Claude PR review kit: the canonical workflow and review command other repos copy (this repo runs the same copies), its setup guide, tests and reviewer cases; `/add-claude-review` installs it |
-| `tools/github-mcp/` | Optional guarded GitHub MCP setup: a launcher plus a hook limiting which GitHub writes agents may make, run from the live checkout, which they require to be on a clean main; its README covers install and token rotation |
+| `tools/github-mcp/` | Optional guarded GitHub MCP setup: a launcher plus a hook limiting which GitHub writes agents may make, run from the live checkout, which they require to be reviewed code (clean main, HEAD on origin/main, binary hash pinned); its README covers install and token rotation |
 | `tools/shell-init.zsh` | The one line `~/.zshrc` sources (`source ~/.claude/tools/shell-init.zsh`): loads `tools/ait.zsh` |
 | `tools/ait.zsh` | zsh helpers: `ait`, `ait-status`, `ghm-status` (the GitHub MCP wiring check), `ghm-test` |
 | `.claude/settings.json` | Project-level permissions allowlist (no hooks) |

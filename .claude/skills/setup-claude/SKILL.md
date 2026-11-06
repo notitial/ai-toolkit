@@ -253,7 +253,7 @@ Verify the symlink resolves and the target script is **executable** (`chmod +x` 
 
 ## Step 8b: GitHub MCP wiring and install settings
 
-The github MCP launcher and guard are not copied anywhere: they run from this checkout, which stays on a clean `main` and moves only with a fast-forward pull after a merge (CLAUDE.md, Where agents edit). This step checks that the checkout is a clean main, that the pinned server binary sits in `tools/github-mcp/bin/`, and that the `github` MCP server and the guard hook point at this checkout. The logic lives in `tools/install-copies.sh` (tested by `tools/test-install-copies.sh`); do not re-implement it here.
+The github MCP launcher and guard are not copied anywhere: they run from this checkout, which stays on a clean `main` and moves only with a fast-forward pull after a merge (CLAUDE.md, Where agents edit). This step checks that the checkout is a clean main, that the pinned server binary in `tools/github-mcp/bin/` matches `tools/github-mcp/server.sha256`, and that the `github` MCP server and the guard hook point at this checkout. The logic lives in `tools/install-copies.sh` (tested by `tools/test-install-copies.sh`); do not re-implement it here.
 
 Resolve the script from this skill's location (`../../../tools/install-copies.sh`), as `check` does. Never set any `ICOPIES_*` variable (they are test hooks) and never change repo state (stash, checkout, pull, reset, `update-index`) to get past a gate.
 
@@ -449,18 +449,24 @@ live-only ones. An ask rule prompts even in auto mode and wins over a matching a
 entry never suppresses the prompt. Prompts are invisible to the model: after adding an entry, ask the user to
 confirm that the command prompts.
 
-**Live checkout denies (written from the real path, never from the template).** The hooks, the github MCP launcher
-and guard and the shell helpers run from this checkout through the links this skill makes, so an edit of one takes
-effect on the next tool call, MCP start or window reload. Agents edit in `/tmp` clones (CLAUDE.md, Git
+**Live checkout denies (written from the real path, never from the template).** The hooks, rules, agents, skills,
+the status line, the lock script, the github MCP launcher and guard and the shell helpers run from this checkout
+through the links this skill makes, so an edit of one takes effect on the next tool call, MCP start or window reload. Agents edit in `/tmp` clones (CLAUDE.md, Git
 Conventions) and never need to touch them, so a deny on the live paths costs nothing. A clone's own path does not
 match, so work in a clone stays free.
 
 1. Resolve the live checkout: the repo root this skill runs from (`../../../` from this file), as a physical path
-   (`cd -P <root> && pwd -P`). Skip this block with a note when that root is under `/tmp` or `/private/tmp`: a
-   throwaway clone is not the live checkout.
-2. Build four entries, each `Edit(/` + the absolute path + `)` so that it starts with `//`:
-   `<root>/hooks/**`, `<root>/tools/github-mcp/**`, `<root>/tools/shell-init.zsh`, `<root>/tools/ait.zsh`.
-3. These are a security control computed from a path, so show the four entries word for word and add the missing ones
+   (`cd -P <root> && pwd -P`). Skip this block, and the guard hook below, with a note when that root is not a plain
+   path: only letters, digits and `/ . _ - +`, and not under a temp folder (`/tmp`, `/private/tmp`, `/var/folders`,
+   `/private/var/folders`). A throwaway clone is not the live checkout, and a quote or glob character in the path would
+   break the hook command or change what a deny matches.
+2. Build ten entries, each `Edit(/` + the absolute path + `)` so that it starts with `//`: `<root>/.git/**` (the
+   guard and the launcher run git there, and its config can name commands), `<root>/hooks/**`,
+   `<root>/rules/**`, `<root>/agents/**`, `<root>/skills/**`, `<root>/tools/github-mcp/**`,
+   `<root>/tools/workspace-lock/**`, `<root>/tools/statusline.sh`, `<root>/tools/shell-init.zsh`,
+   `<root>/tools/ait.zsh`. The template's six `~/.claude/...` link-path denies cover the same files by their link
+   location.
+3. These are a security control computed from a path, so show the ten entries word for word and add the missing ones
    to the live `deny` array only on the user's explicit go typed in this run. Without it, add none and say so.
    Additive like the template's deny entries: never remove a live entry, and report any live `Edit(//…)` entry for
    another checkout path as a leftover instead of touching it.
@@ -514,19 +520,22 @@ any assertion fails. A hook script that exists in the repo but has no template m
 also a loud failure (roster/template desync).
 
 **GitHub MCP guard (assert when the template wires it; fail loud):** the template's github MCP entry (matcher
-`^mcp__github__.*$`: every tool of the github server) runs `<checkout>/tools/github-mcp/guard.sh`, which is not a
-`hooks/*.sh` script and is never symlinked: it runs from the live checkout (`tools/github-mcp/README.md`) and denies
-every call while that checkout is not on a clean main. The template holds the placeholder `<checkout>`; resolve it
-as in **Live checkout denies** (the physical path of this repo root, skipping the hook with a note when the root is
-under `/tmp` or `/private/tmp`) and never write the placeholder to the live file. Assert:
+`^mcp__github__.*$`: every tool of the github server) runs `/bin/bash -p '<checkout>/tools/github-mcp/guard.sh' || exit 2`
+(`-p` keeps the shell from reading startup files; `|| exit 2` makes a guard that cannot start block the call instead
+of letting it through). The guard is not a `hooks/*.sh` script and is never symlinked: it runs from the live checkout
+(`tools/github-mcp/README.md`) and denies every call unless that checkout is reviewed code: on `main`, no tracked file
+changed, `HEAD` on `origin/main`, and the guard and launcher equal to their committed versions. The template holds the placeholder `<checkout>`; resolve it
+as in **Live checkout denies** (the physical path of this repo root, with the same plain-path and temp-folder
+skip rule) and never write the placeholder to the live file. Assert:
 
 - the live entry's matcher and command are byte-identical to the template's with `<checkout>` filled in. The additive
   merge never updates a matcher or a command, so a live entry with an older template's `mcp__github__.*`, or with
   another path (the old root-owned folder, another checkout), is `DRIFT: matcher differs` / `DRIFT: command
   differs`: show the user the diff and change it on their go, replacing the entry in place (never add a second guard
   entry beside it);
-- the github lines of `status` are all `ok`: the checkout is a clean main, the server binary is in place, the server
-  is registered at this checkout and the guard hook points at it.
+- the github lines of `status` are all `ok`: the checkout is a clean main with `HEAD` on `origin/main`, the server
+  binary matches the hash in `tools/github-mcp/server.sha256`, the server is registered at this checkout with no
+  arguments or environment (and not also at project scope) and the guard hook points at it.
 
 ```bash
 bash tools/install-copies.sh status

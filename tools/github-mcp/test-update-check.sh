@@ -14,8 +14,8 @@ trap 'rm -rf "$T" 2>/dev/null || { sleep 1; rm -rf "$T"; }' EXIT
 PASS=0
 FAIL=0
 
-sed -e "s|^BIN=.*|BIN=$T/github-mcp-server|" -e "s|^CURL=.*|CURL=$T/curl|" "$SRC" > "$T/hook.sh"
-if ! grep -q "^BIN=$T/" "$T/hook.sh" || ! grep -q "^CURL=$T/" "$T/hook.sh"; then
+sed -e "s|^BIN=.*|BIN=$T/github-mcp-server|" -e "s|^ROOT=.*|ROOT=$T/repo|" -e "s|^CURL=.*|CURL=$T/curl|" "$SRC" > "$T/hook.sh"
+if ! grep -q "^BIN=$T/" "$T/hook.sh" || ! grep -q "^ROOT=$T/" "$T/hook.sh" || ! grep -q "^CURL=$T/" "$T/hook.sh"; then
   echo "ABORT: the hook copy still points at the real binary or curl; fix the sed in this test"
   exit 1
 fi
@@ -24,6 +24,23 @@ printf '#!/bin/sh\n[ "$1" = --version ] || exit 2\nprintf "GitHub MCP Server\\nV
 printf '#!/bin/sh\nfor a; do u=$a; done\necho "$u" >> "%s/curl-log"\n[ -e "%s/curl-fail" ] && exit 22\ncase $u in\n  */releases/latest) cat "%s/rel.json" ;;\n  */advisories*) cat "%s/adv.json" ;;\n  *) exit 22 ;;\nesac\n' \
   "$T" "$T" "$T" "$T" > "$T/curl"
 chmod 755 "$T/github-mcp-server" "$T/curl"
+# The hook runs the binary only when it matches the hash committed in its checkout at a HEAD on origin/main, so a
+# throwaway checkout pins the fake one.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
+RG=(git -C "$T/repo" -c commit.gpgsign=false)
+mkdir -p "$T/repo/tools/github-mcp"
+GOODPIN=$(cd "$T" && /usr/bin/shasum -a 256 github-mcp-server)
+printf '%s\n' "$GOODPIN" > "$T/repo/tools/github-mcp/server.sha256"
+"${RG[@]}" init -q -b main && "${RG[@]}" add -A && "${RG[@]}" commit -q -m init &&
+  "${RG[@]}" update-ref refs/remotes/origin/main HEAD || { echo "ABORT: cannot build the throwaway checkout"; exit 1; }
+# setpin <line or ""> [--local]: commit a pin ("" removes the file); with --local, origin/main is not moved to it.
+setpin() {
+  if [ -n "$1" ]; then printf '%s\n' "$1" > "$T/repo/tools/github-mcp/server.sha256"
+  else rm -f "$T/repo/tools/github-mcp/server.sha256"; fi
+  "${RG[@]}" add -A && "${RG[@]}" commit -q --allow-empty -m pin
+  [ "${2:-}" = --local ] || "${RG[@]}" update-ref refs/remotes/origin/main HEAD
+}
 
 C="$T/cache/mcp-github"
 INPUT='{"tool_name":"mcp__github__get_me","tool_input":{}}'
@@ -208,6 +225,40 @@ reset; mv "$T/github-mcp-server" "$T/gone"
 out=$(hook); st=$?
 ok "no binary: exit 0, no output, no state" '[ $st -eq 0 ] && [ -z "$out" ] && [ ! -e "$C" ]'
 mv "$T/gone" "$T/github-mcp-server"
+
+# A binary that does not match the pinned hash is never run: the hook would hand it the session's environment.
+reset; cp "$T/github-mcp-server" "$T/pinned-copy"
+printf '#!/bin/sh\ntouch "%s/ran"\n' "$T" > "$T/github-mcp-server"
+chmod 755 "$T/github-mcp-server"
+out=$(hook); st=$?
+ok "a binary that does not match the pin: not run, no output, no state" '[ $st -eq 0 ] && [ -z "$out" ] && [ ! -e "$T/ran" ] && [ ! -e "$C" ]'
+cp "$T/pinned-copy" "$T/github-mcp-server"
+setpin 'not-a-hash  github-mcp-server'
+reset
+out=$(hook); st=$?
+ok "a malformed pin: nothing runs, no state" '[ $st -eq 0 ] && [ -z "$out" ] && [ ! -e "$C" ] && [ ! -e "$T/curl-log" ]'
+setpin ""
+reset
+out=$(hook); st=$?
+ok "no pin file: nothing runs, no state" '[ $st -eq 0 ] && [ -z "$out" ] && [ ! -e "$C" ] && [ ! -e "$T/curl-log" ]'
+# Only the committed, reviewed pin counts: a work-tree edit or a commit origin/main lacks is not trusted.
+setpin 'not-a-hash  github-mcp-server'
+printf '%s\n' "$GOODPIN" > "$T/repo/tools/github-mcp/server.sha256"
+reset
+out=$(hook); st=$?
+ok "a matching pin only in the work tree: nothing runs" '[ $st -eq 0 ] && [ -z "$out" ] && [ ! -e "$C" ]'
+setpin "$GOODPIN" --local
+reset
+out=$(hook); st=$?
+ok "a matching pin on a commit origin/main lacks: nothing runs" '[ $st -eq 0 ] && [ -z "$out" ] && [ ! -e "$C" ]'
+"${RG[@]}" update-ref refs/remotes/origin/main HEAD
+reset
+out=$(hook); st=$?
+ok "the same pin once on origin/main: the hook works again" '[ $st -eq 0 ] && [ -e "$C" ]'
+# The session's environment does not steer the pin lookup.
+reset
+out=$(printf '%s' "$INPUT" | GIT_DIR=/nonexistent GIT_INDEX_FILE=/nonexistent XDG_CACHE_HOME="$T/cache" "$SH" "$T/hook.sh" 2>/dev/null); st=$?
+ok "GIT_DIR in the session's environment: the pin is still read from the checkout" '[ $st -eq 0 ] && [ -e "$C" ]'
 
 # Garbage on stdin changes nothing.
 reset; rel v2.0.3; adv

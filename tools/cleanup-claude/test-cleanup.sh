@@ -54,12 +54,13 @@ mkhome() {  # mkhome -> sets H to a fresh fake home with a toolkit install and s
     statusLine: {type: "command", command: $sl},
     enabledPlugins: {($plugin): true, "mine@somewhere": true},
     autoMode: {environment: ["$defaults", $ame, "my own env line"], soft_deny: ["$defaults", $ams, "my own rule"]},
-    permissions: {allow: [$allow, "Bash(my-cmd:*)"], ask: [$ask, "Bash(my-ask:*)"], deny: [$deny, "Bash(my-deny:*)", "Edit(/" + $root + "/hooks/**)", "Edit(/" + $root + "/tools/github-mcp/**)", "Edit(/" + $root + "/tools/shell-init.zsh)", "Edit(/" + $root + "/tools/ait.zsh)", "Edit(/elsewhere/hooks/**)"]},
+    permissions: {allow: [$allow, "Bash(my-cmd:*)"], ask: [$ask, "Bash(my-ask:*)"], deny: [$deny, "Bash(my-deny:*)", "Edit(/" + $root + "/.git/**)", "Edit(/" + $root + "/hooks/**)", "Edit(/" + $root + "/rules/**)", "Edit(/" + $root + "/agents/**)", "Edit(/" + $root + "/skills/**)", "Edit(/" + $root + "/tools/github-mcp/**)", "Edit(/" + $root + "/tools/workspace-lock/**)", "Edit(/" + $root + "/tools/statusline.sh)", "Edit(/" + $root + "/tools/shell-init.zsh)", "Edit(/" + $root + "/tools/ait.zsh)", "Edit(/elsewhere/hooks/**)"]},
     hooks: {
       PreToolUse: [
         {matcher: "Bash", hooks: [{type: "command", command: "$HOME/.claude/hooks/gh-block.sh"}, {type: "command", command: "$HOME/.claude/hooks/mine.sh"}]},
         {matcher: "Read", hooks: [{type: "command", command: "/opt/mine/guard.sh"}]},
-        {matcher: "^mcp__github__.*$", hooks: [{type: "command", command: ($root + "/tools/github-mcp/guard.sh")}]}
+        {matcher: "^mcp__github__.*$", hooks: [{type: "command", command: ("/bin/bash -p '"'"'" + $root + "/tools/github-mcp/guard.sh'"'"' || exit 2")}]},
+        {matcher: "^mcp__github__.*$", hooks: [{type: "command", command: "/bin/bash -p '"'"'/elsewhere/tools/github-mcp/guard.sh'"'"' || exit 2"}]}
       ],
       PostToolUse: [{matcher: "*", hooks: [{type: "command", command: "/usr/local/libexec/mcp-github/guard.sh"}]}]
     }}' > "$C/settings.json"
@@ -112,7 +113,7 @@ check "settings: ask entries are kept by default" 'has "(.permissions.ask | inde
 check "settings: autoMode keeps \$defaults, the user's line, and the soft_deny rules" 'has ".autoMode.environment == [\"\$defaults\", \"my own env line\"] and (.autoMode.soft_deny | length) == 3"'
 check "settings: deny entries are kept by default" 'has "(.permissions.deny | index(\"$DENY1\")) != null and (.permissions.deny | index(\"Bash(my-deny:*)\")) != null"'
 check "settings: the live-checkout denies are kept by default (security entries)" 'has "(.permissions.deny | index(\"Edit(/$ROOT/hooks/**)\")) != null and (.permissions.deny | index(\"Edit(/$ROOT/tools/github-mcp/**)\")) != null"'
-check "settings: the github guard hook at this checkout is gone" 'has "[.hooks.PreToolUse[].hooks[].command] | map(endswith(\"/tools/github-mcp/guard.sh\")) | any | not"'
+check "settings: the github guard hook at this checkout is gone, another checkout's is kept" 'has "[.hooks.PreToolUse[].hooks[].command] | (map(select(contains(\"/$ROOT/tools/github-mcp/guard.sh\"))) | length) == 0 and (map(select(contains(\"/elsewhere/tools/github-mcp/guard.sh\"))) | length) == 1"'
 check "settings: toolkit hooks gone, the user's hook beside one is kept" 'has "[.hooks.PreToolUse[].hooks[].command] | index(\"\$HOME/.claude/hooks/mine.sh\") != null and index(\"/opt/mine/guard.sh\") != null and index(\"\$HOME/.claude/hooks/gh-block.sh\") == null"'
 check "settings: an event holding only toolkit hooks is gone" 'has ".hooks | has(\"PostToolUse\") | not"'
 bak=$(ls "$C"/settings.json.bak-*-cleanup 2>/dev/null | head -1)
@@ -149,7 +150,7 @@ check "a lone cache TTL that is not the string 1h stays" 'has ".subagentPromptCa
 mkhome
 run --apply --include-security
 check "--include-security removes the template deny and ask entries, keeps the user's" 'has "(.permissions.deny | index(\"$DENY1\")) == null and (.permissions.deny | index(\"Bash(my-deny:*)\")) != null and (.permissions.ask | index(\"$ASK1\")) == null and (.permissions.ask | index(\"Bash(my-ask:*)\")) != null"'
-check "--include-security removes the four live-checkout denies, keeps another path's" 'has "(.permissions.deny | map(select(startswith(\"Edit(/$ROOT/\"))) | length) == 0 and (.permissions.deny | index(\"Edit(/elsewhere/hooks/**)\")) != null"'
+check "--include-security removes the ten live-checkout denies, keeps another path's" 'has "(.permissions.deny | map(select(startswith(\"Edit(/$ROOT/\"))) | length) == 0 and (.permissions.deny | index(\"Edit(/elsewhere/hooks/**)\")) != null"'
 check "--include-security removes the denied servers, the connector switch, the MCP flag, soft_deny rules" 'has "(.deniedMcpServers == [{serverUrl: \"https://mine.example/*\"}]) and (.env | has(\"ENABLE_CLAUDEAI_MCP_SERVERS\") | not) and (has(\"enableAllProjectMcpServers\") | not) and .autoMode.soft_deny == [\"\$defaults\", \"my own rule\"]"'
 mkhome
 run --apply --include-deny

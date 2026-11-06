@@ -13,14 +13,20 @@ run (`github_write_owners`, `github_keychain_account`).
 | `launch` | The launcher, run from this checkout: `claude mcp add --scope user github -- <checkout>/tools/github-mcp/launch` |
 | `guard.sh` | The PreToolUse guard for the tools of the `github` MCP server, run from this checkout through the hook entry `/setup-claude` writes |
 | `bin/github-mcp-server` | The pinned server binary, downloaded by hand (see Install); not tracked (`.gitignore`) |
+| `server.sha256` | The binary's hash, one `shasum -a 256` line (`<64 hex>  github-mcp-server`), tracked and reviewed with the code; the launcher and the update check run the binary only if it matches |
 | `test-guard.sh` | Tests for both, including a check that the guard's tool list equals the launcher's |
 | `test-update-check.sh` | Tests for `hooks/github-mcp-update-check.sh`, the hook that says when an upgrade is due (see Upgrades) |
 
 Nothing is copied or root-owned: the launcher and the guard run from the live checkout, which stays on `main` and moves
 only with `git pull --ff-only` after a merge. A merge plus that pull is the install. Agents edit in `/tmp` clones, never
 in the live checkout (`CLAUDE.md`, "Where agents edit"), and `/setup-claude` adds Edit denies on `tools/github-mcp/**`
-and `hooks/**` there. Both the launcher and the guard also turn themselves off while the checkout is not on a clean
-`main` (tracked files only): the launcher refuses to start, the guard denies every call, reads included. The guard is
+and `hooks/**` there, plus the other places it links from (`rules/`, `agents/`, `skills/`, the status line, the lock
+script). Both the launcher and the guard also turn themselves off unless the checkout is reviewed code: on `main`, no
+tracked file changed, `HEAD` on `origin/main`, and the files they run equal to their committed blobs (`guard.sh` and
+`launch` for the guard; those two and `server.sha256` for the launcher), so a `skip-worktree` flag hides nothing. The launcher then compares the binary to `server.sha256` before it
+reads the token. It refuses to start; the guard denies every call, reads included. The guard's hook command is
+`/bin/bash -p '<checkout>/tools/github-mcp/guard.sh' || exit 2`, so a guard that cannot start blocks the call. Both
+scripts clear the git and developer environment and call git and the system tools by absolute path. The guard is
 deliberately not in `hooks/`, which `/setup-claude` symlinks into `~/.claude/hooks`.
 
 ## Layers
@@ -111,16 +117,24 @@ v2.0.3 has no tool for Actions variables or secret names; its `secret_protection
 ## Install (you, in your own terminal)
 
 Download, verify the checksum and the build attestation, and put the binary in the live checkout's `bin/` folder
-(`<checkout>` is the checkout `/setup-claude` links from; the folder is not tracked, and there is no `sudo`):
+(`<checkout>` is the checkout `/setup-claude` links from; the folder is not tracked, and there is no `sudo`). Then
+record its hash, in a `/tmp` clone, through a PR like any other change:
 
 ```
 D=$(mktemp -d) && cd "$D" && gh release download v2.0.3 -R github/github-mcp-server -p github-mcp-server_Darwin_arm64.tar.gz -p github-mcp-server_2.0.3_checksums.txt && shasum -a 256 -c --ignore-missing github-mcp-server_2.0.3_checksums.txt && gh attestation verify github-mcp-server_Darwin_arm64.tar.gz -R github/github-mcp-server && tar -xzf github-mcp-server_Darwin_arm64.tar.gz github-mcp-server && install -d -m 0755 <checkout>/tools/github-mcp/bin && install -m 0755 github-mcp-server <checkout>/tools/github-mcp/bin/github-mcp-server && <checkout>/tools/github-mcp/bin/github-mcp-server --version
 ```
 
-The launcher and the guard need nothing more: they are in the checkout. Run `ghm-test` in your `/tmp` clone before you
+```
+shasum -a 256 <checkout>/tools/github-mcp/bin/github-mcp-server
+```
+
+Put that line into `tools/github-mcp/server.sha256` in the clone, with the file name `github-mcp-server` as the second
+column, and commit it. The pin takes effect once it is merged and pulled; until then the launcher refuses to start.
+
+The launcher and the guard need nothing more: they are in the checkout. Run `bash tools/github-mcp/test-guard.sh` and `test-update-check.sh` in your `/tmp` clone before you
 merge; after the merge, `git -C <checkout> pull --ff-only` is the install. `ghm-status` shows, without changing
-anything, whether the checkout is on a clean `main`, the binary is in place, and the server and the guard hook point at
-the checkout.
+anything, whether the checkout is on a clean `main` with `HEAD` on `origin/main`, the binary matches the pin, and the server and
+the guard hook point at the checkout.
 
 Wire it: merge the template's rules, the guard's hook entry (its path is filled in from the checkout),
 `deniedMcpServers` and `enableAllProjectMcpServers` into `~/.claude/settings.json` (`/setup-claude`). Then register the
@@ -171,10 +185,11 @@ Nothing upgrades the pinned binary on its own. `hooks/github-mcp-update-check.sh
   `notice.json`, `shown`, and `lock.d` while a check runs). Deleting that folder forces a new check on the next call.
   It needs macOS `date` and `find`.
 
-An upgrade repeats the download with the new tag, after re-reading the tool snapshots
+An upgrade repeats the download with the new tag and records the new hash in `server.sha256` in the same PR, after
+re-reading the tool snapshots
 (`pkg/github/__toolsnaps__/*.snap`) for renamed tools and new `method` values. A renamed tool or a new `method` value
 needs a `launch` and `guard.sh` change in the same PR, then the merge and the pull; the new binary goes into `bin/`
-(Install).
+(Install). Until the pin and the binary agree, the launcher refuses to start and the update check stays silent.
 
 ## Token rotation
 
@@ -225,13 +240,23 @@ you don't need (fewer scopes on the `gh` login, a passphrase on SSH keys).
   unprompted too (title, body and a draft-to-ready flip, which starts a paid review).
 - The launcher, the guard and the setting files they read are ordinary files of your user (the root-owned copies were
   retired). The template asks on every Edit of `~/.claude/settings.json` and `settings.local.json`, denies Edit on
-  `~/.claude/install.conf`, and `/setup-claude` denies Edit on the live checkout's `tools/github-mcp/**` and `hooks/**`.
-  A shell write is not an Edit, so none of these stops `sed -i` on `guard.sh` or `launch`, a `git checkout` in the live
-  checkout, or a write to `install.conf` that does not name it literally. A change takes effect on the next github
-  call (the guard) or the next MCP start (the launcher). What holds it back is the clone rule in `CLAUDE.md` and the
-  clean-main check, which switches the guard and the launcher off while the checkout differs from `main` in a
-  tracked file or sits on another branch; an edit that is committed on `main` and pulled is not caught by it. The
-  worst realistic case is a leaked GitHub token (writes stay denied by tool name), and it needs a hijacked agent.
+  `~/.claude/install.conf`, and `/setup-claude` denies Edit on the live checkout's `.git/**`, `tools/github-mcp/**`,
+  `hooks/**` and the other linked paths. A shell write is not an Edit, so none of these stops `sed -i` on `guard.sh`
+  or `launch`, a `git checkout` in the live checkout, or a write to `install.conf` that does not name it literally. A
+  change takes effect on the next github call (the guard) or the next MCP start (the launcher).
+- The reviewed-code check lives inside the files it checks, so it holds back accidents and partial edits, not a
+  hijacked agent: a shell write that deletes the check from `guard.sh` or `launch` runs with no check at all. Against
+  that, the clone rule in `CLAUDE.md` is the only layer. Within its reach the check switches the guard and the
+  launcher off while the checkout is on another branch, differs from `HEAD` in a tracked file or holds a commit
+  `origin/main` lacks, and it runs git so that nothing in `.git/config` (a filter, an fsmonitor, a work tree, replace
+  refs) runs or redirects it. It cannot tell a merged commit from a forged one: `git update-ref
+  refs/remotes/origin/main HEAD` makes `origin/main` agree, and a shell write into `.git/objects` can rewrite a commit
+  in place. The worst realistic case is a leaked GitHub token (writes stay denied by tool name), and it needs a
+  hijacked agent.
+- A check-then-run gap remains: the launcher verifies the binary's hash and then runs it, so a swap in between is not
+  caught. The environment is also a lever: a changed `HOME` moves where `install.conf` and the git config are read
+  from, and the guard runs inside the session's own environment. Neither is closed without root ownership; the
+  hash pin and the scrubbed environment are what remain.
 - Re-run and cancel are allowed on ask in every write repo. Where a workflow deploys on manual runs, re-running an
   old run can put that run's branch back on production, and cancelling a deploy can stop it halfway. The prompt
   says so.

@@ -113,10 +113,10 @@ make_links() {
 # registered at the launcher, the guard hook pointing at the guard.
 wire_mcp() {
   mkdir -p "$R/tools/github-mcp/bin"
-  printf '#!/bin/sh\n' > "$R/tools/github-mcp/bin/github-mcp-server"
+  printf '#!/bin/sh\n# fake server\n' > "$R/tools/github-mcp/bin/github-mcp-server"
   chmod 755 "$R/tools/github-mcp/bin/github-mcp-server"
   jq -n --arg c "$R/tools/github-mcp/launch" '{mcpServers: {github: {type: "stdio", command: $c, args: []}}}' > "$H/.claude.json"
-  jq -n --arg c "$R/tools/github-mcp/guard.sh" '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: $c}]}]}}' > "$H/.claude/settings.json"
+  jq -n --arg c "/bin/bash -p '$R/tools/github-mcp/guard.sh' || exit 2" '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: $c}]}]}}' > "$H/.claude/settings.json"
 }
 # everything installed and current
 setup_current() {
@@ -130,6 +130,8 @@ mkdir -p "$SEED/tools/github-mcp" "$SEED/agents" "$SEED/hooks" "$SEED/rules" "$S
 cp "$SCRIPT_SRC" "$SEED/tools/install-copies.sh"
 printf 'launcher v1\n' > "$SEED/tools/github-mcp/launch"
 printf 'guard v1\n' > "$SEED/tools/github-mcp/guard.sh"
+printf '#!/bin/sh\n# fake server\n' > "$T/fake-server"
+(cd "$T" && cp fake-server github-mcp-server && /usr/bin/shasum -a 256 github-mcp-server) > "$SEED/tools/github-mcp/server.sha256"
 printf '# agent\n' > "$SEED/agents/a.md"
 printf '#!/bin/sh\n' > "$SEED/hooks/h.sh"
 printf '# rule\n' > "$SEED/rules/r.md"
@@ -173,6 +175,86 @@ expect_re "the guard hook is ok" "$OUT" '^ok +github MCP guard hook points at th
 expect_re "the .zshrc line is ok" "$OUT" '^ok +~/\.zshrc loads the zsh helpers$'
 expect_has "links summary" "$OUT" "links     7 linked, 0 unlinked, 0 conflicting"
 
+case_start "status 2b: the binary must match the pinned hash"
+new_case
+setup_current
+printf '# swapped\n' >> "$R/tools/github-mcp/bin/github-mcp-server"
+ic status
+expect_rc "status exits 1 for a binary that differs from the pin" 1
+expect_re "a swapped binary is STALE" "$OUT" '^STALE +github-mcp server binary \(does not match tools/github-mcp/server\.sha256'
+gc rm -q tools/github-mcp/server.sha256
+gc -c commit.gpgsign=false commit -q -m rmpin
+ic status
+expect_re "no pin file: the binary line says the pin is missing" "$OUT" '^STALE +github-mcp server binary \(tools/github-mcp/server\.sha256 at HEAD is missing or malformed'
+expect_re "a pin not committed on main is named as such" "$OUT" '^STALE +github-mcp checkout \(tools/github-mcp/server\.sha256 is not committed on main yet'
+case_start "status 2b2: a binary without the exec bit, and a hidden edit"
+new_case
+setup_current
+chmod 644 "$R/tools/github-mcp/bin/github-mcp-server"
+ic status
+expect_re "a binary that is not executable is STALE, not MISSING" "$OUT" '^STALE +github-mcp server binary \(not executable\)'
+chmod 755 "$R/tools/github-mcp/bin/github-mcp-server"
+gc update-index --skip-worktree tools/github-mcp/launch
+printf '# edited\n' >> "$R/tools/github-mcp/launch"
+ic status
+expect_rc "status exits 1 for an edit git is told to ignore" 1
+expect_re "a skip-worktree edit is STALE" "$OUT" '^STALE +github-mcp checkout \(main, with edits: the guard and the launcher are off\)'
+gc update-index --no-skip-worktree tools/github-mcp/launch
+gc checkout -q -- tools/github-mcp/launch
+# .git/config is a file edit away: status must not run a filter or fsmonitor planted there.
+cp "$R/.git/config" "$T/config.saved"
+mkdir -p "$R/.git/info"
+printf '[filter "x"]\n\tclean = touch %s/filter-ran; cat\n[core]\n\tfsmonitor = touch %s/fsmonitor-ran\n' "$T" "$T" >> "$R/.git/config"
+printf '* filter=x\n' > "$R/.git/info/attributes"
+cat "$R/tools/github-mcp/guard.sh" > "$T/g.tmp" && cat "$T/g.tmp" > "$R/tools/github-mcp/guard.sh"
+rm -f "$T/filter-ran" "$T/fsmonitor-ran"
+ic status
+expect_re "planted filter, unchanged file: the checkout is ok" "$OUT" '^ok +github-mcp checkout is on a clean main$'
+if [ ! -e "$T/filter-ran" ] && [ ! -e "$T/fsmonitor-ran" ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: status ran a filter or fsmonitor from .git/config"; fi
+cp "$T/config.saved" "$R/.git/config"
+rm -f "$R/.git/info/attributes"
+
+case_start "status 2e: an http github server is STALE, not unregistered"
+new_case
+setup_current
+jq -n '{mcpServers: {github: {type: "http", url: "https://example.invalid/mcp/"}}}' > "$H/.claude.json"
+ic status
+expect_re "an http server shows its URL and type" "$OUT" '^STALE +github MCP server \(registered at https://example\.invalid/mcp/ \(type http\)\)'
+
+case_start "status 2b3: another hook under the same matcher is not the guard"
+new_case
+setup_current
+jq -n --arg c "/bin/bash -p '$R/tools/github-mcp/guard.sh' || exit 2" '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: "$HOME/.claude/hooks/github-mcp-update-check.sh"}, {type: "command", command: $c}]}]}}' > "$H/.claude/settings.json"
+ic status
+expect_re "the guard is found beside the update-check hook" "$OUT" '^ok +github MCP guard hook points at this checkout$'
+jq -n '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: "$HOME/.claude/hooks/github-mcp-update-check.sh"}]}]}}' > "$H/.claude/settings.json"
+ic status
+expect_re "only the update-check hook: the guard hook is MISSING" "$OUT" '^MISSING +github MCP guard hook \(none in'
+
+
+case_start "status 2c: HEAD must be on origin/main"
+new_case
+setup_current
+printf 'local\n' >> "$R/README"
+gc add README
+gc -c commit.gpgsign=false commit -q -m local
+ic status
+expect_rc "status exits 1 for an unpushed commit on main" 1
+expect_re "an unpushed commit is STALE" "$OUT" '^STALE +github-mcp checkout \(main holds commits that origin/main lacks'
+
+case_start "status 2d: the registration must not carry arguments or an environment"
+new_case
+setup_current
+jq -n --arg c "$R/tools/github-mcp/launch" '{mcpServers: {github: {type: "stdio", command: $c, args: ["--clean-env"]}}}' > "$H/.claude.json"
+ic status
+expect_re "an argument is STALE" "$OUT" '^STALE +github MCP server \(registered at .*launch \(with arguments or environment\)\)'
+jq -n --arg c "$R/tools/github-mcp/launch" '{mcpServers: {github: {type: "stdio", command: $c, env: {X: "1"}}}}' > "$H/.claude.json"
+ic status
+expect_re "an environment is STALE" "$OUT" '^STALE +github MCP server \(registered at .*launch \(with arguments or environment\)\)'
+jq -n --arg c "$R/tools/github-mcp/launch" '{mcpServers: {github: {type: "stdio", command: $c}}, projects: {"/p": {mcpServers: {github: {type: "stdio", command: "/x"}}}}}' > "$H/.claude.json"
+ic status
+expect_re "a project-scope github server is STALE" "$OUT" '^STALE +github MCP server \(also defined at project scope'
+
 case_start "status 3: the checkout is not a clean main"
 new_case
 setup_current
@@ -193,11 +275,11 @@ case_start "status 4: the server and the hook must point at this checkout"
 new_case
 setup_current
 jq -n '{mcpServers: {github: {type: "stdio", command: "/elsewhere/launch"}}}' > "$H/.claude.json"
-jq -n '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: "/elsewhere/guard.sh"}]}]}}' > "$H/.claude/settings.json"
+jq -n '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: "/elsewhere/tools/github-mcp/guard.sh"}]}]}}' > "$H/.claude/settings.json"
 ic status
 expect_rc "status exits 1 when they point elsewhere" 1
 expect_re "a server registered elsewhere is STALE" "$OUT" '^STALE +github MCP server \(registered at /elsewhere/launch\)'
-expect_re "a hook elsewhere is STALE" "$OUT" '^STALE +github MCP guard hook \(points at /elsewhere/guard\.sh\)  -> /setup-claude$'
+expect_re "a hook elsewhere is STALE" "$OUT" '^STALE +github MCP guard hook \(points at /elsewhere/tools/github-mcp/guard\.sh\)  -> /setup-claude$'
 jq -n '{mcpServers: {other: {command: "x"}}}' > "$H/.claude.json"
 ic status
 expect_re "another server name does not count" "$OUT" '^MISSING +github MCP server'

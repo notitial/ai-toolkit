@@ -24,6 +24,8 @@ chmod 600 "$CONF"
 cp "$HERE/ait.zsh" "$HERE/shell-init.zsh" "$HERE/install-copies.sh" "$R/tools/"
 printf 'launcher\n' > "$R/tools/github-mcp/launch"
 printf 'guard\n' > "$R/tools/github-mcp/guard.sh"
+printf '#!/bin/sh\n' > "$T/github-mcp-server"
+(cd "$T" && /usr/bin/shasum -a 256 github-mcp-server) > "$R/tools/github-mcp/server.sha256"
 printf 'echo guard-suite\n' > "$R/tools/github-mcp/test-guard.sh"
 printf 'echo update-suite\n' > "$R/tools/github-mcp/test-update-check.sh"
 git init -q -b main "$R"
@@ -70,7 +72,7 @@ mkdir -p "$R/tools/github-mcp/bin"
 printf '#!/bin/sh\n' > "$R/tools/github-mcp/bin/github-mcp-server"
 chmod 755 "$R/tools/github-mcp/bin/github-mcp-server"
 jq -n --arg c "$R/tools/github-mcp/launch" '{mcpServers: {github: {type: "stdio", command: $c, args: []}}}' > "$T/home/.claude.json"
-jq -n --arg c "$R/tools/github-mcp/guard.sh" '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: $c}]}]}}' > "$T/home/.claude/settings.json"
+jq -n --arg c "/bin/bash -p '$R/tools/github-mcp/guard.sh' || exit 2" '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: $c}]}]}}' > "$T/home/.claude/settings.json"
 out=$(z 'ghm-status; echo "rc=$?"')
 expect_has "the binary is ok" "$out" "ok        github-mcp server binary"
 expect_has "the registration is ok" "$out" "ok        github MCP server registered at this checkout"
@@ -97,9 +99,9 @@ gc checkout -q main
 jq -n '{mcpServers: {github: {type: "stdio", command: "/elsewhere/launch"}}}' > "$T/home/.claude.json"
 out=$(z ghm-status)
 expect_has "a server registered elsewhere is STALE" "$out" "STALE     github MCP server (registered at /elsewhere/launch)"
-jq -n '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: "/elsewhere/guard.sh"}]}]}}' > "$T/home/.claude/settings.json"
+jq -n '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: "/elsewhere/tools/github-mcp/guard.sh"}]}]}}' > "$T/home/.claude/settings.json"
 out=$(z ghm-status)
-expect_has "a hook elsewhere is STALE" "$out" "STALE     github MCP guard hook (points at /elsewhere/guard.sh)"
+expect_has "a hook elsewhere is STALE" "$out" "STALE     github MCP guard hook (points at /elsewhere/tools/github-mcp/guard.sh)"
 
 echo "ait: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

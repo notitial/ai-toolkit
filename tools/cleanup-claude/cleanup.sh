@@ -212,7 +212,7 @@ done | jq -R . | jq -s .)
 CFG_JSON=$(printf '%s' "$CFGS" | jq -R . | jq -s 'map(select(. != ""))')
 # The deny entries /setup-claude writes from this checkout's real path (not in the template): security entries, so
 # they go only with --include-security, like the template's own deny entries.
-LIVE_DENY=$(jq -n --arg r "$ROOT" '["hooks/**", "tools/github-mcp/**", "tools/shell-init.zsh", "tools/ait.zsh"] | map("Edit(/" + $r + "/" + . + ")")')
+LIVE_DENY=$(jq -n --arg r "$ROOT" '[".git/**", "hooks/**", "rules/**", "agents/**", "skills/**", "tools/github-mcp/**", "tools/workspace-lock/**", "tools/statusline.sh", "tools/shell-init.zsh", "tools/ait.zsh"] | map("Edit(/" + $r + "/" + . + ")")')
 
 JQ_CLEAN='
 def tl: $t[0];
@@ -222,7 +222,7 @@ def sec_env: ["ENABLE_CLAUDEAI_MCP_SERVERS"];
 # A hook command of the toolkit: the script path alone or with arguments, optionally under bash, never a chained command.
 def toolkit_cmd:
   (type == "string") and (
-    . == "/usr/local/libexec/mcp-github/guard.sh" or . == $guard
+    . == "/usr/local/libexec/mcp-github/guard.sh" or . == $guard or . == ("/bin/bash -p '"'"'" + $guard + "'"'"' || exit 2")
     or (sub("^bash +"; "") as $c
         | ($c | split(" ")[0] // "") as $w
         | (($c | test("&&|;|\\|")) | not)
@@ -441,7 +441,7 @@ done <<EOF
 $CFGS
 EOF
 
-# ---- 5. what is only printed: root-owned, credentials, other tools' own commands
+# ---- 5. what is only printed: any leftover root-owned install, credentials, other tools' own commands
 echo "== for you to run (never run by this script)"
 manual() { N_MANUAL=$((N_MANUAL + 1)); say RUN "$1"; [ -z "${2:-}" ] || printf '        %s\n' "$2"; }
 if [ -e "$LIBEXEC/mcp-github" ]; then

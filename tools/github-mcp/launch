@@ -2,7 +2,8 @@
 set +x
 set -eu
 TOOLS=get_me,pull_request_read,list_pull_requests,search_pull_requests,issue_read,list_issues,search_issues,get_file_contents,get_commit,list_commits,list_branches,actions_get,actions_list,get_job_logs,create_pull_request,add_issue_comment,add_reply_to_pull_request_comment,actions_run_trigger,update_pull_request
-DIR=$(cd "$(dirname "$0")" && pwd -P)
+# Absolute paths only before the clean-env re-exec: a tool found on the caller's PATH would decide where DIR points.
+DIR=$(cd "$(/usr/bin/dirname "$0")" && pwd -P)
 ROOT=$(cd "$DIR/../.." && pwd -P)
 if [ "${1:-}" != --clean-env ]; then
   user=$(/usr/bin/id -un </dev/null)
@@ -17,12 +18,49 @@ fi
 for v in $(/usr/bin/env | /usr/bin/sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p'); do
   case $v in HOME|TMPDIR|PATH) ;; *) unset "$v" ;; esac
 done
-# The launcher and the guard run from the live checkout, so a branch or a half-done edit there would go live: start
-# only from a clean main. The server's folder is empty, so no file in a checkout can be read as its config.
-branch=$(/usr/bin/git -c core.fsmonitor=false -C "$ROOT" branch --show-current </dev/null 2>/dev/null) || branch=
-dirty=$(/usr/bin/git -c core.fsmonitor=false -C "$ROOT" status --porcelain --untracked-files=no </dev/null 2>/dev/null) || dirty=x
-if [ "$branch" != main ] || [ -n "$dirty" ]; then
-  echo "mcp-github: $ROOT is not on a clean main; refusing to start" >&2
+# The launcher and the guard run from the live checkout, so a branch, a half-done edit or an unpushed commit there
+# would go live: start only from reviewed code (on main, every tracked file equal to its blob at HEAD, HEAD on
+# origin/main, and this file, the guard and the binary's hash pin committed). The server's folder is empty, so no file
+# in a checkout can be read as its config.
+# This file must be the checkout's own tools/github-mcp/launch: a copy elsewhere would pass on the real files.
+[ "$DIR" = "$ROOT/tools/github-mcp" ] || ROOT=
+LIVE_FILES="tools/github-mcp/guard.sh tools/github-mcp/launch tools/github-mcp/server.sha256"
+# >>> reviewed-code check: keep this block identical in guard.sh and launch (test-guard.sh compares them).
+# git reads the checkout's own .git/config, which a file edit can change, so only commands that run no filter, hook,
+# external diff or textconv are used: the index against HEAD (diff-index --cached) and each tracked file hashed with
+# --no-filters against the index. The work tree, replace refs, grafts, the commit-graph and trace2 are pinned so that
+# .git/config cannot redirect them. Only plain files are accepted; a symlink, a submodule or a conflict denies.
+live_git() {
+  [ -n "$ROOT" ] && [ -d "$ROOT/.git" ] || return 1
+  /usr/bin/env GIT_DIR="$ROOT/.git" GIT_WORK_TREE="$ROOT" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_ATTR_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 GIT_NO_REPLACE_OBJECTS=1 GIT_GRAFT_FILE=/dev/null GIT_TRACE2=0 \
+    GIT_TRACE2_EVENT=0 GIT_TRACE2_PERF=0 /usr/bin/git -c core.fsmonitor=false -c core.commitGraph=false \
+    -c core.useReplaceRefs=false -c core.hooksPath=/dev/null -C "$ROOT" "$@" 2>/dev/null
+}
+live_main_ok() {
+  [ "$(live_git symbolic-ref -q HEAD </dev/null)" = refs/heads/main ] || return 1
+  live_git diff-index --cached --quiet --no-ext-diff --no-textconv HEAD -- </dev/null || return 1
+  _idx=$(live_git ls-files -s </dev/null) && [ -n "$_idx" ] || return 1
+  printf '%s\n' "$_idx" | /usr/bin/grep -Eqv '^100(644|755) [0-9a-f]{40,64} 0[[:blank:]]' && return 1
+  _want=$(printf '%s\n' "$_idx" | /usr/bin/cut -d ' ' -f 2)
+  _got=$(printf '%s\n' "$_idx" | /usr/bin/cut -f 2- | live_git hash-object --no-filters --stdin-paths) || return 1
+  [ "$_want" = "$_got" ] || return 1
+  live_git merge-base --is-ancestor HEAD refs/remotes/origin/main </dev/null || return 1
+  for _f in $LIVE_FILES; do
+    [ -n "$(live_git rev-parse -q --verify "HEAD:$_f" </dev/null)" ] || return 1
+  done
+}
+# <<< reviewed-code check
+if ! live_main_ok; then
+  echo "mcp-github: $ROOT is not reviewed code (not on main, a tracked file changed, HEAD not on origin/main, tools/github-mcp/server.sha256 not committed, or git unavailable); refusing to start" >&2
+  exit 1
+fi
+# The server binary is not tracked, and it receives the token: it must match the hash pinned in the tracked, reviewed
+# tools/github-mcp/server.sha256 (one `shasum -a 256` line for github-mcp-server), or nothing starts.
+pin=$(/usr/bin/sed -n 's/^\([0-9a-f]\{64\}\)  *github-mcp-server$/\1/p' "$DIR/server.sha256" </dev/null 2>/dev/null | /usr/bin/head -n 1) || pin=
+got=$(/usr/bin/shasum -a 256 "$DIR/bin/github-mcp-server" </dev/null 2>/dev/null | /usr/bin/sed -n 's/^\([0-9a-f]\{64\}\)  .*/\1/p') || got=
+if [ -z "$pin" ] || [ "$got" != "$pin" ]; then
+  echo "mcp-github: $DIR/bin/github-mcp-server does not match tools/github-mcp/server.sha256 (or is missing); refusing to start" >&2
   exit 1
 fi
 # The keychain account comes from the install-time settings file /setup-claude writes. Only a plain account name is
