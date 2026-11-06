@@ -187,13 +187,19 @@ bar() {
 # --- API-key view ----------------------------------------------------------------
 # An API key has no subscription rate_limits, so the Limit/Weekly bars would sit empty. When
 # ANTHROPIC_API_KEY is set (presence only, the value is never read or printed) and the harness
-# sent no rate_limits, they give way to: Input <all input tokens> <bar of the hot share> <N>% hot,
-# Output <tokens>, Cost <$>. "Hot" is cache-read input, "cold" is fresh plus cache-creation input.
+# sent no rate_limits, they give way to: cached <bar of the cache-read share of all input>,
+# Input <all input tokens> / <cost-weighted input>, Output <tokens>, Cost <$>. All input is fresh plus
+# cache-write plus cache-read tokens; the weighted figure prices them in fresh-token units (weights below).
 # The statusline's stdin carries only the LAST response's tokens, so the totals are summed here
 # from the session's own transcript plus its subagents' transcripts (<transcript minus .jsonl>/subagents/
 # agent-*.jsonl; their usage is in the session's Cost too). One usage per assistant message id; the transcript
 # repeats it for every content block. The sum is cached by the total size of those files and redone by a
 # detached job when it grows, so a render never waits for it. Cost is the harness's own figure.
+
+# Weights of the cost-weighted Input figure, in hundredths of the base input price: fresh input x1, a 5-minute
+# cache write x1.25, a 1-hour cache write x2, a cache read x0.1. They are base-price multipliers; some models bill
+# cache reads lower, so the figure is an estimate of price-equivalent fresh tokens, not a bill.
+API_W_FRESH=100 API_W_WRITE_5M=125 API_W_WRITE_1H=200 API_W_READ=10
 
 # Compact token count: 812, 9.5k, 297k, 1.2M, 62.9M.
 fmt_tok() {
@@ -227,8 +233,11 @@ api_size() {
   printf '%s' "$total"
 }
 
-# api_sum_transcript <transcript> <size> <cache>: writes "size<TAB>fresh<TAB>create<TAB>read<TAB>output".
-# <size> is the api_size read BEFORE the sum, so a file that grew meanwhile is summed again next time.
+# api_sum_transcript <transcript> <size> <cache>: writes "size<TAB>fresh<TAB>write5m<TAB>write1h<TAB>read<TAB>output".
+# <size> is the api_size read BEFORE the sum, so a file that grew meanwhile is summed again next time. The writes
+# split by cache lifetime from usage.cache_creation.ephemeral_{5m,1h}_input_tokens; any part of
+# cache_creation_input_tokens the split does not cover counts as 5-minute writes, so a usage without the split is
+# all 5-minute writes and the raw total never drops below fresh + cache_creation_input_tokens + read.
 api_sum_transcript() {
   local sums tmp="$3.$$"
   api_list "$1" || return 0
@@ -239,20 +248,23 @@ api_sum_transcript() {
   sums=$({ awk 1 "${API_FILES[@]}" 2>/dev/null || true; } | jq -nRr 'reduce (inputs | fromjson? | select(type == "object" and .type == "assistant"
         and ((.message | type) == "object") and ((.message.usage | type) == "object"))) as $l ({};
       ($l.message.id // $l.requestId // $l.uuid // "") as $k
-      | ($l.message.usage | [(.input_tokens | numbers // 0), (.cache_creation_input_tokens | numbers // 0),
-                             (.cache_read_input_tokens | numbers // 0), (.output_tokens | numbers // 0)]) as $u
+      | ($l.message.usage | (.cache_creation_input_tokens | numbers // 0) as $cc
+          | ((.cache_creation | objects | .ephemeral_1h_input_tokens | numbers) // 0) as $c1
+          | ((.cache_creation | objects | .ephemeral_5m_input_tokens | numbers) // 0) as $c5
+          | [(.input_tokens | numbers // 0), ($c5 + ([$cc - $c5 - $c1, 0] | max)), $c1,
+             (.cache_read_input_tokens | numbers // 0), (.output_tokens | numbers // 0)]) as $u
       | .[$k] = (if .[$k] then [.[$k], $u] | transpose | map(max) else $u end))
-    | [.[]] | (if length == 0 then [[0, 0, 0, 0]] else . end) | transpose | map(add) | @tsv' 2>/dev/null) || return 0
+    | [.[]] | (if length == 0 then [[0, 0, 0, 0, 0]] else . end) | transpose | map(add) | @tsv' 2>/dev/null) || return 0
   [ -n "$sums" ] || return 0
   printf '%s\t%s\n' "$2" "$sums" > "$tmp" 2>/dev/null && mv -f "$tmp" "$3" 2>/dev/null || rm -f "$tmp" 2>/dev/null
   return 0
 }
 
-# api_view_segment: prints the Input / Output / Cost segments. Fail-open and silent.
+# api_view_segment: prints the cached / Input / Output / Cost segments. Fail-open and silent.
 api_view_segment() {
   local dir="${STATUSLINE_CACHE_DIR:-$HOME/.cache/claude-statusline}" tp="$transcript_path"
   local grey=$'\033[38;5;245m' teal=$'\033[38;5;73m' off=$'\033[0m'
-  local key size cache run c_size fresh create cread out total hot_pct run_m
+  local key size cache run c_size fresh w5 w1 cread out extra total weighted cached_pct run_m
   # An id-less session would share one cache file with every other: no sum for it.
   if [ "$tp" != none ] && [ "$session_id" != unknown ] && [ -r "$tp" ]; then
     size=$(api_size "$tp") || size=
@@ -260,7 +272,9 @@ api_view_segment() {
     cache="$dir/$key.tsv"; run="$dir/$key.run"
     if [ -n "$size" ]; then
       c_size=-1
-      [ -r "$cache" ] && IFS=$'\t' read -r c_size fresh create cread out < "$cache" 2>/dev/null || true
+      [ -r "$cache" ] && IFS=$'\t' read -r c_size fresh w5 w1 cread out extra < "$cache" 2>/dev/null || true
+      # Not six columns (a five-column file from before the 5m/1h split): stale, summed again, never misread.
+      if [ -z "${out:-}" ] || [ -n "${extra:-}" ]; then c_size=-1; fresh= w5= w1= cread= out=; fi
       # One job at a time: a marker younger than 60 s (compared in seconds, not find -mmin, which rounds up on BSD) means one runs.
       run_m=$(stat -f%m "$run" 2>/dev/null || stat -c%Y "$run" 2>/dev/null) || run_m=0
       if [ "$c_size" != "$size" ] && ! [ $(( $(date '+%s') - run_m )) -lt 60 ] 2>/dev/null; then
@@ -271,12 +285,14 @@ api_view_segment() {
       fi
     fi
   fi
-  if [ -n "${cread:-}" ] && [ "${fresh:-x}" -ge 0 ] 2>/dev/null && [ "${create:-x}" -ge 0 ] 2>/dev/null \
-    && [ "$cread" -ge 0 ] 2>/dev/null && [ "${out:-x}" -ge 0 ] 2>/dev/null; then
-    total=$(( fresh + create + cread ))
-    hot_pct=0
-    [ "$total" -gt 0 ] && hot_pct=$(( (cread * 100 + total / 2) / total ))
-    printf "  %sInput%s %s %s%s%s %s%3d%% hot%s" "$grey" "$off" "$(fmt_tok "$total")" "$teal" "$(bar "$hot_pct" 12)" "$off" "$teal" "$hot_pct" "$off"
+  if [ -n "${cread:-}" ] && [ "${fresh:-x}" -ge 0 ] 2>/dev/null && [ "${w5:-x}" -ge 0 ] 2>/dev/null \
+    && [ "${w1:-x}" -ge 0 ] 2>/dev/null && [ "$cread" -ge 0 ] 2>/dev/null && [ "${out:-x}" -ge 0 ] 2>/dev/null; then
+    total=$(( fresh + w5 + w1 + cread ))
+    weighted=$(( (fresh * API_W_FRESH + w5 * API_W_WRITE_5M + w1 * API_W_WRITE_1H + cread * API_W_READ + 50) / 100 ))
+    cached_pct=0
+    [ "$total" -gt 0 ] && cached_pct=$(( (cread * 100 + total / 2) / total ))
+    printf "  %scached%s %s%s%s" "$grey" "$off" "$teal" "$(bar "$cached_pct" 12)" "$off"
+    printf "  %sInput%s %s / %s" "$grey" "$off" "$(fmt_tok "$total")" "$(fmt_tok "$weighted")"
     printf "  %sOutput%s %s" "$grey" "$off" "$(fmt_tok "$out")"
   else
     printf "  %sInput%s \033[38;5;240m…%s" "$grey" "$off" "$off"
