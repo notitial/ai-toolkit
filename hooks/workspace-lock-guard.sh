@@ -340,16 +340,12 @@ scratch_only() {
   [ "$_saw" = 1 ]
 }
 
-# The installed lock script, spelled with $HOME, ${HOME}, ~, $CLAUDE_CONFIG_DIR or as the path.
+# The installed lock script, spelled with $HOME, ${HOME}, ~ or as the path.
 is_lock_script() {
   case "$1" in
     '$HOME/.claude/tools/workspace-lock.sh'|'${HOME}/.claude/tools/workspace-lock.sh'|'~/.claude/tools/workspace-lock.sh'|"$HOME/.claude/tools/workspace-lock.sh")
       LS_PATH="$HOME/.claude/tools/workspace-lock.sh"; return 0 ;;
-    '$CLAUDE_CONFIG_DIR/tools/workspace-lock.sh'|'${CLAUDE_CONFIG_DIR}/tools/workspace-lock.sh')
-      [ -n "${CLAUDE_CONFIG_DIR:-}" ] || return 1
-      LS_PATH="$CLAUDE_CONFIG_DIR/tools/workspace-lock.sh"; return 0 ;;
   esac
-  [ -n "${CLAUDE_CONFIG_DIR:-}" ] && [ "$1" = "$CLAUDE_CONFIG_DIR/tools/workspace-lock.sh" ] && { LS_PATH="$1"; return 0; }
   return 1
 }
 

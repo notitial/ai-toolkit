@@ -4,7 +4,7 @@
 # Run: bash tools/test-statusline.sh   (STATUSLINE=<path> tests another copy.)
 set -u
 unset ANTHROPIC_API_KEY  # a key in the caller's environment would switch every render to the API view
-unset CLAUDE_CODE_OAUTH_TOKEN  # a token in the caller's environment would turn the readings file off in the cases that unset CLAUDE_CONFIG_DIR
+unset CLAUDE_CODE_OAUTH_TOKEN  # a token in the caller's environment would turn the readings file off in the cases that read the stored login
 HERE=$(cd "$(dirname "$0")" && pwd -P)
 SL=${STATUSLINE:-$HERE/statusline.sh}
 VECTORS=${VECTORS:-$HERE/pace-vectors.tsv}
@@ -19,12 +19,12 @@ check() {  # check <name> <expected> <actual>
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/test-statusline-XXXXXX") || exit 2
 trap 'rm -rf "$T"' EXIT
-mkdir -p "$T/home" "$T/cfg"
-printf '{"accountUuid":"11111111-2222-3333-4444-555555555555"}\n' > "$T/cfg/.claude.json"
+mkdir -p "$T/home/.claude"
+printf '{"accountUuid":"11111111-2222-3333-4444-555555555555"}\n' > "$T/home/.claude.json"
 FP=$(printf %s "11111111-2222-3333-4444-555555555555" | shasum -a 256 | cut -c1-12)
 
 render() {  # render <json>; runs the status line in the sandbox, prints nothing
-  printf '%s' "$1" | HOME="$T/home" CLAUDE_CONFIG_DIR="$T/cfg" \
+  printf '%s' "$1" | HOME="$T/home" \
     USAGE_WATCHER_DIR="$T/uw" bash "$SL" > "$T/out.txt" 2>"$T/err.txt"
 }
 NOW=$(date +%s)
@@ -65,19 +65,19 @@ rm -f "$T/uw"
 
 # ---- the account is not guessed: no accountUuid, no readings file
 rm -rf "$T/uw"
-printf '{}\n' > "$T/cfg/.claude.json"
+printf '{}\n' > "$T/home/.claude.json"
 render "$LIVE"; [ -s "$T/out.txt" ] && ok || bad "unknown account: status line still printed"
 check "unknown account writes no readings" 0 "$(find "$T/uw" -name 'readings-*' 2>/dev/null | wc -l | tr -d ' ')"
 check "unknown account: Limit and Weekly still render" 2 "$(sed "s/$(printf '\033')\[[0-9;]*m//g" "$T/out.txt" | grep -o 'Limit\|Weekly' | wc -l | tr -d ' ')"
 
 # ---- a token session on the shared login keeps no store: ~/.claude.json names the stored login, not the token's account
 rm -rf "$T/uw"
-printf '{"accountUuid":"11111111-2222-3333-4444-555555555555"}\n' | tee "$T/home/.claude.json" > "$T/cfg/.claude.json"
-tok_render() {  # tok_render <json> [config dir]; a token session, with or without its own config dir
-  printf '%s' "$1" | env -u CLAUDE_CONFIG_DIR HOME="$T/home" USAGE_WATCHER_DIR="$T/uw" CLAUDE_CODE_OAUTH_TOKEN=x \
-    ${2:+CLAUDE_CONFIG_DIR="$2"} bash "$SL" > "$T/out.txt" 2>"$T/err.txt"
+printf '{"accountUuid":"11111111-2222-3333-4444-555555555555"}\n' > "$T/home/.claude.json"
+tok_render() {  # tok_render <json>; a token session on the shared login
+  printf '%s' "$1" | HOME="$T/home" USAGE_WATCHER_DIR="$T/uw" CLAUDE_CODE_OAUTH_TOKEN=x \
+    bash "$SL" > "$T/out.txt" 2>"$T/err.txt"
 }
-printf '%s' "$LIVE" | env -u CLAUDE_CONFIG_DIR HOME="$T/home" USAGE_WATCHER_DIR="$T/uw" bash "$SL" > "$T/out.txt" 2>"$T/err.txt"
+printf '%s' "$LIVE" | HOME="$T/home" USAGE_WATCHER_DIR="$T/uw" bash "$SL" > "$T/out.txt" 2>"$T/err.txt"
 check "shared login without a token: readings written" 1 "$(find "$T/uw" -name "readings-$FP.json" 2>/dev/null | wc -l | tr -d ' ')"
 before_tok=$(cat "$R" 2>/dev/null)
 TOKLIVE='{"model":{"display_name":"Opus"},"context_window":{"used_percentage":10,"context_window_size":1000000},
@@ -90,17 +90,13 @@ tok_render "$IDLE"
 check "token session, shared login: the Weekly segment still renders" 1 "$(sed "s/$(printf '\033')\[[0-9;]*m//g" "$T/out.txt" | grep -c 'Weekly')"
 check "token session, shared login: borrows no Weekly from the stored login" 0 "$(sed "s/$(printf '\033')\[[0-9;]*m//g" "$T/out.txt" | grep -c 'Weekly.* 61%')"
 rm -rf "$T/uw"
-tok_render "$TOKLIVE" "$T/cfg"
-check "token session with its own config dir: readings written" 7 "$(jq -r .five_hour.used_percentage "$R" 2>/dev/null)"
-rm -rf "$T/uw"
-rm -f "$T/home/.claude.json"
 
 # ---- context bar: scaled to autoCompactWindow, capped at the harness window, else 250000
-printf '{"accountUuid":"11111111-2222-3333-4444-555555555555"}\n' > "$T/cfg/.claude.json"
+printf '{"accountUuid":"11111111-2222-3333-4444-555555555555"}\n' > "$T/home/.claude.json"
 plain() { sed "s/$(printf '\033')\[[0-9;]*m//g" "$T/out.txt"; }
 ctx_pct() { plain | sed -n 's/.*Context [^ ]* *\([0-9]*\)%.*/\1/p'; }
 ctx_render() {  # ctx_render <settings-json|-> <window> <used_pct>
-  if [ "$1" = "-" ]; then rm -f "$T/cfg/settings.json"; else printf '%s' "$1" > "$T/cfg/settings.json"; fi
+  if [ "$1" = "-" ]; then rm -f "$T/home/.claude/settings.json"; else printf '%s' "$1" > "$T/home/.claude/settings.json"; fi
   render '{"model":{"display_name":"Opus"},"context_window":{"used_percentage":'"$3"',"context_window_size":'"$2"'},"session_id":"s1"}'
 }
 ctx_render '{"autoCompactWindow":500000}' 1000000 25; check "context: 500k setting" 50 "$(ctx_pct)"
@@ -114,7 +110,7 @@ ctx_render '{"autoCompactWindow":"0500000"}' 1000000 25; check "context: leading
 ctx_render '{"autoCompactWindow":"0900000"}' 1000000 25; check "context: leading zero with a 9 exits 0" 0 $?
 check "context: leading zero with a 9 reads as decimal (250k of 900k)" 28 "$(ctx_pct)"
 ctx_render '{"autoCompactWindow":"09999999"}' 1000000 25; check "context: zero-padded setting above the window is capped" 25 "$(ctx_pct)"
-rm -f "$T/cfg/settings.json"
+rm -f "$T/home/.claude/settings.json"
 
 # ---- a comma-decimal locale still reads fractional percentages (printf %.0f follows the locale)
 DE_LOCALE=$(locale -a 2>/dev/null | grep -iE '^de_DE\.utf-?8$' | head -n1)
@@ -122,7 +118,7 @@ if [ -n "$DE_LOCALE" ]; then
   printf '%s' '{"model":{"display_name":"Opus"},"context_window":{"used_percentage":10.4,"context_window_size":1000000},
    "rate_limits":{"five_hour":{"used_percentage":42.6,"resets_at":'$((NOW + 7200))'},
    "seven_day":{"used_percentage":61.4,"resets_at":'$((NOW + 200000))'}},"session_id":"s1"}' |
-    LC_ALL=$DE_LOCALE HOME="$T/home" CLAUDE_CONFIG_DIR="$T/cfg" USAGE_WATCHER_DIR="$T/uw" bash "$SL" > "$T/out.txt" 2>"$T/err.txt"
+    LC_ALL=$DE_LOCALE HOME="$T/home" USAGE_WATCHER_DIR="$T/uw" bash "$SL" > "$T/out.txt" 2>"$T/err.txt"
   check "comma-decimal locale: Context %" 40 "$(ctx_pct)"
   check "comma-decimal locale: Limit %" 43 "$(plain | sed -n 's/.*Limit [^ ]* *\([0-9]*\)%.*/\1/p')"
   check "comma-decimal locale: Weekly %" 61 "$(plain | sed -n 's/.*Weekly [^ ]* *\([0-9]*\)%.*/\1/p')"
@@ -136,7 +132,7 @@ mkdir -p "$T/bin"
 for c in jq cat grep sed cut date mkdir dirname mktemp mv rm; do ln -sf "$(command -v "$c")" "$T/bin/$c"; done
 BASH_BIN=$(command -v bash)
 rm -rf "$T/uw"
-printf '%s' "$LIVE" | PATH="$T/bin" HOME="$T/home" CLAUDE_CONFIG_DIR="$T/cfg" USAGE_WATCHER_DIR="$T/uw" \
+printf '%s' "$LIVE" | PATH="$T/bin" HOME="$T/home" USAGE_WATCHER_DIR="$T/uw" \
   "$BASH_BIN" "$SL" > "$T/out.txt" 2>"$T/err.txt"
 check "no shasum: exits 0" 0 $?
 check "no shasum: Limit and Weekly still render" 2 "$(plain | grep -o 'Limit\|Weekly' | wc -l | tr -d ' ')"
@@ -194,10 +190,10 @@ render_api() {  # render_api <json> [key]; the key defaults to KEY, "-" leaves i
   local k=${2:-$KEY}
   [ -n "${KEEP:-}" ] || rm -rf "$T/uw"
   if [ "$k" = - ]; then
-    printf '%s' "$1" | env -u ANTHROPIC_API_KEY HOME="$T/home" CLAUDE_CONFIG_DIR="$T/cfg" \
+    printf '%s' "$1" | env -u ANTHROPIC_API_KEY HOME="$T/home" \
       USAGE_WATCHER_DIR="$T/uw" STATUSLINE_CACHE_DIR="$T/apicache" bash "$SL" > "$T/out.txt" 2>"$T/err.txt"
   else
-    printf '%s' "$1" | HOME="$T/home" CLAUDE_CONFIG_DIR="$T/cfg" \
+    printf '%s' "$1" | HOME="$T/home" \
       USAGE_WATCHER_DIR="$T/uw" STATUSLINE_CACHE_DIR="$T/apicache" ANTHROPIC_API_KEY="$k" bash "$SL" > "$T/out.txt" 2>"$T/err.txt"
   fi
 }
