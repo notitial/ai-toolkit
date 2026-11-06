@@ -24,6 +24,18 @@ printf '#!/bin/sh\n[ "$1" = --version ] || exit 2\nprintf "GitHub MCP Server\\nV
 printf '#!/bin/sh\nfor a; do u=$a; done\necho "$u" >> "%s/curl-log"\n[ -e "%s/curl-fail" ] && exit 22\ncase $u in\n  */releases/latest) cat "%s/rel.json" ;;\n  */advisories*) cat "%s/adv.json" ;;\n  *) exit 22 ;;\nesac\n' \
   "$T" "$T" "$T" "$T" > "$T/curl"
 chmod 755 "$T/github-mcp-server" "$T/curl"
+# The hook is macOS-only by design (this GitHub MCP setup reads the Keychain), and retry_soon runs macOS
+# `date -v-6d`. Without BSD -v (Linux CI) that fails and the hook stamps "now" instead. This stand-in emulates
+# macOS date: it answers -v-Nd as BSD would and passes everything else to the real date, so the tests check the
+# hook as it really runs on a Mac. DATE_SHIM=1 forces it on a Mac to try the stand-in.
+mkdir "$T/bin"
+if [ -n "${DATE_SHIM:-}" ] || ! date -v-1d >/dev/null 2>&1; then
+  RD=$(command -v date)
+  printf '#!/bin/sh\ncase "${1:-}" in\n  -v-[0-9]*d)\n    n=${1#-v-}; n=${n%%d}; shift\n    s=$(( $(%s +%%s) - n * 86400 ))\n    %s -d "@$s" "$@" 2>/dev/null || %s -r "$s" "$@" ;;\n  *) exec %s "$@" ;;\nesac\n' \
+    "$RD" "$RD" "$RD" "$RD" > "$T/bin/date"
+  chmod 755 "$T/bin/date"
+fi
+export PATH="$T/bin:$PATH"
 # The hook runs the binary only when it matches the hash committed in its checkout at a HEAD on origin/main, so a
 # throwaway checkout pins the fake one.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
