@@ -192,6 +192,17 @@ expect_not "an untracked rule is not reported for linking" "$OUT" "stray.md"
 expect_not "an untracked skill is not reported for linking" "$OUT" "skills/new"
 expect_has "the committed links are still all linked" "$OUT" "links     7 linked, 0 unlinked, 0 conflicting"
 
+case_start "roster: a checkout whose HEAD cannot be read fails loudly"
+new_case
+setup_current
+mv "$R/.git" "$R/.git.away"
+ic roster
+expect_rc "roster exits 1 without a readable HEAD" 1
+expect_has "roster says why" "$OUT" "roster: cannot read HEAD"
+ic status
+expect_re "status reports the unreadable roster" "$OUT" '^STALE +links \(the committed roster cannot be read from HEAD\)'
+mv "$R/.git.away" "$R/.git"
+
 case_start "status 2b: the binary must match the pinned hash"
 new_case
 setup_current

@@ -23,7 +23,7 @@ umask 077
 ROOT=$(cd "$(dirname "$0")/../.." && pwd -P) || exit 2
 TEMPLATE="$ROOT/.claude/skills/setup-claude/templates/safe-permissions.json"
 
-APPLY=0 PURGE=0 KEEP_AMB=0 SEC=0 RMGUARD=0 VERBOSE=0 DIRS=""
+APPLY=0 PURGE=0 KEEP_AMB=0 SEC=0 RMGUARD=0 VERBOSE=0 DIRS="" KEPT_ROOT_GUARD=0
 usage() { sed -n '2,16p' "$0" >&2; exit 2; }
 while [ $# -gt 0 ]; do
   case $1 in
@@ -321,6 +321,8 @@ while IFS= read -r cfg; do
       | select(. == "/usr/local/libexec/mcp-github/guard.sh" or . == $guard or . == ("/bin/bash -p '"'"'" + $guard + "'"'"' || exit 2"))] | length > 0' \
       "$SCRATCH/new.json" >/dev/null 2>&1; then
     say KEEP "$rf: the github MCP guard hook (a security entry; --remove-guard-hook or --include-security removes it)"
+    jq -e '[.. | objects | .command? | strings | select(. == "/usr/local/libexec/mcp-github/guard.sh")] | length > 0' \
+      "$SCRATCH/new.json" >/dev/null 2>&1 && KEPT_ROOT_GUARD=1
   fi
   if cmp -s "$SCRATCH/old.json" "$SCRATCH/new.json"; then say OK "$rf (nothing of the toolkit's in it)"; continue; fi
   N_EDIT=$((N_EDIT + 1))
@@ -459,7 +461,9 @@ EOF
 # ---- 5. what is only printed: any leftover root-owned install, credentials, other tools' own commands
 echo "== for you to run (never run by this script)"
 manual() { N_MANUAL=$((N_MANUAL + 1)); say RUN "$1"; [ -z "${2:-}" ] || printf '        %s\n' "$2"; }
-if [ -e "$LIBEXEC/mcp-github" ]; then
+if [ -e "$LIBEXEC/mcp-github" ] && [ "$KEPT_ROOT_GUARD" = 1 ]; then
+  say KEEP "root-owned install in $LIBEXEC/mcp-github: a kept guard hook still runs its guard.sh, so no rm is printed (--remove-guard-hook removes the hook and prints it)"
+elif [ -e "$LIBEXEC/mcp-github" ]; then
   cmd="sudo rm -r"
   [ -e "$LIBEXEC/mcp-github" ] && cmd="$cmd $(printf '%q' "$LIBEXEC/mcp-github")"
   manual "root-owned install left from the earlier setup (github MCP launcher, guard and binary; the launcher and guard now run from the checkout)" "$cmd"

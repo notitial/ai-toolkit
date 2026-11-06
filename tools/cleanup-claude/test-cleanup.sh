@@ -205,7 +205,13 @@ mkdir -p "$T/libexec/mcp-github"
 printf '{"mcpServers":{"git-mcp":{},"github":{},"mine":{}}}\n' > "$H/.claude.json"
 cj=$(shasum "$H/.claude.json")
 run --apply
-check "manual: the sudo command names the existing root-owned dirs" 'grep -q "sudo rm -r $T/libexec/mcp-github\$" "$T/out"'
+check "manual: while the root-owned guard hook is kept, no rm of its folder is printed" '! grep -q "sudo rm -r" "$T/out" && grep -q "^KEEP .*root-owned install" "$T/out"'
+mkhome
+mkdir -p "$T/libexec/mcp-github"
+printf '{"mcpServers":{"git-mcp":{},"github":{},"mine":{}}}\n' > "$H/.claude.json"
+cj=$(shasum "$H/.claude.json")
+run --apply --remove-guard-hook
+check "manual: with the guard hook removed, the sudo command names the existing root-owned dirs" 'grep -q "sudo rm -r $T/libexec/mcp-github\$" "$T/out"'
 check "manual: the root-owned dirs are not touched" '[ -d "$T/libexec/mcp-github" ]'
 check "manual: mcp remove is printed for git-mcp and github only" 'grep -q "claude mcp remove --scope user git-mcp" "$T/out" && grep -q "claude mcp remove --scope user github" "$T/out" && ! grep -q "remove --scope user mine" "$T/out"'
 check "manual: .claude.json is not modified" '[ "$(shasum "$H/.claude.json")" = "$cj" ]'

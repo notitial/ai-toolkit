@@ -227,19 +227,29 @@ check_link() {
 # roster: what /setup-claude links, one repo path per line: the agents, hooks, rules and skills committed at HEAD (a
 # skill as skills/<name>). A file that is only on disk (untracked, or on another branch) is never listed, so it is never
 # linked into ~/.claude.
+# It fails (exit 1, nothing on stdout) when HEAD cannot be read or holds none of them, so a caller never takes a broken
+# checkout for an empty roster.
 cmd_roster() {
-  g ls-tree -r --name-only HEAD -- agents hooks rules skills 2>/dev/null |
+  local tree out
+  tree=$(g ls-tree -r --name-only HEAD -- agents hooks rules skills 2>/dev/null) || { fail "roster: cannot read HEAD in $ROOT"; return 1; }
+  out=$(printf '%s\n' "$tree" |
     sed -n -e '/^agents\/[^/]*\.md$/p' -e '/^hooks\/[^/]*\.sh$/p' -e '/^rules\/[^/]*\.md$/p' \
-      -e 's/^\(skills\/[^/]*\)\/SKILL\.md$/\1/p'
+      -e 's/^\(skills\/[^/]*\)\/SKILL\.md$/\1/p')
+  [ -n "$out" ] || { fail "roster: no agents, hooks, rules or skills committed at HEAD in $ROOT"; return 1; }
+  printf '%s\n' "$out"
 }
 
 status_links() {
-  local p
+  local p list
   LINK_OK=0 LINK_NEW=0 LINK_CONFLICT=0
+  if ! list=$(cmd_roster 2>/dev/null); then
+    line STALE "links (the committed roster cannot be read from HEAD)" "fix the checkout"
+    list=""
+  fi
   while IFS= read -r p; do
     [ -n "$p" ] && check_link "$p" "$CLAUDE_DIR/$p"
   done <<EOF
-$(cmd_roster)
+$list
 EOF
   check_link tools/statusline.sh "$CLAUDE_DIR/statusline.sh"
   check_link tools/workspace-lock/workspace-lock.sh "$CLAUDE_DIR/tools/workspace-lock.sh"

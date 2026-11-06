@@ -628,7 +628,7 @@ jq / node+npm / gh: all present (or: stopped at Step 0, missing <list>); gh logi
 ### Agents / Hooks / Skills / Rules
 
 One table per category, **one row per artifact listed in Steps 2–5** — do not use a
-hardcoded roster; the filesystem is the roster (see ADR 0009 / README install table).
+hardcoded roster; the `roster` output is the roster (see ADR 0009 / README install table).
 
 ```
 ### <Category>
