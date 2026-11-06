@@ -1,14 +1,16 @@
 #!/bin/bash
 # Removes what this repo installed on this machine, so /setup-claude can start from nothing. Dry run by default.
-#   bash tools/cleanup-claude/cleanup.sh [--apply] [--config-dir DIR]... [--purge-ask] [--keep-ambiguous] [--include-security] [--verbose]
+#   bash tools/cleanup-claude/cleanup.sh [--apply] [--config-dir DIR]... [--purge-ask] [--keep-ambiguous] [--remove-guard-hook] [--include-security] [--verbose]
 #   --apply             do it (without it, nothing is changed: the report is the dry run)
 #   --config-dir DIR    a Claude config dir to clean; repeatable (default: ~/.claude and each ~/.claude-*/config)
 #   --purge-ask         also remove the items classed ASK (user-authored or history: the ETA log)
 #   --keep-ambiguous    leave permission allow entries, plugins and autoMode context lines the template also lists,
 #                       and a promptCacheTtl or subagentPromptCacheTtl of "1h" (the opt-in /setup-claude asks about)
+#   --remove-guard-hook also remove the github MCP guard hook (kept by default: without it a still-registered server
+#                       runs unguarded; /cleanup-claude asks the user before passing this)
 #   --include-security  also remove the security entries the template lists: permission ask and deny, deniedMcpServers,
-#                       ENABLE_CLAUDEAI_MCP_SERVERS, enableAllProjectMcpServers, autoMode soft_deny (kept by default;
-#                       /setup-claude puts them back). --include-deny is the same flag under its old name
+#                       ENABLE_CLAUDEAI_MCP_SERVERS, enableAllProjectMcpServers, autoMode soft_deny, and the guard hook
+#                       (kept by default; /setup-claude puts them back). --include-deny is the same flag, old name
 #   --verbose           list every settings value path that goes (paths only, never values)
 # Never touched: login, Keychain items, transcripts, session registry, CLAUDE.md, settings backups, the checkout.
 # Never run for you: sudo, `claude mcp remove`, npm -g, Keychain deletes. Those are printed as commands.
@@ -21,21 +23,24 @@ umask 077
 ROOT=$(cd "$(dirname "$0")/../.." && pwd -P) || exit 2
 TEMPLATE="$ROOT/.claude/skills/setup-claude/templates/safe-permissions.json"
 
-APPLY=0 PURGE=0 KEEP_AMB=0 SEC=0 VERBOSE=0 DIRS=""
-usage() { sed -n '2,15p' "$0" >&2; exit 2; }
+APPLY=0 PURGE=0 KEEP_AMB=0 SEC=0 RMGUARD=0 VERBOSE=0 DIRS=""
+usage() { sed -n '2,16p' "$0" >&2; exit 2; }
 while [ $# -gt 0 ]; do
   case $1 in
     --apply) APPLY=1 ;;
     --purge-ask) PURGE=1 ;;
     --keep-ambiguous) KEEP_AMB=1 ;;
+    --remove-guard-hook) RMGUARD=1 ;;
     --include-security | --include-deny) SEC=1 ;;
     --verbose) VERBOSE=1 ;;
     --config-dir) [ $# -ge 2 ] || usage; DIRS="$DIRS$2"$'\n'; shift ;;
-    -h | --help) sed -n '2,15p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,16p' "$0"; exit 0 ;;
     *) usage ;;
   esac
   shift
 done
+# --include-security covers the guard hook too: passing it is the user's go in advance.
+[ "$SEC" = 1 ] && RMGUARD=1
 
 [ "${CLEANUP_TESTING:-0}" = 1 ] || unset CLEANUP_HOME CLEANUP_LIBEXEC CLEANUP_ZDOTDIR CLEANUP_NO_LAUNCHCTL
 
@@ -219,10 +224,15 @@ def tl: $t[0];
 def prune(k): if has(k) and (.[k] == {} or .[k] == []) then del(.[k]) else . end;
 def rm_eq(k): if has(k) and .[k] == tl[k] then del(.[k]) else . end;
 def sec_env: ["ENABLE_CLAUDEAI_MCP_SERVERS"];
+# The github MCP guard hook of this checkout or the retired root-owned install: a security entry, removed only with
+# --remove-guard-hook or --include-security (without it a still-registered server would run unguarded).
+def guard_cmd:
+  (type == "string") and (
+    . == "/usr/local/libexec/mcp-github/guard.sh" or . == $guard or . == ("/bin/bash -p '"'"'" + $guard + "'"'"' || exit 2"));
 # A hook command of the toolkit: the script path alone or with arguments, optionally under bash, never a chained command.
 def toolkit_cmd:
   (type == "string") and (
-    . == "/usr/local/libexec/mcp-github/guard.sh" or . == $guard or . == ("/bin/bash -p '"'"'" + $guard + "'"'"' || exit 2")
+    (guard_cmd and $rmguard == 1)
     or (sub("^bash +"; "") as $c
         | ($c | split(" ")[0] // "") as $w
         | (($c | test("&&|;|\\|")) | not)
@@ -305,8 +315,13 @@ while IFS= read -r cfg; do
   jq -S . "$rf" > "$SCRATCH/old.json"
   jq -S --slurpfile t "$RTEMPLATE" --argjson names "$HOOK_NAMES" --argjson cfgs "$CFG_JSON" \
     --arg guard "$ROOT/tools/github-mcp/guard.sh" --argjson live "$LIVE_DENY" \
-    --argjson amb $((1 - KEEP_AMB)) --argjson sec "$SEC" "$JQ_CLEAN" "$rf" > "$SCRATCH/new.json" 2>/dev/null
+    --argjson amb $((1 - KEEP_AMB)) --argjson sec "$SEC" --argjson rmguard "$RMGUARD" "$JQ_CLEAN" "$rf" > "$SCRATCH/new.json" 2>/dev/null
   if [ ! -s "$SCRATCH/new.json" ]; then N_FAIL=$((N_FAIL + 1)); say FAIL "$rf (the clean-up filter failed; left alone)"; continue; fi
+  if [ "$RMGUARD" = 0 ] && jq -e --arg guard "$ROOT/tools/github-mcp/guard.sh" '[.hooks? // {} | .[]? | arrays | .[] | objects | .hooks? // [] | .[]? | .command? | strings
+      | select(. == "/usr/local/libexec/mcp-github/guard.sh" or . == $guard or . == ("/bin/bash -p '"'"'" + $guard + "'"'"' || exit 2"))] | length > 0' \
+      "$SCRATCH/new.json" >/dev/null 2>&1; then
+    say KEEP "$rf: the github MCP guard hook (a security entry; --remove-guard-hook or --include-security removes it)"
+  fi
   if cmp -s "$SCRATCH/old.json" "$SCRATCH/new.json"; then say OK "$rf (nothing of the toolkit's in it)"; continue; fi
   N_EDIT=$((N_EDIT + 1))
   say EDIT "$rf  (toolkit keys; a backup is written first)"

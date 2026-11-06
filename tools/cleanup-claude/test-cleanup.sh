@@ -60,9 +60,10 @@ mkhome() {  # mkhome -> sets H to a fresh fake home with a toolkit install and s
         {matcher: "Bash", hooks: [{type: "command", command: "$HOME/.claude/hooks/gh-block.sh"}, {type: "command", command: "$HOME/.claude/hooks/mine.sh"}]},
         {matcher: "Read", hooks: [{type: "command", command: "/opt/mine/guard.sh"}]},
         {matcher: "^mcp__github__.*$", hooks: [{type: "command", command: ("/bin/bash -p '"'"'" + $root + "/tools/github-mcp/guard.sh'"'"' || exit 2")}]},
-        {matcher: "^mcp__github__.*$", hooks: [{type: "command", command: "/bin/bash -p '"'"'/elsewhere/tools/github-mcp/guard.sh'"'"' || exit 2"}]}
+        {matcher: "^mcp__github__.*$", hooks: [{type: "command", command: "/bin/bash -p '"'"'/elsewhere/tools/github-mcp/guard.sh'"'"' || exit 2"}]},
+        {matcher: "mcp__github__.*", hooks: [{type: "command", command: "/usr/local/libexec/mcp-github/guard.sh"}]}
       ],
-      PostToolUse: [{matcher: "*", hooks: [{type: "command", command: "/usr/local/libexec/mcp-github/guard.sh"}]}]
+      PostToolUse: [{matcher: "*", hooks: [{type: "command", command: "$HOME/.claude/hooks/audit-logger.sh"}]}]
     }}' > "$C/settings.json"
   cp "$C/settings.json" "$H/settings.orig"
   printf '%s\n' 'export A=1' 'source ~/.claude/tools/shell-init.zsh' 'alias x=y' '# docs: .claude/tools/shell-init.zsh' \
@@ -113,7 +114,8 @@ check "settings: ask entries are kept by default" 'has "(.permissions.ask | inde
 check "settings: autoMode keeps \$defaults, the user's line, and the soft_deny rules" 'has ".autoMode.environment == [\"\$defaults\", \"my own env line\"] and (.autoMode.soft_deny | length) == 3"'
 check "settings: deny entries are kept by default" 'has "(.permissions.deny | index(\"$DENY1\")) != null and (.permissions.deny | index(\"Bash(my-deny:*)\")) != null"'
 check "settings: the live-checkout denies are kept by default (security entries)" 'has "(.permissions.deny | index(\"Edit(/$ROOT/hooks/**)\")) != null and (.permissions.deny | index(\"Edit(/$ROOT/tools/github-mcp/**)\")) != null"'
-check "settings: the github guard hook at this checkout is gone, another checkout's is kept" 'has "[.hooks.PreToolUse[].hooks[].command] | (map(select(contains(\"/$ROOT/tools/github-mcp/guard.sh\"))) | length) == 0 and (map(select(contains(\"/elsewhere/tools/github-mcp/guard.sh\"))) | length) == 1"'
+check "settings: the github guard hooks (this checkout's and the root-owned one) are kept by default" 'has "[.hooks.PreToolUse[].hooks[].command] | (map(select(contains(\"$ROOT/tools/github-mcp/guard.sh\"))) | length) == 1 and index(\"/usr/local/libexec/mcp-github/guard.sh\") != null"'
+check "the kept guard hook is reported" 'grep -q "^KEEP .*github MCP guard hook" "$T/out"'
 check "settings: toolkit hooks gone, the user's hook beside one is kept" 'has "[.hooks.PreToolUse[].hooks[].command] | index(\"\$HOME/.claude/hooks/mine.sh\") != null and index(\"/opt/mine/guard.sh\") != null and index(\"\$HOME/.claude/hooks/gh-block.sh\") == null"'
 check "settings: an event holding only toolkit hooks is gone" 'has ".hooks | has(\"PostToolUse\") | not"'
 bak=$(ls "$C"/settings.json.bak-*-cleanup 2>/dev/null | head -1)
@@ -155,6 +157,14 @@ check "--include-security removes the denied servers, the connector switch, the 
 mkhome
 run --apply --include-deny
 check "--include-deny is the same flag" 'has "(.permissions.deny | index(\"$DENY1\")) == null"'
+mkhome
+run --apply --remove-guard-hook
+check "--remove-guard-hook removes this checkout's and the root-owned guard hook, keeps another checkout's" 'has "[.hooks.PreToolUse[].hooks[].command] | (map(select(contains(\"$ROOT/tools/github-mcp/guard.sh\"))) | length) == 0 and index(\"/usr/local/libexec/mcp-github/guard.sh\") == null and (map(select(contains(\"/elsewhere/tools/github-mcp/guard.sh\"))) | length) == 1"'
+check "--remove-guard-hook alone keeps the deny entries" 'has "(.permissions.deny | index(\"$DENY1\")) != null"'
+check "--remove-guard-hook: no KEEP line" '! grep -q "^KEEP .*guard hook" "$T/out"'
+mkhome
+run --apply --include-security
+check "--include-security removes the guard hook too (its go in advance)" 'has "[.hooks.PreToolUse[].hooks[].command] | (map(select(contains(\"$ROOT/tools/github-mcp/guard.sh\"))) | length) == 0 and index(\"/usr/local/libexec/mcp-github/guard.sh\") == null"'
 
 # ---- two config dirs, one settings file behind a symlink
 mkhome
