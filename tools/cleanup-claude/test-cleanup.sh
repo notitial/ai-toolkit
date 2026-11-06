@@ -166,16 +166,16 @@ mkhome
 run --apply --include-security
 check "--include-security removes the guard hook too (its go in advance)" 'has "[.hooks.PreToolUse[].hooks[].command] | (map(select(contains(\"$ROOT/tools/github-mcp/guard.sh\"))) | length) == 0 and index(\"/usr/local/libexec/mcp-github/guard.sh\") == null"'
 
-# ---- two config dirs, one settings file behind a symlink
+# ---- a settings.json that is a symlink: the real file is edited and backed up, the link stays
 mkhome
-K="$H/.claude-work/config"; mkdir -p "$K/skills" "$K/hooks"
-ln -s "$ROOT/skills/handover" "$K/skills/handover"
-ln -s "$ROOT/hooks/gh-block.sh" "$K/hooks/gh-block.sh"
-ln -s "$C/settings.json" "$K/settings.json"
+mv "$C/settings.json" "$H/elsewhere/settings.json"; ln -s "$H/elsewhere/settings.json" "$C/settings.json"
 run --apply
-check "second config dir: its links are removed too" '[ ! -L "$K/skills/handover" ] && [ ! -L "$K/hooks/gh-block.sh" ]'
-check "second config dir: the shared settings file is handled once" 'grep -q "same file as one already handled" "$T/out" && [ "$(ls "$C"/settings.json.bak-*-cleanup | wc -l | tr -d " ")" = 1 ]'
-check "second config dir: its settings link survives" '[ -L "$K/settings.json" ]'
+check "symlinked settings: the link survives and the real file is edited" '[ -L "$C/settings.json" ] && jq -e "(.env | has(\"CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY\")) | not" "$H/elsewhere/settings.json" >/dev/null'
+check "symlinked settings: the backup sits next to the real file" 'ls "$H"/elsewhere/settings.json.bak-*-cleanup >/dev/null 2>&1 && ! ls "$C"/settings.json.bak-*-cleanup >/dev/null 2>&1'
+mkhome
+rm "$C/settings.json"; ln -s "$H/elsewhere/missing.json" "$C/settings.json"
+run --apply
+check "dangling settings link: left in place, the run still succeeds" '[ -L "$C/settings.json" ] && [ ! -e "$C/settings.json" ] && [ $RC -eq 0 ]'
 
 # ---- a settings file that is not JSON is left alone
 mkhome
@@ -219,15 +219,6 @@ check "manual: Keychain commands are printed, not run" 'grep -q "security delete
 
 # ---- the root-owned folder stays while a settings file this run leaves still names its guard hook
 mkhome
-mkdir -p "$T/libexec/mcp-github" "$H/other-config/sessions"
-run --apply --remove-guard-hook --config-dir "$H/other-config"
-check "root guard: a default config dir not being cleaned keeps the folder" '! grep -q "sudo rm -r" "$T/out" && grep -q "^KEEP .*$C/settings.json: names the root-owned guard hook and is not among" "$T/out" && grep -q "^KEEP .*root-owned install" "$T/out"'
-mkhome
-mkdir -p "$T/libexec/mcp-github" "$H/other-config/sessions"
-jq 'del(.hooks.PreToolUse[4])' "$C/settings.json" > "$T/s.json" && cp "$T/s.json" "$C/settings.json"
-run --apply --remove-guard-hook --config-dir "$H/other-config"
-check "root guard: a default config dir without it does not keep the folder" 'grep -q "sudo rm -r $T/libexec/mcp-github\$" "$T/out"'
-mkhome
 mkdir -p "$T/libexec/mcp-github"
 printf '%s\n' '{"hooks": {"PreToolUse": [{"matcher": "mcp__github__.*", "hooks": [{"type": "command", "command": "/usr/local/libexec/mcp-github/guard.sh"}]}]},' > "$C/settings.json"
 run --apply --remove-guard-hook
@@ -240,8 +231,7 @@ chmod 700 "$C"
 check "root guard: a settings file that could not be written keeps the folder" '! grep -q "sudo rm -r" "$T/out" && grep -q "^KEEP .*names the root-owned guard hook and was not written" "$T/out"'
 
 # ---- the roster /setup-claude and install-copies.sh link, all removed
-mkhome
-R="$H/.claude-roster"; mkdir -p "$R/agents" "$R/hooks" "$R/rules" "$R/skills" "$R/tools"
+N=$((N + 1)); H="$T/h$N"; R="$H/.claude"; mkdir -p "$R/agents" "$R/hooks" "$R/rules" "$R/skills" "$R/tools"
 for f in "$ROOT"/agents/*.md; do ln -s "$f" "$R/agents/${f##*/}"; done
 for f in "$ROOT"/hooks/*.sh; do ln -s "$f" "$R/hooks/${f##*/}"; done
 for f in "$ROOT"/rules/*.md; do ln -s "$f" "$R/rules/${f##*/}"; done
@@ -250,7 +240,7 @@ ln -s "$ROOT/tools/statusline.sh" "$R/statusline.sh"
 ln -s "$ROOT/tools/workspace-lock/workspace-lock.sh" "$R/tools/workspace-lock.sh"
 ln -s "$ROOT/tools/shell-init.zsh" "$R/tools/shell-init.zsh"
 total=$(find "$R" -type l | wc -l | tr -d ' ')
-run --apply --config-dir "$R"
+run --apply
 check "roster: $total links, none left" '[ "$(find "$R" -type l | wc -l | tr -d " ")" = 0 ]'
 
 # ---- refusals
@@ -259,12 +249,7 @@ CLEANUP_TESTING=1 CLEANUP_HOME="$T/does-not-exist" bash "$CLEAN" > "$T/out" 2>&1
 bash "$CLEAN" --nonsense > "$T/out" 2>&1; rc=$?; check "an unknown option is refused (exit 2)" '[ $rc -eq 2 ]'
 mkdir -p "$T/empty"; CLEANUP_TESTING=1 CLEANUP_HOME="$T/empty" bash "$CLEAN" > "$T/out" 2>&1; rc=$?; check "a home with no config dir is refused (exit 2)" '[ $rc -eq 2 ]'
 mkhome
-for bad in / "$H" "$ROOT" "$ROOT/.claude" "$T/plain"; do
-  mkdir -p "$T/plain"
-  run --config-dir "$bad"
-  check "--config-dir $bad is refused" '[ $RC -eq 2 ] && grep -q "refused" "$T/out"'
-done
-before=$(snap); run --config-dir "$H"; check "a refused config dir changes nothing" '[ "$(snap)" = "$before" ]'
+before=$(snap); run --config-dir "$H"; check "the removed --config-dir option is refused (exit 2) and changes nothing" '[ $RC -eq 2 ] && [ "$(snap)" = "$before" ]'
 HOME="$H" CLEANUP_HOME="$T/empty" bash "$CLEAN" > "$T/out" 2>&1
 check "a stray CLEANUP_HOME without CLEANUP_TESTING is ignored" '! grep -q "$T/empty" "$T/out" && ! grep -q "no Claude config dir found" "$T/out"'
 
@@ -297,7 +282,6 @@ jq '.hooks.PreToolUse += [
       {matcher: "A", hooks: [{type: "command", command: "$HOME/.claude/hooks/audit-logger.sh"}]},
       {matcher: "B", hooks: [{type: "command", command: "$HOME/.claude/hooks/secret-detector.sh && my-thing"}]},
       {matcher: "C", hooks: [{type: "command", command: "bash $HOME/.claude/hooks/secret-redact-output.sh --flag"}]},
-      {matcher: "D", hooks: [{type: "command", command: "$CLAUDE_CONFIG_DIR/hooks/destructive-blocker.sh"}]},
       {matcher: "E", hooks: [{type: "prompt", prompt: "x"}]},
       {matcher: "F", hooks: [{type: "command", command: "$HOME/.claude/hooks/gh-block.sh"}]}]' "$C/settings.json" > "$C/s.tmp" && mv "$C/s.tmp" "$C/settings.json"
 run --apply
@@ -306,7 +290,6 @@ check "hooks: the hook with no command is kept" 'has "[.hooks.PreToolUse[] | sel
 check "hooks: the user's own real script with a toolkit name is kept" 'has "[.hooks.PreToolUse[] | select(.matcher == \"A\")] | length == 1"'
 check "hooks: a chained command is kept" 'has "[.hooks.PreToolUse[] | select(.matcher == \"B\")] | length == 1"'
 check "hooks: a bash-prefixed toolkit hook with arguments is removed" 'has "[.hooks.PreToolUse[] | select(.matcher == \"C\")] | length == 0"'
-check "hooks: the \$CLAUDE_CONFIG_DIR spelling is removed" 'has "[.hooks.PreToolUse[] | select(.matcher == \"D\")] | length == 0"'
 
 # ---- autoMode: only the template lines go, \$defaults stays; a list of nothing else is dropped
 mkhome
@@ -400,15 +383,7 @@ ln -s "$T/outside" "$H/.cache"
 run --apply
 check "outside: a path whose folder is a link out of the home is skipped, not removed" '[ -f "$T/outside/mcp-github/checked" ] && grep -q "SKIP .*outside the home" "$T/out"'
 
-# ---- the mcp remove command for a second config dir carries its CLAUDE_CONFIG_DIR
-mkhome
-K="$H/.claude-work/config"; mkdir -p "$K/projects"
-printf '{"mcpServers":{"github":{}}}\n' > "$K/.claude.json"
-run
-check "manual: a server found in another config dir's .claude.json is printed with CLAUDE_CONFIG_DIR" 'grep -q "CLAUDE_CONFIG_DIR=.*claude mcp remove --scope user github" "$T/out"'
-
-# ---- install-time settings: removed (with keys another installer added), a symlink kept, kept when ~/.claude is not
-#      cleaned; rendered autoMode lines go
+# ---- install-time settings: removed (with keys another installer added), a symlink kept; rendered autoMode lines go
 conf_fixture() { printf '%s\n' 'github_write_owners=example-user' 'github_keychain_account=example-user' 'github_username=example-user' > "$C/install.conf"; chmod 600 "$C/install.conf"; }
 mkhome
 conf_fixture
@@ -428,11 +403,6 @@ mkhome
 echo x > "$H/elsewhere/real.conf"; ln -s "$H/elsewhere/real.conf" "$C/install.conf"
 run --apply
 check "install.conf: a symlink is kept and reported" '[ -L "$C/install.conf" ] && [ -f "$H/elsewhere/real.conf" ] && grep -q "SKIP .*install.conf  (a symlink" "$T/out"'
-mkhome
-conf_fixture
-mkdir -p "$H/other-config/sessions"
-run --apply --config-dir "$H/other-config"
-check "install.conf: kept when ~/.claude is not among the config dirs cleaned" '[ -f "$C/install.conf" ] && grep -q "SKIP .*install.conf  (~/.claude is not among the config dirs being cleaned)" "$T/out"'
 
 echo "test-cleanup: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

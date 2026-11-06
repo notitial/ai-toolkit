@@ -1,8 +1,7 @@
 #!/bin/bash
 # Removes what this repo installed on this machine, so /setup-claude can start from nothing. Dry run by default.
-#   bash tools/cleanup-claude/cleanup.sh [--apply] [--config-dir DIR]... [--purge-ask] [--keep-ambiguous] [--remove-guard-hook] [--include-security] [--verbose]
+#   bash tools/cleanup-claude/cleanup.sh [--apply] [--purge-ask] [--keep-ambiguous] [--remove-guard-hook] [--include-security] [--verbose]
 #   --apply             do it (without it, nothing is changed: the report is the dry run)
-#   --config-dir DIR    a Claude config dir to clean; repeatable (default: ~/.claude and each ~/.claude-*/config)
 #   --purge-ask         also remove the items classed ASK (user-authored or history: the ETA log)
 #   --keep-ambiguous    leave permission allow entries, plugins and autoMode context lines the template also lists,
 #                       and a promptCacheTtl or subagentPromptCacheTtl of "1h" (the opt-in /setup-claude asks about)
@@ -23,8 +22,8 @@ umask 077
 ROOT=$(cd "$(dirname "$0")/../.." && pwd -P) || exit 2
 TEMPLATE="$ROOT/.claude/skills/setup-claude/templates/safe-permissions.json"
 
-APPLY=0 PURGE=0 KEEP_AMB=0 SEC=0 RMGUARD=0 VERBOSE=0 DIRS="" KEPT_ROOT_GUARD=0
-usage() { sed -n '2,16p' "$0" >&2; exit 2; }
+APPLY=0 PURGE=0 KEEP_AMB=0 SEC=0 RMGUARD=0 VERBOSE=0 KEPT_ROOT_GUARD=0
+usage() { sed -n '2,15p' "$0" >&2; exit 2; }
 while [ $# -gt 0 ]; do
   case $1 in
     --apply) APPLY=1 ;;
@@ -33,8 +32,7 @@ while [ $# -gt 0 ]; do
     --remove-guard-hook) RMGUARD=1 ;;
     --include-security | --include-deny) SEC=1 ;;
     --verbose) VERBOSE=1 ;;
-    --config-dir) [ $# -ge 2 ] || usage; DIRS="$DIRS$2"$'\n'; shift ;;
-    -h | --help) sed -n '2,16p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,15p' "$0"; exit 0 ;;
     *) usage ;;
   esac
   shift
@@ -58,35 +56,10 @@ trap 'rm -rf "$SCRATCH"' EXIT
 
 phys() { (cd -P "$1" 2>/dev/null && pwd -P); }
 
-# The config dirs to clean, physical and de-duplicated.
-CFGS=""
-add_cfg() {
-  local p
-  p=$(phys "$1") || return 0
-  [ -n "$p" ] || return 0
-  case $'\n'"$CFGS" in *$'\n'"$p"$'\n'*) return 0 ;; esac
-  CFGS="$CFGS$p"$'\n'
-}
-if [ -n "$DIRS" ]; then
-  while IFS= read -r d; do
-    [ -n "$d" ] || continue
-    [ -d "$d" ] || { echo "cleanup: --config-dir $d is not a directory" >&2; exit 2; }
-    p=$(phys "$d")
-    case $p in
-      / | "$HOME_DIR" | "$ROOT" | "$ROOT"/*) echo "cleanup: --config-dir $d is not a Claude config dir (refused)" >&2; exit 2 ;;
-    esac
-    ok=0
-    for m in settings.json projects sessions agents hooks rules skills; do [ -e "$p/$m" ] && ok=1; done
-    [ "$ok" = 1 ] || { echo "cleanup: --config-dir $d holds no settings, sessions or projects; not a Claude config dir (refused)" >&2; exit 2; }
-    add_cfg "$d"
-  done <<EOF
-$DIRS
-EOF
-else
-  add_cfg "$HOME_DIR/.claude"
-  for d in "$HOME_DIR"/.claude-*/config; do [ -d "$d" ] && add_cfg "$d"; done
-fi
+# The one config dir to clean, ~/.claude, physical. The loops below still read it from CFGS, one line per dir.
+CFGS=$(phys "$HOME_DIR/.claude") || CFGS=""
 [ -n "$CFGS" ] || { echo "cleanup: no Claude config dir found under $HOME_DIR" >&2; exit 2; }
+CFGS="$CFGS"$'\n'
 
 N_REMOVE=0 N_EDIT=0 N_MANUAL=0 N_ASK=0 N_FAIL=0
 say() { printf '%-7s %s\n' "$1" "$2"; }
@@ -237,7 +210,7 @@ def toolkit_cmd:
         | ($c | split(" ")[0] // "") as $w
         | (($c | test("&&|;|\\|")) | not)
           and any($names[]; . as $n
-            | ($w | endswith("/.claude/hooks/" + $n)) or ($w == "$CLAUDE_CONFIG_DIR/hooks/" + $n)
+            | ($w | endswith("/.claude/hooks/" + $n))
               or any($cfgs[]; . as $d | $w == ($d + "/hooks/" + $n)))));
 (if (.env | type) == "object" then
     .env |= with_entries(select(.key as $k | ((tl.env | has($k)) and ($sec == 1 or (sec_env | index($k) | not))) | not)) | prune("env")
@@ -364,15 +337,6 @@ while IFS= read -r cfg; do
 done <<EOF
 $CFGS
 EOF
-# The default config dirs a --config-dir run does not clean keep their hooks too.
-for sf in "$HOME_DIR/.claude/settings.json" "$HOME_DIR"/.claude-*/config/settings.json; do
-  [ -e "$sf" ] || continue
-  rf=$(realfile "$sf")
-  [ -f "$rf" ] || continue
-  rf="$(phys "$(dirname "$rf")")/$(basename "$rf")"
-  case $'\n'"$SEEN_SETTINGS" in *$'\n'"$rf"$'\n'*) continue ;; esac
-  keep_if_root_guard "$rf" "is not among the config dirs being cleaned"
-done
 
 # ---- 3. shell rc lines: whole lines that only source the toolkit; anything riskier is printed for the user
 echo "== shell rc files"
@@ -453,13 +417,9 @@ done
 echo "== runtime state"
 remove_path "$HOME_DIR/.cache/mcp-github" "github MCP update-check state"
 remove_path "$HOME_DIR/.local/state/claude-statusline" "statusline readings"
-# The install-time settings /setup-claude wrote: only while ~/.claude itself is being cleaned. Keys another installer
-# added to the file go with it.
+# The install-time settings /setup-claude wrote. Keys another installer added to the file go with it.
 CONF="$HOME_DIR/.claude/install.conf"
-CONF_CFG=$(phys "$HOME_DIR/.claude")
 if [ ! -e "$CONF" ] && [ ! -L "$CONF" ]; then :
-elif [ -z "$CONF_CFG" ] || case $'\n'"$CFGS" in *$'\n'"$CONF_CFG"$'\n'*) false ;; *) true ;; esac; then
-  say SKIP "$CONF  (~/.claude is not among the config dirs being cleaned)"
 elif [ -L "$CONF" ]; then
   say SKIP "$CONF  (a symlink, not the settings file)"
 elif [ ! -f "$CONF" ] || [ ! -O "$CONF" ]; then
@@ -488,22 +448,16 @@ elif [ -e "$LIBEXEC/mcp-github" ]; then
   [ -e "$LIBEXEC/mcp-github" ] && cmd="$cmd $(printf '%q' "$LIBEXEC/mcp-github")"
   manual "root-owned install left from the earlier setup (github MCP launcher, guard and binary; the launcher and guard now run from the checkout)" "$cmd"
 fi
-mcp_check() {  # mcp_check <.claude.json> <command prefix>: reads only whether a server of that name exists
+mcp_check() {  # mcp_check <.claude.json>: reads only whether a server of that name exists
   local s
   [ -f "$1" ] || return 0
   for s in git-mcp github; do
     if jq -e --arg s "$s" '(.mcpServers // {}) | has($s)' "$1" >/dev/null 2>&1; then
-      manual "MCP server '$s' in ${1#$HOME_DIR/}" "$2claude mcp remove --scope user $s"
+      manual "MCP server '$s' in ${1#$HOME_DIR/}" "claude mcp remove --scope user $s"
     fi
   done
 }
-mcp_check "$HOME_DIR/.claude.json" ""
-while IFS= read -r cfg; do
-  [ -n "$cfg" ] && [ "$cfg" != "$HOME_DIR/.claude" ] || continue
-  mcp_check "$cfg/.claude.json" "CLAUDE_CONFIG_DIR=$(printf '%q' "$cfg") "
-done <<EOF
-$CFGS
-EOF
+mcp_check "$HOME_DIR/.claude.json"
 if command -v git-mcp-server >/dev/null 2>&1; then
   manual "git-mcp-server global npm package" "npm rm -g @cyanheads/git-mcp-server"
 fi

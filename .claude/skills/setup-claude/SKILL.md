@@ -178,19 +178,13 @@ prefix, then re-run `claude mcp list` to check. Never get around the deny with `
 
 A presence-only check is the exact defect Step 10's hook drift assertion exists to prevent, one section over: a stale entry passes a presence check while the thing it configures misbehaves. Assert the **shape**, not the key.
 
-**Step 6c — repair EVERY user config, not just the active one.** `claude mcp add --scope user` writes to whichever config `CLAUDE_CONFIG_DIR` selects, so a machine that sets that variable (e.g. via `direnv`) has **two** user configs that drift independently:
+**Step 6c — verify the one user config.** `claude mcp add --scope user` writes to `~/.claude.json`, the only user config this setup manages. Verify it afterwards:
 
 ```bash
-echo "${CLAUDE_CONFIG_DIR:-<unset>}"
+grep -A4 '"git-mcp"' ~/.claude.json
 ```
 
-- **Unset:** one config, `~/.claude.json`. Done.
-- **Set:** repair both — the active one as above, then the default: the user runs the same two commands prefixed with `env -u CLAUDE_CONFIG_DIR`. Verify both files afterwards:
-  ```bash
-  grep -A4 '"git-mcp"' ~/.claude.json
-  grep -A4 '"git-mcp"' "$CLAUDE_CONFIG_DIR/.claude.json"
-  ```
-  Both must show `"command": "git-mcp-server"`. Report each file separately.
+It must show `"command": "git-mcp-server"`.
 
 **Changes take effect on restart**, and existing sessions keep their old server until then.
 
@@ -331,8 +325,6 @@ Read the `env` object from `templates/safe-permissions.json`. These are **enforc
 - **Key present with a different value:** overwrite to the template value and report the change.
 
 **Never remove or alter a live `env` key that is not in the template** (e.g. `CLAUDE_CODE_NO_FLICKER`) — preserve those exactly, the same as any other custom field.
-
-Note: `$CLAUDE_CONFIG_DIR/settings.json` is commonly a symlink to `~/.claude/settings.json`; where it is, this one write updates both config roots.
 
 ### Attribution
 
@@ -593,8 +585,7 @@ returns nothing, retry once with `--model`, then report the failure without bloc
 Step 11 summary.
 A `--settings` file that carries no `autoMode` inherits this
 user-scope block: entries from each scope are combined, per the auto mode docs ("Where the classifier reads
-configuration", code.claude.com/docs/en/auto-mode-config). Where `$CLAUDE_CONFIG_DIR/settings.json` is the symlink
-(see the note above **Attribution**), this one write reaches both config roots; a root holding a plain copy needs its own run.
+configuration", code.claude.com/docs/en/auto-mode-config).
 
 ### Status line
 
@@ -645,9 +636,7 @@ Rules rows may additionally report `Replaced file (byte-match)`. Hooks rows may 
 
 ### MCP Servers
 
-One row per **config file** repaired, not one per server — a machine with
-`CLAUDE_CONFIG_DIR` set has two, and reporting a single row hides the one that
-was missed.
+One row for the config file repaired (`~/.claude.json`), not one per server.
 
 | Server | Config file | Binary | Status |
 |--------|-------------|--------|--------|

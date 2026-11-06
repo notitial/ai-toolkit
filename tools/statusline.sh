@@ -51,7 +51,7 @@ CTX_REFERENCE=250000
 # so 100% on the bar means "about to compact". Read autoCompactWindow from settings,
 # cap it at the window the harness reports (a session cannot hold more than that),
 # and fall back to 250000 when it is absent, not a number, or below 10000.
-_ctx_cfg=$(jq -r '.autoCompactWindow // empty' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" 2>/dev/null) || _ctx_cfg=""
+_ctx_cfg=$(jq -r '.autoCompactWindow // empty' "$HOME/.claude/settings.json" 2>/dev/null) || _ctx_cfg=""
 case "$_ctx_cfg" in
   ''|*[!0-9]*) ;;
   *) if [ "${#_ctx_cfg}" -le 9 ]; then
@@ -378,17 +378,17 @@ fi
 # retained — and drive the Limit/Weekly bars from it.
 #
 # Per account: the store path embeds self_fp, a fingerprint of
-# ${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json (whoever is logged in for THIS session), so
-# each account reads and writes its own file and never sees another's meter. Run each
-# extra account with its own CLAUDE_CONFIG_DIR: a session on CLAUDE_CODE_OAUTH_TOKEN
-# that shares the default ~/.claude.json still shows the stored login's accountUuid,
-# so it would write into, and borrow from, another account's file. Such a session keeps
-# no store (the token is tested for presence only, never read).
+# ~/.claude.json (whoever is logged in for THIS session), so each account reads and
+# writes its own file and never sees another's meter. A session on
+# CLAUDE_CODE_OAUTH_TOKEN shares the stored login's ~/.claude.json, which still shows
+# that login's accountUuid, so it would write into, and borrow from, the stored
+# account's file. Such a session keeps no readings file (the token is tested for
+# presence only, never read). That is how alternate accounts run, by design.
 # Freshness is per-window and keyed on resets_at (see below), not a wall-clock age.
 # Fail-open and silent, like every segment.
-self_src="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
+self_src="$HOME/.claude.json"
 self_fp=unknown
-if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ -z "${CLAUDE_CONFIG_DIR:-}" ]; then
+if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
   : # a token session on the shared login: its account is unknown here
 elif [ -r "$self_src" ]; then
   self_uuid=$(GREP_OPTIONS= GREP_COLORS= grep -m1 -o '"accountUuid" *: *"[^"]*"' "$self_src" 2>/dev/null | sed 's/.*"\([^"]*\)"$/\1/') || true
