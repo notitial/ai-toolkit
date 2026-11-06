@@ -7,15 +7,19 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 SRC="$HERE/guard.sh"
 # Run a copy with HOME pointed away, so its deny path never writes to the live audit log.
 TMP=$(mktemp -d)
-cleanup() {
-  rm -f "$TMP"/L/* "$TMP"/github-mcp-guard.sh "$TMP"/out-*
-  rmdir "$TMP/L" "$TMP" 2>/dev/null
-}
+cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
-# The guard carries a placeholder owner list that ghm-install fills from ~/.claude/install.conf; the copy under test is
-# rendered with the fixture owners notitial and example-user.
-sed 's|__GITHUB_WRITE_OWNERS__|["notitial","example-user"]|' "$SRC" > "$TMP/github-mcp-guard.sh"
-HOOK="$TMP/github-mcp-guard.sh"
+# The guard checks the checkout it sits in (a clean main) and reads its owners from $HOME/.claude/install.conf, so
+# the copy under test sits in a throwaway checkout on main, with a fixture install.conf under the fake HOME.
+CO="$TMP/co"
+mkdir -p "$CO/tools/github-mcp" "$TMP/.claude"
+cp "$SRC" "$CO/tools/github-mcp/guard.sh"
+printf 'tracked\n' > "$CO/README"
+GIT_Q=(git -C "$CO" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false)
+"${GIT_Q[@]}" init -q -b main && "${GIT_Q[@]}" add -A && "${GIT_Q[@]}" commit -q -m init || { echo "ABORT: cannot build the throwaway checkout"; exit 1; }
+write_conf() { printf '%s\n' "$@" > "$TMP/.claude/install.conf"; }
+write_conf 'github_write_owners=notitial example-user' 'github_keychain_account=test-account'
+HOOK="$CO/tools/github-mcp/guard.sh"
 PASS=0
 FAIL=0
 
@@ -210,7 +214,7 @@ esac
 
 # The template's hook matcher: every tool of the github server, nothing else.
 TEMPLATE="$HERE/../../.claude/skills/setup-claude/templates/safe-permissions.json"
-matcher=$(jq -r '.hooks.PreToolUse[] | select(.hooks[0].command == "/usr/local/libexec/mcp-github/guard.sh") | .matcher' "$TEMPLATE")
+matcher=$(jq -r '.hooks.PreToolUse[] | select(.hooks[0].command == "<checkout>/tools/github-mcp/guard.sh") | .matcher' "$TEMPLATE")
 if [ "$matcher" = '^mcp__github__.*$' ]; then
   PASS=$((PASS + 1))
 else
@@ -246,66 +250,126 @@ else
   FAIL=$((FAIL + 1)); echo "FAIL: a deny did not reach the audit logger"
 fi
 rm -f "$TMP/.claude/hooks/audit-logger.sh"
-rmdir "$TMP/.claude/hooks" "$TMP/.claude"
+rmdir "$TMP/.claude/hooks"
 
-# Launcher: run a copy with stand-ins for security and the server, under a hostile environment.
-# Each stand-in records what it saw; the real paths are swapped for the temp folder.
-mkdir "$TMP/L"
-L="$TMP/L"
-sed -e "s|^DIR=.*|DIR=$L|" \
-    -e "s|/usr/bin/security find-generic-password -s mcp-github -a __GITHUB_KEYCHAIN_ACCOUNT__ -w|\"\$DIR/fake-security\"|" \
+# The guard runs from the live checkout: it must sit on a clean main, or every github call is denied, reads included.
+READ_CALL=$(acall pull_request_read '{"method":"get","pullNumber":1}')
+WRITE_CALL=$(acall create_pull_request '{"title":"t","head":"b","base":"main","draft":true}')
+check pass "clean main: a read passes" "$READ_CALL"
+check allow "clean main: a draft PR in a write-owner repo is allowed" "$WRITE_CALL"
+printf 'untracked\n' > "$CO/untracked-file"
+check pass "an untracked file does not turn the guard off" "$READ_CALL"
+rm -f "$CO/untracked-file"
+printf 'edited\n' >> "$CO/README"
+check deny "a tracked file with an edit turns the guard off (read)" "$READ_CALL"
+check deny "a tracked file with an edit turns the guard off (write)" "$WRITE_CALL"
+"${GIT_Q[@]}" checkout -q -- README
+check pass "edit undone: the read passes again" "$READ_CALL"
+"${GIT_Q[@]}" checkout -q -b topic
+check deny "a branch other than main turns the guard off (read)" "$READ_CALL"
+check deny "a branch other than main turns the guard off (write)" "$WRITE_CALL"
+"${GIT_Q[@]}" checkout -q main
+check pass "back on main: the read passes" "$READ_CALL"
+mkdir -p "$TMP/nogit/a/b" && cp "$SRC" "$TMP/nogit/a/b/guard.sh"
+HOOK_REAL=$HOOK
+HOOK="$TMP/nogit/a/b/guard.sh"
+check deny "a guard outside any git checkout is off (read)" "$READ_CALL"
+HOOK=$HOOK_REAL
+
+# The owners come from ~/.claude/install.conf at call time; a missing or invalid setting denies owner-bearing writes.
+write_conf 'github_write_owners=notitial' 'github_keychain_account=test-account'
+check deny "an owner missing from install.conf is denied" "$(call create_pull_request '{"owner":"example-user","repo":"r","title":"t","head":"b","base":"main","draft":true}')"
+check allow "an owner listed in install.conf passes" "$WRITE_CALL"
+for bad in 'github_write_owners=' 'github_write_owners=Notitial' 'github_write_owners=notitial;x' 'github_write_owners=notitial  example-user' \
+  'github_write_owners=-notitial' 'github_write_owners=["notitial"]' 'github_write_owners=notitial/x'; do
+  write_conf "$bad"
+  check deny "invalid owners ($bad): an owner-bearing write is denied" "$WRITE_CALL"
+  check pass "invalid owners ($bad): a read still passes" "$READ_CALL"
+done
+write_conf 'github_keychain_account=test-account'
+check deny "no owners line: an owner-bearing write is denied" "$WRITE_CALL"
+rm -f "$TMP/.claude/install.conf"
+check deny "no install.conf: an owner-bearing write is denied" "$WRITE_CALL"
+check pass "no install.conf: a read still passes" "$READ_CALL"
+write_conf 'github_write_owners=evil-owner' 'github_write_owners=notitial'
+check deny "only the first owners line counts" "$WRITE_CALL"
+write_conf 'github_write_owners=notitial example-user' 'github_keychain_account=test-account'
+
+# Launcher: run a copy inside a throwaway checkout, with stand-ins for security and the server, under a hostile
+# environment. Each stand-in records what it saw; the keychain call and the settings path are swapped for the temp folder.
+LC="$TMP/lc"
+L="$LC/tools/github-mcp"
+mkdir -p "$L/bin"
+sed -e "s|/usr/bin/security find-generic-password -s mcp-github -a \"\$acct\" -w|\"\$DIR/fake-security\" \"\$acct\"|" \
+    -e "s|\"\$HOME/.claude/install.conf\"|\"$LC/install.conf\"|" \
     "$HERE/launch" > "$L/launch"
-printf '#!/bin/sh\nprintf %%s tok-FAKE-123\n' > "$L/fake-security"
-printf '#!/bin/sh\n/usr/bin/env > "%s/out-vars"\npwd > "%s/out-cwd"\nprintf "%%s\\n" "$@" > "%s/out-args"\n' "$TMP" "$TMP" "$TMP" > "$L/github-mcp-server"
-chmod 755 "$L/launch" "$L/fake-security" "$L/github-mcp-server"
-# Abort unless both swaps took: otherwise the copy would read the real keychain or exec the installed launcher.
-if ! grep -q 'fake-security' "$L/launch" || grep -q -e /usr/bin/security -e '^DIR=/usr/local' "$L/launch"; then
-  echo "ABORT: the launcher copy still points at the real keychain or install path; fix the sed in this test"
+printf '#!/bin/sh\nprintf %%s "$1" > "%s/out-account"\nprintf %%s tok-FAKE-123\n' "$TMP" > "$L/fake-security"
+printf '#!/bin/sh\n/usr/bin/env > "%s/out-vars"\npwd > "%s/out-cwd"\nprintf "%%s\\n" "$@" > "%s/out-args"\n' "$TMP" "$TMP" "$TMP" > "$L/bin/github-mcp-server"
+chmod 755 "$L/launch" "$L/fake-security" "$L/bin/github-mcp-server"
+printf 'github_keychain_account=test-account\n' > "$LC/install.conf"
+printf 'tracked\n' > "$LC/README"
+GIT_L=(git -C "$LC" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false)
+"${GIT_L[@]}" init -q -b main && "${GIT_L[@]}" add README tools && "${GIT_L[@]}" commit -q -m init || { echo "ABORT: cannot build the launcher checkout"; exit 1; }
+# Abort unless both swaps took: otherwise the copy would read the real keychain or the real settings file.
+if ! grep -q 'fake-security' "$L/launch" || ! grep -q "$LC/install.conf" "$L/launch" || grep -q -e /usr/bin/security -e '"$HOME/.claude/install.conf"' "$L/launch"; then
+  echo "ABORT: the launcher copy still points at the real keychain or settings file; fix the sed in this test"
   exit 1
 fi
 lcheck() {
   if eval "$2"; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: launcher: $1"; fi
 }
+run_launch() { rm -f "$TMP"/out-*; (cd / && "$L/launch") > /dev/null 2> "$TMP/out-stderr"; }
 (cd / && env SHELLOPTS=xtrace 'BASH_FUNC_cd%%=() { builtin cd /tmp; }' IFS=x GITHUB_HOST=evil.example \
   GITHUB_TOOLS=all GITHUB_TOOLSETS=all GITHUB_MCP_TOOL_GET_ME_DESCRIPTION=injected BASH_ENV=/dev/null \
   ENV=/dev/null HOME=/nonexistent TMPDIR=/nonexistent "$L/launch") > "$TMP/out-stdout" 2> "$TMP/out-stderr"
 lcheck "exit status 0" '[ $? -eq 0 ]'
 lcheck "no token or trace on stderr" '! grep -q -e tok-FAKE -e "^+" "$TMP/out-stderr"'
-lcheck "server cwd is its own folder" '[ "$(cat "$TMP/out-cwd" 2>/dev/null)" = "$(cd "$L" && pwd -P)" ] || [ "$(cat "$TMP/out-cwd" 2>/dev/null)" = "$L" ]'
+lcheck "server cwd is the empty root-owned folder" '[ "$(cat "$TMP/out-cwd" 2>/dev/null)" = /var/empty ] || [ "$(cat "$TMP/out-cwd" 2>/dev/null)" = /private/var/empty ]'
+lcheck "keychain account read from the settings file" '[ "$(cat "$TMP/out-account" 2>/dev/null)" = test-account ]'
 lcheck "token passed in the environment" 'grep -qx "GITHUB_PERSONAL_ACCESS_TOKEN=tok-FAKE-123" "$TMP/out-vars"'
 lcheck "no other GITHUB_ or shell-injection vars" '! grep -v "^GITHUB_PERSONAL_ACCESS_TOKEN=" "$TMP/out-vars" | grep -q -E "^(GITHUB_|SHELLOPTS=|BASH_FUNC|BASH_ENV=|ENV=|IFS=)"'
 lcheck "HOME from the user record" '[ "$(sed -n "s/^HOME=//p" "$TMP/out-vars")" = "$(/usr/bin/dscl . -read "/Users/$(id -un)" NFSHomeDirectory | sed -n "s/^NFSHomeDirectory: //p")" ]'
 lcheck "TMPDIR from getconf" '[ "$(sed -n "s/^TMPDIR=//p" "$TMP/out-vars")" = "$(getconf DARWIN_USER_TEMP_DIR)" ]'
 lcheck "PATH fixed" 'grep -qx "PATH=/usr/bin:/bin" "$TMP/out-vars"'
 lcheck "server args fixed" '[ "$(tr "\n" " " < "$TMP/out-args")" = "stdio --tools $(sed -n "s/^TOOLS=//p" "$HERE/launch") " ]'
+printf 'untracked\n' > "$LC/untracked-file"
+run_launch
+lcheck "an untracked file does not stop it" '[ $? -eq 0 ] && [ -e "$TMP/out-vars" ]'
+rm -f "$LC/untracked-file"
 printf '#!/bin/sh\nexit 44\n' > "$L/fake-security"
-rm -f "$TMP"/out-*
-(cd / && "$L/launch") > /dev/null 2> "$TMP/out-stderr"
+run_launch
 lcheck "no token: refuses to start" '[ $? -ne 0 ] && grep -q "refusing to start" "$TMP/out-stderr" && [ ! -e "$TMP/out-vars" ]'
+printf '#!/bin/sh\nprintf %%s "$1" > "%s/out-account"\nprintf %%s tok-FAKE-123\n' "$TMP" > "$L/fake-security"
+for bad in 'a b' 'x;y' '' '$(id)'; do
+  printf 'github_keychain_account=%s\n' "$bad" > "$LC/install.conf"
+  run_launch
+  lcheck "invalid account ($bad): refuses to start" '[ $? -ne 0 ] && grep -q "github_keychain_account" "$TMP/out-stderr" && [ ! -e "$TMP/out-vars" ] && [ ! -e "$TMP/out-account" ]'
+done
+rm -f "$LC/install.conf"
+run_launch
+lcheck "no settings file: refuses to start" '[ $? -ne 0 ] && grep -q "github_keychain_account" "$TMP/out-stderr" && [ ! -e "$TMP/out-vars" ]'
+printf 'github_keychain_account=test-account\n' > "$LC/install.conf"
+printf 'edited\n' >> "$LC/README"
+run_launch
+lcheck "a tracked file with an edit: refuses to start" '[ $? -ne 0 ] && grep -q "not on a clean main" "$TMP/out-stderr" && [ ! -e "$TMP/out-vars" ]'
+"${GIT_L[@]}" checkout -q -- README
+"${GIT_L[@]}" checkout -q -b topic
+run_launch
+lcheck "a branch other than main: refuses to start" '[ $? -ne 0 ] && grep -q "not on a clean main" "$TMP/out-stderr" && [ ! -e "$TMP/out-vars" ]'
+"${GIT_L[@]}" checkout -q main
+run_launch
+lcheck "back on a clean main: starts again" '[ $? -eq 0 ] && [ -e "$TMP/out-vars" ]'
 
-# Install-time settings: the shipped guard and launcher hold placeholders that ghm-install fills from
-# ~/.claude/install.conf. An unrendered guard fails closed; each placeholder sits only where the render expects it.
-HOOK_RENDERED=$HOOK
-cp "$SRC" "$TMP/out-unrendered-guard.sh"
-HOOK="$TMP/out-unrendered-guard.sh"
-check deny "unrendered guard: an owner-bearing write is denied" "$(acall create_pull_request '{"title":"t","head":"b","base":"main","draft":true}')"
-check pass "unrendered guard: a read still passes" "$(acall pull_request_read '{"method":"get","pullNumber":1}')"
-HOOK=$HOOK_RENDERED
-rm -f "$TMP/out-unrendered-guard.sh"
-if [ "$(grep -c '__GITHUB_WRITE_OWNERS__' "$SRC")" = 1 ] && grep -qx "WRITE_OWNERS='__GITHUB_WRITE_OWNERS__'" "$SRC"; then
+# Nothing is rendered or root-installed any more: no placeholder, no install path left in either file.
+if ! grep -q '__[A-Z][A-Z0-9_]*__' "$SRC" "$HERE/launch"; then
   PASS=$((PASS + 1))
 else
-  FAIL=$((FAIL + 1)); echo "FAIL: guard.sh does not hold its owner placeholder exactly once, as WRITE_OWNERS"
+  FAIL=$((FAIL + 1)); echo "FAIL: a placeholder is left in guard.sh or launch"
 fi
-if [ "$(grep -c '__GITHUB_KEYCHAIN_ACCOUNT__' "$HERE/launch")" = 2 ] && grep -q -- '-a __GITHUB_KEYCHAIN_ACCOUNT__ -w' "$HERE/launch"; then
+if ! grep -q 'libexec' "$SRC" "$HERE/launch"; then
   PASS=$((PASS + 1))
 else
-  FAIL=$((FAIL + 1)); echo "FAIL: launch does not hold its account placeholder on exactly its two lines (the keychain read and its error)"
-fi
-if ! grep -q '__[A-Z][A-Z0-9_]*__' "$HOOK"; then
-  PASS=$((PASS + 1))
-else
-  FAIL=$((FAIL + 1)); echo "FAIL: the rendered copy under test still holds a placeholder"
+  FAIL=$((FAIL + 1)); echo "FAIL: guard.sh or launch still names the root install folder"
 fi
 
 echo "pass=$PASS fail=$FAIL"

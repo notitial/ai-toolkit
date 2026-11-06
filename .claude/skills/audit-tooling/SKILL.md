@@ -125,7 +125,7 @@ Check `templates/safe-permissions.json`:
 | 5.2 | Permissions use specific patterns | No `Bash(*)` or overly broad wildcards |
 | 5.3 | MCP git tools present | `mcp__git-mcp__*` permissions exist for git operations |
 | 5.4 | No Bash git in allow list | Bash git permissions only appear in `_migration.removeBashGit`, not in `permissions.allow` |
-| 5.5 | Hooks reference existing scripts | Each hook `command` path (e.g., `$HOME/.claude/hooks/secret-detector.sh`) corresponds to a script in `hooks/`. One intended exception: the github guard, `/usr/local/libexec/mcp-github/guard.sh`, a root-owned copy of `tools/github-mcp/guard.sh` (check that the source exists; never repoint it at `hooks/`) |
+| 5.5 | Hooks reference existing scripts | Each hook `command` path (e.g., `$HOME/.claude/hooks/secret-detector.sh`) corresponds to a script in `hooks/`. One intended exception: the github guard, `<live checkout>/tools/github-mcp/guard.sh` (check that the file exists at the path the hook names; never repoint it at `hooks/`) |
 | 5.6 | Migration list consistent | Every Bash pattern in `removeBashGit` has a corresponding MCP permission in `allow` (or is intentionally prompt-only like `git branch`) |
 | 5.7 | Plugins are current | `enabledPlugins` list does not include plugins that are in `_migration.removePlugins` |
 

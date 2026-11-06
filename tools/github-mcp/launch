@@ -1,8 +1,9 @@
 #!/bin/sh -p
 set +x
 set -eu
-DIR=/usr/local/libexec/mcp-github
 TOOLS=get_me,pull_request_read,list_pull_requests,search_pull_requests,issue_read,list_issues,search_issues,get_file_contents,get_commit,list_commits,list_branches,actions_get,actions_list,get_job_logs,create_pull_request,add_issue_comment,add_reply_to_pull_request_comment,actions_run_trigger,update_pull_request
+DIR=$(cd "$(dirname "$0")" && pwd -P)
+ROOT=$(cd "$DIR/../.." && pwd -P)
 if [ "${1:-}" != --clean-env ]; then
   user=$(/usr/bin/id -un </dev/null)
   home=$(/usr/bin/dscl . -read "/Users/$user" NFSHomeDirectory </dev/null | /usr/bin/sed -n 's/^NFSHomeDirectory: //p')
@@ -16,13 +17,29 @@ fi
 for v in $(/usr/bin/env | /usr/bin/sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p'); do
   case $v in HOME|TMPDIR|PATH) ;; *) unset "$v" ;; esac
 done
-cd "$DIR"
-tok=$(/usr/bin/security find-generic-password -s mcp-github -a __GITHUB_KEYCHAIN_ACCOUNT__ -w </dev/null 2>/dev/null) || tok=
+# The launcher and the guard run from the live checkout, so a branch or a half-done edit there would go live: start
+# only from a clean main. The server's folder is empty, so no file in a checkout can be read as its config.
+branch=$(/usr/bin/git -c core.fsmonitor=false -C "$ROOT" branch --show-current </dev/null 2>/dev/null) || branch=
+dirty=$(/usr/bin/git -c core.fsmonitor=false -C "$ROOT" status --porcelain --untracked-files=no </dev/null 2>/dev/null) || dirty=x
+if [ "$branch" != main ] || [ -n "$dirty" ]; then
+  echo "mcp-github: $ROOT is not on a clean main; refusing to start" >&2
+  exit 1
+fi
+# The keychain account comes from the install-time settings file /setup-claude writes. Only a plain account name is
+# accepted: it goes onto a command line.
+acct=$(/usr/bin/sed -n 's/^github_keychain_account=//p' "$HOME/.claude/install.conf" </dev/null 2>/dev/null | /usr/bin/head -n 1) || acct=
+case $acct in
+  ''|*[!A-Za-z0-9._@-]*)
+    echo "mcp-github: github_keychain_account is missing or invalid in ~/.claude/install.conf; run /setup-claude; refusing to start" >&2
+    exit 1 ;;
+esac
+cd /var/empty
+tok=$(/usr/bin/security find-generic-password -s mcp-github -a "$acct" -w </dev/null 2>/dev/null) || tok=
 if [ -z "$tok" ]; then
-  echo "mcp-github: keychain item mcp-github/__GITHUB_KEYCHAIN_ACCOUNT__ missing or locked; refusing to start" >&2
+  echo "mcp-github: keychain item mcp-github/$acct missing or locked; refusing to start" >&2
   exit 1
 fi
 GITHUB_PERSONAL_ACCESS_TOKEN=$tok
 export GITHUB_PERSONAL_ACCESS_TOKEN
 unset tok
-exec "$DIR/github-mcp-server" stdio --tools "$TOOLS"
+exec "$DIR/bin/github-mcp-server" stdio --tools "$TOOLS"

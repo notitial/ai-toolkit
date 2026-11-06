@@ -7,7 +7,7 @@ disable-model-invocation: true
 
 Configure the global Claude Code environment from this repo's templates and skills. Idempotent — safe to run repeatedly. Each section reports what changed.
 
-**macOS only.** The steps assume macOS: Homebrew install hints, `/usr/bin/jq`, the login keychain and root:wheel copies.
+**macOS only.** The steps assume macOS: Homebrew install hints, `/usr/bin/jq` and the login keychain.
 
 **What it overwrites.** Most of the settings merge only adds and never removes. Four settings are enforced instead: added when missing and overwritten when different, and every change is reported (Step 10):
 
@@ -251,9 +251,9 @@ Verify the symlink resolves and the target script is **executable** (`chmod +x` 
 
 **Never edit a shell rc file** (`~/.zshrc`, `~/.bashrc`, and `~/.zshenv` above all) to load them. If `~/.zshrc` does not already contain `source ~/.claude/tools/shell-init.zsh`, print that one line in the report for the user to add.
 
-## Step 8b: Copied pieces (github MCP guard)
+## Step 8b: GitHub MCP wiring and install settings
 
-The github MCP launcher and guard cannot be symlinks: they are root-owned on purpose, so no session can edit the live guard. They go stale silently after a merge, so this step checks them. The logic lives in `tools/install-copies.sh` (tested by `tools/test-install-copies.sh`); do not re-implement it here.
+The github MCP launcher and guard are not copied anywhere: they run from this checkout, which stays on a clean `main` and moves only with a fast-forward pull after a merge (CLAUDE.md, Where agents edit). This step checks that the checkout is a clean main, that the pinned server binary sits in `tools/github-mcp/bin/`, and that the `github` MCP server and the guard hook point at this checkout. The logic lives in `tools/install-copies.sh` (tested by `tools/test-install-copies.sh`); do not re-implement it here.
 
 Resolve the script from this skill's location (`../../../tools/install-copies.sh`), as `check` does. Never set any `ICOPIES_*` variable (they are test hooks) and never change repo state (stash, checkout, pull, reset, `update-index`) to get past a gate.
 
@@ -268,8 +268,8 @@ Write tools are denied on it and every Bash command naming it asks (Step 10). Wh
   `^[a-z0-9][a-z0-9-]*$` (this sets a security control's scope); `github_keychain_account`, the account of the
   launcher's `mcp-github` keychain item, `^[A-Za-z0-9._@-]+$`. Then the optional ones, each skippable: the three that fill the auto
   mode classifier's placeholders in Step 10 (an unset one drops the entries that name it): `github_username`, the
-  user's GitHub login, one of the write owners (its entries count only once the installed root-owned guard lists it,
-  that is after `ghm-install`); `lan_host`, the
+  user's GitHub login, one of the write owners (its entries count only while `github_write_owners` lists it);
+  `lan_host`, the
   self-hosted host's LAN name ending in `.lan`, `.local` or `.home.arpa`; `router_ip`, the router's private
   (RFC 1918) address. A value that fails its check is asked again, never written.
 - Show the user the whole file and the autoMode entries it would fill: the template's entries naming `<username>`,
@@ -281,11 +281,12 @@ Write tools are denied on it and every Bash command naming it asks (Step 10). Wh
   ```bash
   (umask 077; d="$HOME/.claude"; f="$d/install.conf"; [ ! -L "$f" ] && t=$(mktemp "$d/install.conf.XXXXXX") && printf '%s\n' 'github_write_owners=<owners>' 'github_keychain_account=<account>' > "$t" && chmod 600 "$t" && mv -f "$t" "$f" && ls -l "$f")
   ```
-- Run `status` again: the `install.conf` line must read `ok`. A changed owner or account reaches the root-owned copies
-  only when the user runs `ghm-install` again, which shows both values and the diff and asks before its `sudo` install.
+- Run `status` again: the `install.conf` line must read `ok`. The guard reads the owners and the launcher reads the
+  account from this file when they run, so a change takes effect on the next github call (owners) or the next MCP
+  start (account).
 
 1. Run `bash tools/install-copies.sh status` and keep its output for the report.
-2. **Github MCP** `STALE` or `MISSING`: do not try to fix it (installing needs `sudo`, which agents do not have). Put `ghm-test`, then `ghm-install`, in the report for the user to run from a shell; a `github-mcp (install settings …)` line means the settings step above comes first. When the status is `ok`, say nothing more.
+2. **Github MCP** `STALE` or `MISSING`: report the line and the fix it prints; do not try to fix it. The server binary is a download the user makes (`tools/github-mcp/README.md`, Install); registering the server is the user's own command (agents may not run `claude mcp add`); a `checkout` line means the live checkout is not on a clean main, so move the work into a `/tmp` clone and put the checkout back on `main`; a hook line is fixed by Step 10 (Hooks). When the status is `ok`, say nothing more.
 3. **`~/.zshrc`** `MISSING`: rc files are the user's; put the line it prints in the report (Step 8).
 4. **Links** `UNLINKED` or `CONFLICT`: those are handled by Steps 2-5, 7 and 8 (run them first); anything still listed after those steps is a conflict to report.
 
@@ -476,6 +477,7 @@ Read the `hooks` object from `templates/safe-permissions.json`. This defines Pre
 
 - **If `~/.claude/settings.json` has no `hooks` key:** Add the entire `hooks` object from the template, leaving out its `_comment` keys.
 - **If it already has `hooks`:** Merge — add any hook entries from the template that are not already present, matching on the **(event key, `matcher`, script path) triple**. Do not remove existing custom hooks.
+- **The github guard's command holds the placeholder `<checkout>`:** fill it with the live checkout's real path before the merge or the comparison (see **GitHub MCP guard** below), and never write the placeholder to the live file.
 
 **The event key is part of the identity, not a container.** One script may legitimately appear under
 several event keys with the *same* matcher — for example a script registered on both `PreToolUse`
@@ -512,24 +514,26 @@ any assertion fails. A hook script that exists in the repo but has no template m
 also a loud failure (roster/template desync).
 
 **GitHub MCP guard (assert when the template wires it; fail loud):** the template's github MCP entry (matcher
-`^mcp__github__.*$`: every tool of the github server) runs
-`/usr/local/libexec/mcp-github/guard.sh`, which is not a `hooks/*.sh` script and is never symlinked: the user installs
-it root-owned from `tools/github-mcp/guard.sh` (see `tools/github-mcp/README.md`), so no session can edit the live
-copy. Assert:
+`^mcp__github__.*$`: every tool of the github server) runs `<checkout>/tools/github-mcp/guard.sh`, which is not a
+`hooks/*.sh` script and is never symlinked: it runs from the live checkout (`tools/github-mcp/README.md`) and denies
+every call while that checkout is not on a clean main. The template holds the placeholder `<checkout>`; resolve it
+as in **Live checkout denies** (the physical path of this repo root, skipping the hook with a note when the root is
+under `/tmp` or `/private/tmp`) and never write the placeholder to the live file. Assert:
 
-- the live entry's matcher and command are byte-identical to the template's (the command is
-  `/usr/local/libexec/mcp-github/guard.sh`). The additive merge never updates a matcher, so a live entry with an older template's `mcp__github__.*` is `DRIFT: matcher differs`: show the user the diff and change it on their go, replacing the
-  entry's matcher in place (never add a second guard entry beside it);
-- `guard.sh` and `launch` exist in `/usr/local/libexec/mcp-github`, and that folder and both files are root:wheel,
-  mode 755.
+- the live entry's matcher and command are byte-identical to the template's with `<checkout>` filled in. The additive
+  merge never updates a matcher or a command, so a live entry with an older template's `mcp__github__.*`, or with
+  another path (the old root-owned folder, another checkout), is `DRIFT: matcher differs` / `DRIFT: command
+  differs`: show the user the diff and change it on their go, replacing the entry in place (never add a second guard
+  entry beside it);
+- the github lines of `status` are all `ok`: the checkout is a clean main, the server binary is in place, the server
+  is registered at this checkout and the guard hook points at it.
 
 ```bash
 bash tools/install-copies.sh status
 ```
 
-The Bash deny `Bash(*mcp-github*)` blocks a raw `stat` of that folder, so use this script (its command line does not
-name it). Its github-mcp lines cover the folder (root:wheel 755) and both files (content, root:wheel 755). Any `STALE github-mcp` line is a failure. Report `DRIFT: github MCP guard missing` /
-`not root-owned` / `command differs`, and never install or copy it yourself.
+Any `STALE github` or `MISSING github` line is a failure. Report `DRIFT: github MCP guard missing` /
+`command differs`, and never edit or copy the guard yourself.
 
 The other hook commands reference `$HOME/.claude/hooks/<script>.sh` — these are the scripts installed in Step 3.
 
@@ -540,7 +544,7 @@ The other hook commands reference `$HOME/.claude/hooks/<script>.sh` — these ar
 keys, Step 8b). Run `bash tools/install-copies.sh automode` (resolved as in Step 8b): it prints the template's
 `autoMode` lists as JSON with each placeholder filled and every entry whose key is unset dropped, and exits 1 on an
 invalid settings file (then stop this section and report it; Step 8b's settings sub-step fixes the file). A
-`<username>` entry is kept only while `github_username` is a write owner in the installed root-owned guard; otherwise
+`<username>` entry is kept only while `github_username` is listed in `github_write_owners`; otherwise
 it prints why on stderr: pass that line on in the report. Those rendered lists stand in for the template's everywhere
 below: the exact-string merge, the superseded-entry report and the drift assertion with its `claude auto-mode config`
 check. Never write a placeholder to the live file, and never merge the raw template lists.
@@ -667,11 +671,11 @@ running sessions keep their existing server process.
 | workspace-lock.sh | Installed / Already installed / Conflict |
 | shell-init.zsh | Installed / Already installed / Conflict (+ "add `source ~/.claude/tools/shell-init.zsh` to ~/.zshrc" when it is not there) |
 
-### Copied pieces
+### GitHub MCP wiring
 | Piece | Status |
 |-------|--------|
 | install.conf | ok / MISSING / STALE (Step 8b's settings sub-step) |
-| github-mcp launch / guard.sh | Current / "run: ghm-install" (needs sudo) |
+| github-mcp checkout, binary, server, guard hook | ok / the fix the `status` line prints |
 
 ### Global CLAUDE.md
 Status: Created / Up to date / Updated (with user approval) / Skipped (user chose to keep)

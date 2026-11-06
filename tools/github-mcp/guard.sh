@@ -1,9 +1,10 @@
 #!/bin/bash -p
 # Pre-tool-use hook: guards the github MCP server (github/github-mcp-server) by argument, where tool-name permission
-# rules cannot reach (v2 bundles reads and writes behind a `method` argument). Installed root-owned at
-# /usr/local/libexec/mcp-github/guard.sh (source: tools/github-mcp/guard.sh), so no session can edit the live copy, and
-# wired in ~/.claude/settings.json for PreToolUse on ^mcp__github__.*$.
+# rules cannot reach (v2 bundles reads and writes behind a `method` argument). Runs from the live checkout
+# (tools/github-mcp/guard.sh), wired in ~/.claude/settings.json for PreToolUse on ^mcp__github__.*$.
 #
+# - Every call is denied unless the checkout this file sits in is on a clean main: a branch or a half-done edit of
+#   the guard would otherwise go live.
 # - Reads pass. A tool in neither READ_TOOLS nor WRITE_TOOLS is denied, so a server upgrade stays shut until reviewed.
 # - Every write must target a repo of WRITE_OWNERS.
 # - actions_run_trigger: re-run, re-run failed jobs, cancel and dispatch ask; log deletion is denied.
@@ -71,14 +72,32 @@ case "$TOOL_NAME" in
   *) exit 0 ;;
 esac
 
-# Must match the --tools list in tools/github-mcp/launch (installed beside this file).
+# The checkout this file sits in must be on a clean main (tracked files only). Anything else, git missing included,
+# denies: the guard is edited by merging and pulling, never by working in the live checkout.
+GIT=/usr/bin/git
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd -P)
+BRANCH="" DIRTY=x
+if [ -n "$ROOT" ]; then   # an empty -C would be read as the current directory
+  BRANCH=$("$GIT" -c core.fsmonitor=false -C "$ROOT" branch --show-current </dev/null 2>/dev/null)
+  DIRTY=$("$GIT" -c core.fsmonitor=false -C "$ROOT" status --porcelain --untracked-files=no </dev/null 2>/dev/null) || DIRTY=x
+fi
+if [ "$BRANCH" != main ] || [ -n "$DIRTY" ]; then
+  decide deny "the checkout this guard runs from is not on a clean main; github MCP calls are off until it is (work in a /tmp clone, then merge and pull)."
+fi
+
+# Must match the --tools list in tools/github-mcp/launch (beside this file).
 READ_TOOLS=" get_me pull_request_read list_pull_requests search_pull_requests issue_read list_issues search_issues get_file_contents get_commit list_commits list_branches actions_get actions_list get_job_logs "
 WRITE_TOOLS=" create_pull_request add_issue_comment add_reply_to_pull_request_comment actions_run_trigger update_pull_request "
-# Owners whose repos the write tools may target (lowercase JSON array): the github_write_owners install setting
-# (~/.claude/install.conf), filled in by ghm-install when it makes the root-owned copy and never read from disk at
-# call time. An unrendered copy keeps the placeholder, which is not JSON, so every owner-bearing write is denied.
-# The repo name must be a plain GitHub name.
-WRITE_OWNERS='__GITHUB_WRITE_OWNERS__'
+# Owners whose repos the write tools may target (lowercase JSON array): the github_write_owners install setting,
+# read from ~/.claude/install.conf at call time (/setup-claude writes it; the template denies edits of that file and
+# asks on a shell command that names it). Only plain lowercase owner names are accepted. A missing or invalid
+# setting leaves an empty list, so every owner-bearing write is denied. The repo name must be a plain GitHub name.
+WRITE_OWNERS='[]'
+OWNERS_LINE=$(/usr/bin/sed -n 's/^github_write_owners=//p' "$HOME/.claude/install.conf" </dev/null 2>/dev/null | /usr/bin/head -n 1)
+OWNERS_RE='^[a-z0-9][a-z0-9-]*( [a-z0-9][a-z0-9-]*)*$'
+if [[ "$OWNERS_LINE" =~ $OWNERS_RE ]]; then
+  WRITE_OWNERS=$(printf '%s\n' "$OWNERS_LINE" | "$JQ" -R -c 'split(" ")' 2>/dev/null) || WRITE_OWNERS='[]'
+fi
 
 case "$TOOL" in
   ''|*[!a-z_]*) decide deny "$(show '.tool_name') is not a valid github MCP tool name; blocked." ;;

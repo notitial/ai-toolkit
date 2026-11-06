@@ -2,8 +2,8 @@
 # PreToolUse hook (matcher ^mcp__github__.*$): tells the user when the pinned github-mcp-server has a newer
 # release, or an advisory that applies to the installed version.
 #
-# Why: the server is a pinned, root-installed binary (tools/github-mcp/README.md), so nothing upgrades it on its
-# own. The check runs where the server is used, against the binary installed on this machine.
+# Why: the server is a pinned binary kept in the checkout (tools/github-mcp/README.md), so nothing upgrades it on
+# its own. The check runs where the server is used, against the binary installed on this machine.
 #
 # How: most calls only test a few files in the state directory. When the last-check stamp is 7 or more days old,
 # the call moves it to 6 days old (so nothing else starts a check for about a day) and starts a copy of itself in
@@ -18,7 +18,13 @@
 #
 # Never blocks: no permission decision, no set -e, and every path exits 0. bash 3.2; macOS date and find.
 
-BIN=/usr/local/libexec/mcp-github/github-mcp-server
+# The binary sits in the checkout this hook is linked from (tools/github-mcp/bin/, not tracked).
+here=$0
+while [ -L "$here" ]; do
+  link=$(readlink "$here")
+  case $link in /*) here=$link ;; *) here=$(dirname "$here")/$link ;; esac
+done
+BIN=$(cd "$(dirname "$here")/.." 2>/dev/null && pwd -P)/tools/github-mcp/bin/github-mcp-server
 CURL=/usr/bin/curl
 API=https://api.github.com
 STATE="${XDG_CACHE_HOME:-$HOME/.cache}/mcp-github"

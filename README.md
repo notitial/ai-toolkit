@@ -41,7 +41,7 @@ Then run `/audit-claude` in any project to evaluate its AI configuration.
 | [Tool scripts](tools/README.md) | workspace-lock.sh; shell-init.zsh (loads the `ait` zsh helpers; your `~/.zshrc` sources it) | `~/.claude/tools/` |
 | [Permissions](docs/05-permissions-and-safety.md) | Safe defaults, hook wiring, plugin config | `~/.claude/settings.json` |
 
-The guarded GitHub MCP setup ([tools/github-mcp/](tools/github-mcp/README.md)) is optional and not installed by `/setup-claude`: its root-owned copies come from the `ghm-install` helper.
+The guarded GitHub MCP setup ([tools/github-mcp/](tools/github-mcp/README.md)) is optional and not installed by `/setup-claude`: it runs from the live checkout, so a merge and a fast-forward pull are the install.
 
 ## Where to Go Next
 

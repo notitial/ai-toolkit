@@ -82,9 +82,9 @@ The live checkout is what `/setup-claude` links into `~/.claude` (hooks, rules, 
 | `tools/` | Reusable tooling (statusline, scripts) |
 | `tools/workspace-lock/` | Advisory lock serializing independent unattended orchestrators (used by the `unattended-run` skill) |
 | `tools/claude-review/` | The Claude PR review kit: the canonical workflow and review command other repos copy (this repo runs the same copies), its setup guide, tests and reviewer cases; `/add-claude-review` installs it |
-| `tools/github-mcp/` | Optional guarded GitHub MCP setup: a launcher plus a hook limiting which GitHub writes agents may make, installed root-owned so agents can't edit them; its README covers install and token rotation |
+| `tools/github-mcp/` | Optional guarded GitHub MCP setup: a launcher plus a hook limiting which GitHub writes agents may make, run from the live checkout, which they require to be on a clean main; its README covers install and token rotation |
 | `tools/shell-init.zsh` | The one line `~/.zshrc` sources (`source ~/.claude/tools/shell-init.zsh`): loads `tools/ait.zsh` |
-| `tools/ait.zsh` | zsh helpers: `ait`, `ait-status`, `ghm-status`, `ghm-test`, `ghm-install` (installs the GitHub MCP launcher and guard as root-owned copies agents can't edit) |
+| `tools/ait.zsh` | zsh helpers: `ait`, `ait-status`, `ghm-status` (the GitHub MCP wiring check), `ghm-test` |
 | `.claude/settings.json` | Project-level permissions allowlist (no hooks) |
 | `.claude/rules/` | Path-scoped rules (loaded on demand) |
 | `.claude/commands/` | Project command claude-pr-review (a fork of the code-review command from Anthropic's Claude Code plugins) |
