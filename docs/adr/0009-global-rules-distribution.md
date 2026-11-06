@@ -1,7 +1,7 @@
 # 9. Distribute Global Rules via setup-claude Symlinks
 
 **Status:** accepted
-**Date:** 2026-07-06
+**Date:** 2026-07-06 · **Amended:** 2026-11-06 (ADR 0014: committed files only)
 
 ## Context
 
@@ -44,6 +44,7 @@ the same tests they failed in ADR 0006.
 ## Consequences
 
 - Extends ADR 0006's artifact table with a fourth row: `rules/*.md` → `~/.claude/rules/<name>.md`.
+- Amended by [ADR 0014](0014-live-checkout-installs.md) (2026-11-06): `/setup-claude` links only the artifacts committed at `HEAD` (`bash tools/install-copies.sh roster`), not every matching file on disk.
 - Global rules are now versioned, reviewable, and restorable; edits propagate instantly.
 - The repo is public: rules content must remain publishable (generic engineering guidance,
   no secrets/PII — verified at introduction).

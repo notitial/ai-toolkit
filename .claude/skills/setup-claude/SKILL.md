@@ -57,13 +57,10 @@ Read these files to understand what's already configured:
 
 ## Step 2: Install global agents
 
-Discover all agent definitions at the repo root:
+List the committed agent definitions: the `agents/<name>.md` lines of `bash tools/install-copies.sh roster` (it lists only files
+committed at `HEAD`, so an untracked file in the checkout is never linked into `~/.claude`).
 
-```
-agents/*.md
-```
-
-For each discovered agent:
+For each listed agent:
 
 - **No existing symlink at `~/.claude/agents/<name>.md`:** Create it:
   ```bash
@@ -77,13 +74,9 @@ Verify each symlink resolves to a readable file with valid YAML frontmatter (nam
 
 ## Step 3: Install global hooks
 
-Discover all hook scripts at the repo root:
+List the committed hook scripts: the `hooks/<name>.sh` lines of `bash tools/install-copies.sh roster`.
 
-```
-hooks/*.sh
-```
-
-For each discovered hook:
+For each listed hook:
 
 - **No existing symlink at `~/.claude/hooks/<name>.sh`:** Create it:
   ```bash
@@ -97,13 +90,9 @@ Verify each symlink resolves and the target script is executable (`chmod +x` if 
 
 ## Step 4: Install global skills
 
-Discover all skills in the repo's `skills/` directory:
+List the committed skills: the `skills/<name>` lines of `bash tools/install-copies.sh roster` (a folder whose `SKILL.md` is committed).
 
-```
-skills/*/SKILL.md
-```
-
-For each discovered skill:
+For each listed skill:
 
 - **No existing symlink at `~/.claude/skills/<name>`:** Create it:
   ```bash
@@ -123,15 +112,11 @@ works but exposes the skills to every project.
 
 ## Step 5: Install global rules
 
-Discover all global rule files at the repo root (see [ADR 0009](../../../docs/adr/0009-global-rules-distribution.md)):
-
-```
-rules/*.md
-```
+List the committed global rule files: the `rules/<name>.md` lines of `bash tools/install-copies.sh roster` (see [ADR 0009](../../../docs/adr/0009-global-rules-distribution.md)).
 
 These are always-on rules with no frontmatter — a different artifact class from project-scoped `.claude/rules/*.md` (which activate on `paths` frontmatter). Do not add frontmatter to them.
 
-For each discovered rule:
+For each listed rule:
 
 - **No existing file or symlink at `~/.claude/rules/<name>.md`:** Create the symlink:
   ```bash
@@ -502,7 +487,7 @@ full matcher string for that script (never duplicate the entry), show the user t
 and re-run the assertion.
 
 **Drift assertion (run every time, after the merge; fail loud):** for **every** hook script
-discovered in Step 3 (`hooks/*.sh` — the filesystem is the roster), assert BOTH:
+listed in Step 3 (the `hooks/<name>.sh` lines of `bash tools/install-copies.sh roster`: the committed scripts are the roster), assert BOTH:
 
 1. **Symlinked** — `~/.claude/hooks/<name>.sh` exists, resolves to the repo copy, and is executable.
 2. **Matcher-wired with the exact template matcher, under EVERY event the template registers it
@@ -642,8 +627,8 @@ jq / node+npm / gh: all present (or: stopped at Step 0, missing <list>); gh logi
 
 ### Agents / Hooks / Skills / Rules
 
-One table per category, **one row per artifact discovered in Steps 2–5** — do not use a
-hardcoded roster; the filesystem is the roster (see ADR 0009 / README install table).
+One table per category, **one row per artifact listed in Steps 2–5** — do not use a
+hardcoded roster; the `roster` output is the roster (see ADR 0009 / README install table).
 
 ```
 ### <Category>

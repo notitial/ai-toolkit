@@ -2,6 +2,8 @@
 # What the toolkit installs outside the checkout, and whether it is current. Never writes anything.
 #
 #   bash tools/install-copies.sh status            one line per piece; exit 1 if any needs attention
+#   bash tools/install-copies.sh roster            what /setup-claude links: the agents, hooks, rules and skills
+#                                                  committed at HEAD, one repo path per line (never an untracked file)
 #   bash tools/install-copies.sh automode [--valued | --for-cleanup]   the setup template's autoMode lists, filled in
 #
 # Pieces `status` checks (/setup-claude Step 8b, and the `ait-status` zsh helper):
@@ -222,16 +224,33 @@ check_link() {
   fi
 }
 
+# roster: what /setup-claude links, one repo path per line: the agents, hooks, rules and skills committed at HEAD (a
+# skill as skills/<name>). A file that is only on disk (untracked, or on another branch) is never listed, so it is never
+# linked into ~/.claude.
+# It fails (exit 1, nothing on stdout) when HEAD cannot be read or holds none of them, so a caller never takes a broken
+# checkout for an empty roster.
+cmd_roster() {
+  local tree out
+  tree=$(g ls-tree -r --name-only HEAD -- agents hooks rules skills 2>/dev/null) || { fail "roster: cannot read HEAD in $ROOT"; return 1; }
+  out=$(printf '%s\n' "$tree" |
+    sed -n -e '/^agents\/[^/]*\.md$/p' -e '/^hooks\/[^/]*\.sh$/p' -e '/^rules\/[^/]*\.md$/p' \
+      -e 's/^\(skills\/[^/]*\)\/SKILL\.md$/\1/p')
+  [ -n "$out" ] || { fail "roster: no agents, hooks, rules or skills committed at HEAD in $ROOT"; return 1; }
+  printf '%s\n' "$out"
+}
+
 status_links() {
-  local f n d
+  local p list
   LINK_OK=0 LINK_NEW=0 LINK_CONFLICT=0
-  for f in "$ROOT"/agents/*.md; do [ -e "$f" ] && check_link "agents/${f##*/}" "$CLAUDE_DIR/agents/${f##*/}"; done
-  for f in "$ROOT"/hooks/*.sh; do [ -e "$f" ] && check_link "hooks/${f##*/}" "$CLAUDE_DIR/hooks/${f##*/}"; done
-  for f in "$ROOT"/rules/*.md; do [ -e "$f" ] && check_link "rules/${f##*/}" "$CLAUDE_DIR/rules/${f##*/}"; done
-  for d in "$ROOT"/skills/*/; do
-    n=${d%/}; n=${n##*/}
-    [ -f "$ROOT/skills/$n/SKILL.md" ] && check_link "skills/$n" "$CLAUDE_DIR/skills/$n"
-  done
+  if ! list=$(cmd_roster 2>/dev/null); then
+    line STALE "links (the committed roster cannot be read from HEAD)" "fix the checkout"
+    list=""
+  fi
+  while IFS= read -r p; do
+    [ -n "$p" ] && check_link "$p" "$CLAUDE_DIR/$p"
+  done <<EOF
+$list
+EOF
   check_link tools/statusline.sh "$CLAUDE_DIR/statusline.sh"
   check_link tools/workspace-lock/workspace-lock.sh "$CLAUDE_DIR/tools/workspace-lock.sh"
   check_link tools/shell-init.zsh "$CLAUDE_DIR/tools/shell-init.zsh"
@@ -287,6 +306,7 @@ cmd_automode() {
 
 case "${1:-}" in
   status) cmd_status ;;
+  roster) cmd_roster ;;
   automode) shift; cmd_automode "$@" ;;
-  *) fail "usage: install-copies.sh status | automode [--valued | --for-cleanup]"; exit 2 ;;
+  *) fail "usage: install-copies.sh status | roster | automode [--valued | --for-cleanup]"; exit 2 ;;
 esac

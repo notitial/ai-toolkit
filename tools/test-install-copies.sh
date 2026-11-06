@@ -175,6 +175,34 @@ expect_re "the guard hook is ok" "$OUT" '^ok +github MCP guard hook points at th
 expect_re "the .zshrc line is ok" "$OUT" '^ok +~/\.zshrc loads the zsh helpers$'
 expect_has "links summary" "$OUT" "links     7 linked, 0 unlinked, 0 conflicting"
 
+case_start "roster: only committed files are linked"
+new_case
+setup_current
+ic roster
+expect_rc "roster exits 0" 0
+expect_re "roster lists the committed agent" "$OUT" '^agents/a\.md$'
+expect_re "roster lists the committed skill as its folder" "$OUT" '^skills/s$'
+printf '# stray\n' > "$R/rules/stray.md"
+mkdir -p "$R/skills/new" && printf '# new\n' > "$R/skills/new/SKILL.md"
+ic roster
+expect_not "an untracked rule is not in the roster" "$OUT" "rules/stray.md"
+expect_not "an untracked skill is not in the roster" "$OUT" "skills/new"
+ic status
+expect_not "an untracked rule is not reported for linking" "$OUT" "stray.md"
+expect_not "an untracked skill is not reported for linking" "$OUT" "skills/new"
+expect_has "the committed links are still all linked" "$OUT" "links     7 linked, 0 unlinked, 0 conflicting"
+
+case_start "roster: a checkout whose HEAD cannot be read fails loudly"
+new_case
+setup_current
+mv "$R/.git" "$R/.git.away"
+ic roster
+expect_rc "roster exits 1 without a readable HEAD" 1
+expect_has "roster says why" "$OUT" "roster: cannot read HEAD"
+ic status
+expect_re "status reports the unreadable roster" "$OUT" '^STALE +links \(the committed roster cannot be read from HEAD\)'
+mv "$R/.git.away" "$R/.git"
+
 case_start "status 2b: the binary must match the pinned hash"
 new_case
 setup_current
@@ -379,7 +407,7 @@ case_start "usage: an unknown command"
 new_case
 ic install
 expect_rc "an unknown command exits 2" 2
-expect_has "usage names the commands" "$OUT" "usage: install-copies.sh status | automode"
+expect_has "usage names the commands" "$OUT" "usage: install-copies.sh status | roster | automode"
 
 # ---------------------------------------------------------------- install-time settings
 case_start "settings 1: no install.conf"
