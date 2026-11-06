@@ -24,6 +24,18 @@ printf '#!/bin/sh\n[ "$1" = --version ] || exit 2\nprintf "GitHub MCP Server\\nV
 printf '#!/bin/sh\nfor a; do u=$a; done\necho "$u" >> "%s/curl-log"\n[ -e "%s/curl-fail" ] && exit 22\ncase $u in\n  */releases/latest) cat "%s/rel.json" ;;\n  */advisories*) cat "%s/adv.json" ;;\n  *) exit 22 ;;\nesac\n' \
   "$T" "$T" "$T" "$T" > "$T/curl"
 chmod 755 "$T/github-mcp-server" "$T/curl"
+# The hook is macOS-only by design (this GitHub MCP setup reads the Keychain), and retry_soon runs macOS
+# `date -v-6d`. Without BSD -v (Linux CI) that fails and the hook stamps "now" instead. This stand-in emulates
+# macOS date: it answers -v-Nd as BSD would and passes everything else to the real date, so the tests check the
+# hook as it really runs on a Mac. DATE_SHIM=1 forces it on a Mac to try the stand-in.
+mkdir "$T/bin"
+if [ -n "${DATE_SHIM:-}" ] || ! date -v-1d >/dev/null 2>&1; then
+  RD=$(command -v date)
+  printf '#!/bin/sh\ncase "${1:-}" in\n  -v-[0-9]*d)\n    n=${1#-v-}; n=${n%%d}; shift\n    s=$(( $(%s +%%s) - n * 86400 ))\n    %s -d "@$s" "$@" 2>/dev/null || %s -r "$s" "$@" ;;\n  *) exec %s "$@" ;;\nesac\n' \
+    "$RD" "$RD" "$RD" "$RD" > "$T/bin/date"
+  chmod 755 "$T/bin/date"
+fi
+export PATH="$T/bin:$PATH"
 # The hook runs the binary only when it matches the hash committed in its checkout at a HEAD on origin/main, so a
 # throwaway checkout pins the fake one.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
@@ -60,7 +72,9 @@ ok() {
   if eval "$2"; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: $1"; fi
 }
 msg() { printf '%s' "$1" | jq -r '.systemMessage // empty' 2>/dev/null; }
-days_ago() { touch -t "$(date -v-"$2"d +%Y%m%d%H%M.%S)" "$1"; }
+# secs_ago_stamp <seconds>: a touch -t timestamp that long ago (GNU date -d, else BSD date -r).
+secs_ago_stamp() { date -d "@$(( $(date +%s) - $1 ))" +%Y%m%d%H%M.%S 2>/dev/null || date -r "$(( $(date +%s) - $1 ))" +%Y%m%d%H%M.%S; }
+days_ago() { touch -t "$(secs_ago_stamp $(( $2 * 86400 )))" "$1"; }
 retrying() { [ -n "$(find "$C/checked" -mmin +7199 2>/dev/null)" ] && [ -z "$(find "$C/checked" -mmin +10079 2>/dev/null)" ]; }
 fresh() { [ -e "$C/checked" ] && [ -z "$(find "$C/checked" -mmin +5 2>/dev/null)" ]; }
 wait_for() { for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -s "$1" ] && return 0; sleep 0.2; done; return 1; }
@@ -87,7 +101,7 @@ ok "newer release: shown" 'msg "$out" | grep -q "2.0.3 is installed; 2.1.0 is re
 ok "newer release: no permission decision" '! printf "%s" "$out" | jq -e ".hookSpecificOutput" >/dev/null 2>&1'
 out=$(hook)
 ok "same day: quiet" '[ -z "$out" ]'
-touch -t "$(date -v-2H +%Y%m%d%H%M.%S)" "$C/shown"
+touch -t "$(secs_ago_stamp 7200)" "$C/shown"
 out=$(hook)
 ok "shown 2 hours ago: quiet" '[ -z "$out" ]'
 days_ago "$C/shown" 2
@@ -211,7 +225,7 @@ sleep 1
 ok "lock held: no api call" '[ ! -e "$T/curl-log" ]'
 ok "lock held: retry soon" 'retrying'
 rmdir "$C/lock.d"; rm -f "$T/curl-log"
-touch -t "$(date -v-6d -v-1H +%Y%m%d%H%M.%S)" "$C/checked"
+touch -t "$(secs_ago_stamp $(( 6 * 86400 + 3600 )))" "$C/checked"
 hook >/dev/null
 sleep 0.5
 ok "stamp 6 days 1 hour old: no new check" '[ ! -e "$T/curl-log" ]'
