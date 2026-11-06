@@ -13,7 +13,8 @@ this script into the per-run flow.
 
 ## Install
 
-`/setup-claude` symlinks this script to a stable, machine-independent path and marks it executable:
+`/setup-claude` symlinks this script to a stable, machine-independent path. It runs by that path, so it
+is committed `100755`, and `tools/install-copies.sh status` reports it if it is not executable:
 
 ```
 ~/.claude/tools/workspace-lock.sh   ->   tools/workspace-lock/workspace-lock.sh

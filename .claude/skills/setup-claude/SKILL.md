@@ -20,7 +20,7 @@ Read Step 10 before the first run if you rely on other values for any of them.
 
 **What it asks.** The prompt cache TTL (`promptCacheTtl`, `subagentPromptCacheTtl`) is opt-in: with no such key in the template, Step 10 asks before it writes either one and never overwrites a value you set.
 
-**`/setup-claude check`:** read-only. Run only `bash tools/install-copies.sh status` (resolve the path from this skill's location: `../../../tools/install-copies.sh`), show its output, and stop. It lists the install-time settings, the github MCP guard, the `~/.zshrc` line and every unlinked or conflicting link against `main`, and changes nothing.
+**`/setup-claude check`:** read-only. Run only `bash tools/install-copies.sh status` (resolve the path from this skill's location: `../../../tools/install-copies.sh`), show its output, and stop. It lists the install-time settings, the github MCP guard, the `~/.zshrc` line, every unlinked or conflicting link against `main`, any hook or lock script that is not executable, and any hook `settings.json` does not run, and changes nothing.
 
 ## Step 0: Check prerequisites
 
@@ -86,7 +86,7 @@ For each listed hook:
 - **Existing symlink pointing to the correct target:** Skip.
 - **Existing symlink pointing elsewhere or existing file:** Report conflict. Do not overwrite without user confirmation.
 
-Verify each symlink resolves and the target script is executable (`chmod +x` if needed).
+Verify each symlink resolves and the target script is executable. Hooks run by their path, so a hook without the bit does not start, and its control is off with nothing blocking. Never `chmod` it here: the bit has to come from a commit. Report it (`DRIFT: <script> not executable` in Step 10's drift assertion); the fix is a PR that commits it as `100755`, then a pull and another `/setup-claude`. When the commit has the bit and only this checkout lost it, `status` prints that smaller fix instead, for the user to run.
 
 ## Step 4: Install global skills
 
@@ -209,7 +209,7 @@ The repo includes a custom status line script at `tools/statusline.sh` (resolve 
 - **Existing symlink pointing to the correct target:** Skip.
 - **Existing symlink pointing elsewhere or existing file:** Report conflict. Do not overwrite without user confirmation.
 
-Verify the symlink resolves and the target script is executable (`chmod +x` if needed).
+Verify the symlink resolves. The status line runs as `bash <path>`, so it needs no executable bit.
 
 The `statusLine` config in `~/.claude/settings.json` is handled in the settings-update step (Step 10) along with other settings.json entries. The template's `statusLine` object defines the command reference.
 
@@ -232,7 +232,7 @@ For each:
 - **Existing symlink pointing to the correct target:** Skip.
 - **Existing symlink pointing elsewhere or existing file:** Report conflict. Do not overwrite without user confirmation.
 
-Verify the symlink resolves and the target script is **executable** (`chmod +x` if needed) — these scripts are invoked **directly** (e.g. `$HOME/.claude/tools/workspace-lock.sh …`), so the executable bit is load-bearing (unlike `statusline.sh`, which is invoked as `bash <path>`). `shell-init.zsh` is the exception: it is **sourced**, not run, so it needs no executable bit.
+Verify the symlink resolves and the target script is **executable** — these scripts are invoked **directly** (e.g. `$HOME/.claude/tools/workspace-lock.sh …`), so the executable bit is load-bearing (unlike `statusline.sh`, which is invoked as `bash <path>`). Without it, report the `status` line and the fix it prints, and never `chmod` here: a script committed without the bit takes a PR that commits it as `100755`. `shell-init.zsh` is the exception: it is **sourced**, not run, so it needs no executable bit.
 
 **Never edit a shell rc file** (`~/.zshrc`, `~/.bashrc`, and `~/.zshenv` above all) to load them. If `~/.zshrc` does not already contain `source ~/.claude/tools/shell-init.zsh`, print that one line in the report for the user to add.
 
@@ -271,9 +271,10 @@ Write tools are denied on it and every Bash command naming it asks (Step 10). Wh
   start (account).
 
 1. Run `bash tools/install-copies.sh status` and keep its output for the report.
-2. **Github MCP** `STALE` or `MISSING`: report the line and the fix it prints; do not try to fix it. The server binary is a download the user makes (`tools/github-mcp/README.md`, Install); registering the server is the user's own command (agents may not run `claude mcp add`); a `checkout` line means the live checkout is not on a clean main, so move the work into a `/tmp` clone and put the checkout back on `main`; a hook line is fixed by Step 10 (Hooks). When the status is `ok`, say nothing more.
+2. **Github MCP** `STALE` or `MISSING`: report the line and the fix it prints; do not try to fix it. The server binary is a download the user makes (`tools/github-mcp/README.md`, Install); registering the server is the user's own command (agents may not run `claude mcp add`); a `checkout` line means the live checkout is not on a clean main, so move the work into a `/tmp` clone and put the checkout back on `main`; the guard hook line is fixed by Step 10 (Hooks). When the status is `ok`, say nothing more.
 3. **`~/.zshrc`** `MISSING`: rc files are the user's; put the line it prints in the report (Step 8).
 4. **Links** `UNLINKED` or `CONFLICT`: those are handled by Steps 2-5, 7 and 8 (run them first); anything still listed after those steps is a conflict to report.
+5. **Hooks and the lock script**: `STALE <script> is committed without the executable bit` or `is not executable in this checkout`: report the line and the fix it prints; never `chmod` and do not wire the hook. `MISSING hooks/<name>.sh is not wired`: fixed by Step 10 (Hooks), unless that hook also has one of those `STALE` lines.
 
 ## Step 9: Evaluate global CLAUDE.md
 
@@ -468,7 +469,8 @@ match, so work in a clone stays free.
 
 Read the `hooks` object from `templates/safe-permissions.json`. This defines PreToolUse, PostToolUse, PostToolUseFailure and SessionStart hooks that reference the scripts installed in Step 3.
 
-- **If `~/.claude/settings.json` has no `hooks` key:** Add the entire `hooks` object from the template, leaving out its `_comment` keys.
+- **Skip a hook that is not executable, in both cases below.** Leave out any template entry whose script fails Step 3's executable check, since every tool call would log a hook error and the script still would not run. Name it in the report as a control that is off; the next `/setup-claude` after the fix wires it. A hook already wired stays wired, since the merge never removes an entry: report it the same way.
+- **If `~/.claude/settings.json` has no `hooks` key:** Add the `hooks` object from the template, leaving out its `_comment` keys.
 - **If it already has `hooks`:** Merge — add any hook entries from the template that are not already present, matching on the **(event key, `matcher`, script path) triple**. Do not remove existing custom hooks.
 - **The github guard's command holds the placeholder `<checkout>`:** fill it with the live checkout's real path before the merge or the comparison (see **GitHub MCP guard** below), and never write the placeholder to the live file.
 
@@ -501,10 +503,12 @@ listed in Step 3 (the `hooks/<name>.sh` lines of `bash tools/install-copies.sh r
    one is *worse than uninstalled*, and it passes any per-script check.
 
 Report each failure explicitly in the Step 11 summary (`DRIFT: <script> unsymlinked` /
+`DRIFT: <script> not executable (this control is OFF until a PR commits it as 100755)` /
 `DRIFT: <script> unwired on <event>` / `DRIFT: <script> matcher differs on <event> — live:
 <live>, template: <template>`) and do not report the hooks section as "Already configured" while
-any assertion fails. A hook script that exists in the repo but has no template matcher entry is
-also a loud failure (roster/template desync).
+any assertion fails. A hook skipped by the merge because it is not executable reports `not executable`, not only
+`unwired`. A hook script that exists in the repo but has no template matcher entry is also a loud failure
+(roster/template desync), and `status` reports it as not wired.
 
 **GitHub MCP guard (assert when the template wires it; fail loud):** the template's github MCP entry (matcher
 `^mcp__github__.*$`: every tool of the github server) runs `/bin/bash -p '<checkout>/tools/github-mcp/guard.sh' || exit 2`
@@ -637,7 +641,7 @@ hardcoded roster; the `roster` output is the roster (see ADR 0009 / README insta
 | <name>     | Installed / Already installed / Conflict |
 ```
 
-Rules rows may additionally report `Replaced file (byte-match)`.
+Rules rows may additionally report `Replaced file (byte-match)`. Hooks rows may report `Linked, not executable (OFF)`.
 
 ### MCP Servers
 
