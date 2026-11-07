@@ -325,15 +325,16 @@ esac
 # From the harness prompt_cache object (Claude Code v2.1.251+): .warm, .caching_observed,
 # .ttl ("5m"/"1h"), .expires_at (epoch seconds when the prefix leaves its TTL). The fill
 # drains ● ◕ ◑ ◔ ○ over the TTL and the colour warms teal→gold→red as it nears cold. A cold-but-
-# observed cache renders a DIM ○ (kept, not hidden, to hold the width). The whole segment is
-# silent ONLY when caching was never observed or the field is absent (older build / before
-# the first API response) — fail-open, a statusline must never break a session.
+# observed cache renders a DIM ○ (kept, not hidden, to hold the width). Every state that is
+# not a live warm countdown (cold, never observed, warm without an expiry) is that same DIM ○.
+# The segment is silent ONLY when caching_observed is absent (older build, no prompt_cache
+# object) — fail-open, a statusline must never break a session.
 #
 # A live drain needs the statusline to re-run; with refreshInterval set it ticks, otherwise
 # it reflects the state as of the last redraw. Glyphs are assigned to a var before printing
 # (never appended as literals in a loop) — the clean multibyte pattern used by bar().
-if [ "${cache_observed:-null}" = "true" ]; then
-  if [ "${cache_warm:-null}" = "true" ] && [ "${cache_expires:--1}" -gt 0 ] 2>/dev/null; then
+if [ "${cache_observed:-null}" != "null" ]; then
+  if [ "$cache_observed" = "true" ] && [ "${cache_warm:-null}" = "true" ] && [ "${cache_expires:--1}" -gt 0 ] 2>/dev/null; then
     case "${cache_ttl:-none}" in
       5m) cache_ttl_s=300 ;;
       1h) cache_ttl_s=3600 ;;
@@ -352,8 +353,8 @@ if [ "${cache_observed:-null}" = "true" ]; then
     elif [ "$cache_left" -ge 12 ]; then cache_g="◔"; cache_code=173
     else                                cache_g="○"; cache_code=196; fi
     printf "  \033[38;5;%sm%s\033[0m" "$cache_code" "$cache_g"
-  elif [ "${cache_warm:-null}" = "false" ]; then
-    # Observed this session but the last response read nothing from cache → gone cold.
+  else
+    # Cold, never observed, or warm with no usable expiry: a dim empty circle, not a blank.
     printf "  \033[38;5;240m○\033[0m"
   fi
 fi
