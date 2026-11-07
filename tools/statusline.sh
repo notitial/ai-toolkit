@@ -380,16 +380,16 @@ fi
 # Per account: the store path embeds self_fp, a fingerprint of
 # ~/.claude.json (whoever is logged in for THIS session), so each account reads and
 # writes its own file and never sees another's meter. A session on
-# CLAUDE_CODE_OAUTH_TOKEN shares the stored login's ~/.claude.json, which still shows
-# that login's accountUuid, so it would write into, and borrow from, the stored
-# account's file. Such a session keeps no readings file (the token is tested for
-# presence only, never read). That is how alternate accounts run, by design.
+# CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY shares the stored login's ~/.claude.json, which still
+# shows that login's accountUuid, so it would write into, and borrow from, the stored
+# account's file. Such a session keeps no readings file (the variables are tested for
+# presence only, never read). That is how alternate accounts run, by design (tools/accounts.zsh).
 # Freshness is per-window and keyed on resets_at (see below), not a wall-clock age.
 # Fail-open and silent, like every segment.
 self_src="$HOME/.claude.json"
 self_fp=unknown
-if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
-  : # a token session on the shared login: its account is unknown here
+if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  : # a token or key session on the shared login: its account is unknown here
 elif [ -r "$self_src" ]; then
   self_uuid=$(GREP_OPTIONS= GREP_COLORS= grep -m1 -o '"accountUuid" *: *"[^"]*"' "$self_src" 2>/dev/null | sed 's/.*"\([^"]*\)"$/\1/') || true
   if [ -n "${self_uuid:-}" ]; then
@@ -481,9 +481,9 @@ if [ "$week_live" -eq 0 ] && [ "$week_pct_eff" != "-1" ] 2>/dev/null; then
   fi
 fi
 
-# API-key session: ANTHROPIC_API_KEY is set, the harness sent no rate_limits, and the account has no stored
-# window either (so a subscription chat that only lacks a live reading keeps its bars, key or not). The
-# Input/Output/Cost view takes the place of the Limit and Weekly bars (the fi after the Weekly segment closes this if).
+# API-key session: ANTHROPIC_API_KEY is set, the harness sent no rate_limits, and no window is stored for the
+# session (a key session keeps no readings file, see the store above, so it borrows none of the stored login's).
+# The Input/Output/Cost view takes the place of the Limit and Weekly bars (the fi after the Weekly segment closes this if).
 if [ -n "${ANTHROPIC_API_KEY:-}" ] && [ "$rate_pct" = "-1" ] && [ "$week_pct" = "-1" ] \
   && [ "$five_pct_eff" = "-1" ] && [ "$week_pct_eff" = "-1" ]; then
   api_view_segment || true

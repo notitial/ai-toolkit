@@ -5,6 +5,9 @@
 #   bash tools/install-copies.sh roster            what /setup-claude links: the agents, hooks, rules and skills
 #                                                  committed at HEAD, one repo path per line (never an untracked file)
 #   bash tools/install-copies.sh automode [--valued | --for-cleanup]   the setup template's autoMode lists, filled in
+#   bash tools/install-copies.sh accounts          the valid lines of ~/.claude/accounts.conf as name<TAB>kind<TAB>service,
+#                                                  one per line; tools/accounts.zsh reads the launchers' accounts from this
+#                                                  (the one parser), a bad line goes to stderr and is left out
 #
 # Pieces `status` checks (/setup-claude Step 8b, and the `ait-status` zsh helper):
 #   install.conf   ~/.claude/install.conf, the install-time settings /setup-claude writes, one key=value line each,
@@ -14,6 +17,11 @@
 #   github-mcp     the launcher and the guard run from this checkout: it is on a clean main, the pinned server binary
 #                  is in tools/github-mcp/bin/, the `github` MCP server and the guard hook point at this checkout.
 #   ~/.zshrc       sources ~/.claude/tools/shell-init.zsh, which loads the zsh helpers.
+#   accounts.conf  ~/.claude/accounts.conf, one account per line (`name kind service`, kind oauth or apikey), never
+#                  sourced; each field is checked against a strict pattern. No file, no lines. With one: whether it is
+#                  valid (a bad line is named and skipped; a file you do not own, or that group or others can write, is
+#                  refused whole) and one line per account saying whether its Keychain item exists. Existence is asked
+#                  without -w or -g, so a secret is never read.
 #   links          every agent, hook, rule, global skill and tool script with no link under ~/.claude, or a wrong one;
 #                  a hook or the lock script that is not executable, since those run by their path; a hook no entry
 #                  in ~/.claude/settings.json runs (presence only: /setup-claude compares events and matchers).
@@ -31,6 +39,7 @@ HOME_DIR="${ICOPIES_HOME:-$HOME}"
 REF="${ICOPIES_REF:-main}"
 CLAUDE_DIR="$HOME_DIR/.claude"
 CONF="$CLAUDE_DIR/install.conf"
+ACCTS="$CLAUDE_DIR/accounts.conf"
 ZDOT="${ICOPIES_ZDOTDIR:-${ZDOTDIR:-$HOME_DIR}}"
 
 BAD=0
@@ -115,6 +124,109 @@ status_install_conf() {
     1) line MISSING "install.conf (the install-time settings)" "/setup-claude" ;;
     *) line STALE "install.conf ($CONF_ERR)" "/setup-claude" ;;
   esac
+}
+
+# read_accounts: 0 file read (ACCT_LIST holds one name<TAB>kind<TAB>service line per valid account, ACCT_ERRS one
+# "line N: <reason>" per bad line, which is left out), 1 no file, 2 refused whole (ACCT_FILE_ERR is why). The file is
+# never sourced. It decides which Keychain item a launcher reads into a process, so it and ~/.claude must be yours and
+# not group- or world-writable (a link is judged by its target; ACLs are not looked at). The letters are spelled out: a locale's [a-z] can take in capitals. A service starts
+# with a letter or digit, so it can never read as an option to `security`.
+read_accounts() {
+  local line n=0 name kind svc extra why seen=" " tab alnum=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
+  tab=$(printf '\t')
+  ACCT_LIST="" ACCT_ERRS="" ACCT_FILE_ERR=""
+  [ -f "$ACCTS" ] || return 1
+  [ -r "$ACCTS" ] || { ACCT_FILE_ERR="not readable by you"; return 2; }
+  # -f, -O and find -L all follow a link: a symlinked file is judged by its target, and its folder by itself.
+  [ -O "$ACCTS" ] && [ -O "$CLAUDE_DIR" ] || { ACCT_FILE_ERR="the file or ~/.claude is not yours"; return 2; }
+  find -L "$ACCTS" -maxdepth 0 -print >/dev/null 2>&1 || { ACCT_FILE_ERR="cannot be inspected"; return 2; }
+  [ -z "$(find -L "$ACCTS" "$CLAUDE_DIR" -maxdepth 0 \( -perm -020 -o -perm -002 \) 2>/dev/null)" ] ||
+    { ACCT_FILE_ERR="writable by group or others (or its folder is)"; return 2; }
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    name="" kind="" svc="" extra=""
+    read -r name kind svc extra <<EOF
+$line
+EOF
+    case $name in '' | '#'*) continue ;; esac
+    why=""
+    case $extra in '' | '#'*) ;; *) why="more than three fields" ;; esac
+    if [ -z "$why" ]; then
+      case $name in
+        *[!abcdefghijklmnopqrstuvwxyz0123456789-]* | -* | *-) why="name: lowercase letters, digits and dashes only, no dash at either end" ;;
+      esac
+    fi
+    [ -z "$why" ] && [ "${#name}" -gt 32 ] && why="name: longer than 32 characters"
+    [ -z "$why" ] && case $seen in *" $name "*) why="name $name given twice" ;; esac
+    [ -z "$why" ] && case $kind in oauth | apikey) ;; '') why="no kind or service" ;; *) why="kind: oauth or apikey" ;; esac
+    if [ -z "$why" ]; then
+      case $svc in
+        '') why="no service" ;;
+        [!$alnum]* | *[!$alnum._@-]*) why="service: letters, digits and . _ @ - only, starting with a letter or digit" ;;
+      esac
+    fi
+    [ -z "$why" ] && [ "${#svc}" -gt 128 ] && why="service: longer than 128 characters"
+    if [ -n "$why" ]; then
+      ACCT_ERRS="$ACCT_ERRS${ACCT_ERRS:+
+}line $n: $why"
+      continue
+    fi
+    seen="$seen$name "
+    ACCT_LIST="$ACCT_LIST${ACCT_LIST:+
+}$name$tab$kind$tab$svc"
+  done < "$ACCTS"
+  return 0
+}
+
+cmd_accounts() {
+  local e
+  read_accounts
+  case $? in
+    1) return 0 ;;
+    2) fail "accounts.conf: $ACCT_FILE_ERR; no account launchers are loaded (chmod go-w it, and keep it yours)"; return 1 ;;
+  esac
+  if [ -n "$ACCT_ERRS" ]; then
+    while IFS= read -r e; do fail "accounts.conf $e; skipped"; done <<EOF
+$ACCT_ERRS
+EOF
+  fi
+  [ -z "$ACCT_LIST" ] || printf '%s\n' "$ACCT_LIST"
+  return 0
+}
+
+# One line for the file, then one per account. The Keychain item is asked for without -w or -g: its attributes only,
+# never the secret. No `security` tool (not a Mac) means the item cannot be checked, and the line says so.
+status_accounts() {
+  local name kind svc e n=0 have_sec=0
+  command -v security >/dev/null 2>&1 && have_sec=1
+  read_accounts
+  case $? in
+    1) return 0 ;;
+    2) line STALE "accounts.conf ($ACCT_FILE_ERR: no account launcher is loaded)" "chmod go-w ~/.claude/accounts.conf, and keep it yours"; return 0 ;;
+  esac
+  if [ -n "$ACCT_ERRS" ]; then
+    while IFS= read -r e; do line STALE "accounts.conf ($e; skipped)" "fix that line"; done <<EOF
+$ACCT_ERRS
+EOF
+  fi
+  [ -n "$ACCT_LIST" ] || { [ -n "$ACCT_ERRS" ] || line ok "accounts.conf (no accounts)"; return 0; }
+  while IFS=$(printf '\t') read -r name kind svc; do
+    n=$((n + 1))
+  done <<EOF
+$ACCT_LIST
+EOF
+  [ -n "$ACCT_ERRS" ] || line ok "accounts.conf ($n account$([ "$n" = 1 ] || echo s))"
+  while IFS=$(printf '\t') read -r name kind svc; do
+    if [ "$have_sec" = 0 ]; then
+      line ok "account $name ($kind; Keychain item $svc not checked: no security tool)"
+    elif security find-generic-password -s "$svc" >/dev/null 2>&1; then
+      line ok "account $name ($kind; Keychain item $svc found)"
+    else
+      line MISSING "account $name (Keychain item $svc not found)" "security add-generic-password -s $svc -a \"\$USER\" -w   (it prompts for the secret)"
+    fi
+  done <<EOF
+$ACCT_LIST
+EOF
 }
 
 status_ref() {
@@ -296,6 +408,7 @@ cmd_status() {
   status_install_conf
   status_github_mcp
   status_zshrc
+  status_accounts
   status_links
   if [ "$BAD" -eq 0 ]; then
     note "all current"
@@ -342,5 +455,6 @@ case "${1:-}" in
   status) cmd_status ;;
   roster) cmd_roster ;;
   automode) shift; cmd_automode "$@" ;;
-  *) fail "usage: install-copies.sh status | roster | automode [--valued | --for-cleanup]"; exit 2 ;;
+  accounts) cmd_accounts ;;
+  *) fail "usage: install-copies.sh status | roster | accounts | automode [--valued | --for-cleanup]"; exit 2 ;;
 esac

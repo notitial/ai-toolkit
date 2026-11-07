@@ -12,8 +12,8 @@ No repo-wide build or lint — `docs/` is markdown only. `bash tools/test-all.sh
 
 - `tools/gh-block/` — `bash tools/gh-block/test-gh-block.sh` after changing `hooks/gh-block.sh`.
 - `tools/github-mcp/` — `bash tools/github-mcp/test-guard.sh` after changing `guard.sh` or `launch`; `bash tools/github-mcp/test-update-check.sh` after changing `hooks/github-mcp-update-check.sh`.
-- `tools/ait.zsh`, `tools/shell-init.zsh` — `bash tools/test-ait.sh` after changing either (needs zsh).
-- `tools/install-copies.sh` — `bash tools/test-install-copies.sh` after changing it.
+- `tools/ait.zsh`, `tools/accounts.zsh`, `tools/shell-init.zsh` — `bash tools/test-ait.sh` after changing any of them (needs zsh). `tools/install-copies.sh` `status` and `accounts` are in that suite too.
+- `tools/install-copies.sh` — `bash tools/test-install-copies.sh` after changing it (its `accounts` parser and account status lines are tested by `bash tools/test-ait.sh`).
 - `tools/statusline.sh` — `bash tools/test-statusline.sh` after changing it; it also checks `rate_color_for` against `tools/pace-vectors.tsv` (regenerate with `bash tools/gen-pace-vectors.sh > tools/pace-vectors.tsv` when the colour maths changes).
 - `tools/session-name/` — `bash tools/session-name/test-restore.sh` after changing `hooks/session-name-restore.sh`.
 - `tools/cleanup-claude/` — `bash tools/cleanup-claude/test-cleanup.sh` after changing `cleanup.sh` or what `/setup-claude` and the installers put on a machine (needs jq).
@@ -85,6 +85,7 @@ The live checkout is what `/setup-claude` links into `~/.claude` (hooks, rules, 
 | `tools/github-mcp/` | Optional guarded GitHub MCP setup: a launcher plus a hook limiting which GitHub writes agents may make, run from the live checkout, which they require to be reviewed code (clean main, HEAD on origin/main, binary hash pinned); its README covers install and token rotation |
 | `tools/shell-init.zsh` | The one line `~/.zshrc` sources (`source ~/.claude/tools/shell-init.zsh`): loads `tools/ait.zsh` |
 | `tools/ait.zsh` | zsh helpers: `ait`, `ait-status`, `ghm-status` (the GitHub MCP wiring check), `ghm-test` |
+| `tools/accounts.zsh` | macOS account launchers: `claude-<name>` and `code-<name>` for each line of `~/.claude/accounts.conf` (a Keychain secret in one variable of one process); `/add-account` manages them |
 | `.claude/settings.json` | Project-level permissions allowlist (no hooks) |
 | `.claude/rules/` | Path-scoped rules (loaded on demand) |
 | `.claude/commands/` | Project command claude-pr-review (a fork of the code-review command from Anthropic's Claude Code plugins) |
