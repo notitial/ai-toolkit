@@ -55,7 +55,7 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 - No force push. A PR branch that falls behind `main` gets `main` merged in, never a rebase (`rules/workflow.md`, Stale PR Branches).
 - No worktrees; branch in a plain clone under `/tmp` (see Where agents edit). Never push to `main`; land every change through a PR.
 - Check for secrets before committing — no `.env`, API keys, credentials.
-- Every non-draft PR gets an automatic Claude review (`.github/workflows/claude-review.yml`, see ADR 0013); its verdict is a signal, not a required approval. Every PR to `main` also runs `.github/workflows/ci.yml`: `Install Checks`, required, fails on a hook committed without the executable bit; `Tool Checks`, not required, runs `tools/test-all.sh --quick`.
+- Every non-draft PR gets an automatic Claude review (`.github/workflows/claude-review.yml`, see ADR 0013); its verdict is a signal, not a required approval. Every PR to `main` also runs `.github/workflows/ci.yml`: `Install Checks`, required, fails on a hook committed without the executable bit; `Tool Checks`, required, runs `tools/test-all.sh --quick`.
 
 ## Where agents edit
 
