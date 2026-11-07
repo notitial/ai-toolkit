@@ -459,7 +459,7 @@ case_start "usage: an unknown command"
 new_case
 ic install
 expect_rc "an unknown command exits 2" 2
-expect_has "usage names the commands" "$OUT" "usage: install-copies.sh status | roster | automode"
+expect_has "usage names the commands" "$OUT" "usage: install-copies.sh status | roster | accounts | automode"
 
 # ---------------------------------------------------------------- install-time settings
 case_start "settings 1: no install.conf"

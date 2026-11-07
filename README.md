@@ -38,7 +38,7 @@ Then run `/audit-claude` in any project to evaluate its AI configuration.
 | [Rules](rules/) | workflow, communication, engineering-defaults, security, model-discipline (always-on); workspace-lock (conditional) | `~/.claude/rules/` |
 | [MCP server](docs/adr/0010-mcp-git-over-bash-git.md) | git-mcp: structured git tools replacing Bash git; the pinned binary (v2.15.1), registered by you with `claude mcp add --scope user` | `~/.claude.json` |
 | [Status line](tools/statusline.sh) | Context and rate-limit display | `~/.claude/statusline.sh` |
-| [Tool scripts](tools/README.md) | workspace-lock.sh; shell-init.zsh (loads the `ait` zsh helpers; your `~/.zshrc` sources it) | `~/.claude/tools/` |
+| [Tool scripts](tools/README.md) | workspace-lock.sh; shell-init.zsh (loads the `ait` zsh helpers and the account launchers; your `~/.zshrc` sources it) | `~/.claude/tools/` |
 | [Permissions](docs/05-permissions-and-safety.md) | Safe defaults, hook wiring, plugin config | `~/.claude/settings.json` |
 
 The guarded GitHub MCP setup ([tools/github-mcp/](tools/github-mcp/README.md)) is optional and not installed by `/setup-claude`: it runs from the live checkout, so a merge and a fast-forward pull are the install.

@@ -226,6 +226,25 @@ render_api "$LIVE"; check "rate_limits present: Limit shown even with a key" 1 "
 check "rate_limits present: no Input segment" 0 "$(seg_count Input)"
 render_api "$API" -; check "no key: no Input segment" 0 "$(seg_count Input)"
 check "no key: Limit placeholder kept" 1 "$(seg_count Limit)"
+# a key session on the shared login keeps no readings file and borrows nothing: the stored login's bars stay out of the API view
+printf '{"accountUuid":"11111111-2222-3333-4444-555555555555"}\n' > "$T/home/.claude.json"
+rm -rf "$T/uw"
+printf '%s' "$LIVE" | HOME="$T/home" USAGE_WATCHER_DIR="$T/uw" bash "$SL" > "$T/out.txt" 2>"$T/err.txt"
+check "stored login's readings written for the key cases" 1 "$(find "$T/uw" -name "readings-$FP.json" 2>/dev/null | wc -l | tr -d ' ')"
+before_key=$(cat "$R" 2>/dev/null)
+KEEP=1 render_api "$API"; check "key session, shared login: exits 0" 0 $?
+check "key session, shared login: the stored login's readings are untouched" "$before_key" "$(cat "$R" 2>/dev/null)"
+check "key session, shared login: no other readings file" 1 "$(find "$T/uw" -name 'readings-*' 2>/dev/null | wc -l | tr -d ' ')"
+check "key session, shared login: the API view shows" 1 "$(seg_count Input)"
+check "key session, shared login: no Limit or Weekly borrowed from the stored login" 0 "$(seg_count 'Limit\|Weekly')"
+check "key session, shared login: no stderr" "" "$(cat "$T/err.txt")"
+# a key session with a live reading of its own writes no file either: the stored login's file stays as it was
+LIVE2=$(printf '%s' "$LIVE" | jq -c '.rate_limits.five_hour.used_percentage = 91')
+KEEP=1 render_api "$LIVE2"; check "key session with a live reading: exits 0" 0 $?
+check "key session with a live reading: the stored login's readings are untouched" "$before_key" "$(cat "$R" 2>/dev/null)"
+check "key session with a live reading: no other readings file" 1 "$(find "$T/uw" -name 'readings-*' 2>/dev/null | wc -l | tr -d ' ')"
+check "key session with a live reading: its own reading still shows" 1 "$(seg_count 'Limit.* 91%')"
+rm -rf "$T/uw"
 NOCOST=$(printf '%s' "$API" | jq -c 'del(.cost)')
 render_api "$NOCOST"; check "no cost field: no Cost segment" 0 "$(seg_count Cost)"
 NOTR=$(printf '%s' "$API" | jq -c '.transcript_path = "/nonexistent/x.jsonl"')
@@ -310,10 +329,10 @@ for i in $(seq 1 60); do [ -s "$T/apicache/s3.tsv" ] && break; sleep 0.1; done
 # an empty transcript_path must not shift the cost field
 NOPATH=$(printf '%s' "$API" | jq -c '.transcript_path = ""')
 render_api "$NOPATH"; check "empty transcript_path: Cost still read" 1 "$(plain | grep -c 'Cost \$1.24$')"
-# a subscription chat with a stored window keeps its bars even with a key in the environment and no live reading
+# a key in the environment means an API session even when the stored login has a window: it borrows none of it
 render "$LIVE"
-KEEP=1 render_api "$API"; check "stored window + key + no live rate_limits: Limit kept" 1 "$(seg_count Limit)"
-check "stored window + key + no live rate_limits: no Input segment" 0 "$(seg_count Input)"
+KEEP=1 render_api "$API"; check "stored window + key + no live rate_limits: no Limit borrowed" 0 "$(seg_count Limit)"
+check "stored window + key + no live rate_limits: the Input segment shows" 1 "$(seg_count Input)"
 # an id-less session gets no shared cache file
 NOID=$(printf '%s' "$API" | jq -c 'del(.session_id)')
 render_api "$NOID"; check "no session id: renders" 0 $?
