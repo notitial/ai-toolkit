@@ -190,7 +190,7 @@ done | jq -R . | jq -s .)
 CFG_JSON=$(printf '%s' "$CFGS" | jq -R . | jq -s 'map(select(. != ""))')
 # The deny entries /setup-claude writes from this checkout's real path (not in the template): security entries, so
 # they go only with --include-security, like the template's own deny entries.
-LIVE_DENY=$(jq -n --arg r "$ROOT" '[".git/**", "hooks/**", "rules/**", "agents/**", "skills/**", "tools/github-mcp/**", "tools/workspace-lock/**", "tools/statusline.sh", "tools/shell-init.zsh", "tools/ait.zsh"] | map("Edit(/" + $r + "/" + . + ")")')
+LIVE_DENY=$(jq -n --arg r "$ROOT" '[".git/**", "hooks/**", "rules/**", "agents/**", "skills/**", "tools/github-mcp/**", "tools/workspace-lock/**", "tools/statusline.sh", "tools/shell-init.zsh", "tools/ait.zsh", "tools/accounts.zsh", "tools/install-copies.sh"] | map("Edit(/" + $r + "/" + . + ")")')
 
 JQ_CLEAN='
 def tl: $t[0];
