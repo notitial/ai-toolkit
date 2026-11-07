@@ -180,97 +180,56 @@ recursive_env_search() {
   return 1
 }
 
-# keychain_read <command>: prints a word when the command prints a Keychain secret, nothing otherwise.
+# keychain_read <command>: prints a word when the command may print a Keychain secret, nothing otherwise.
 # Secret: `security find-generic-password` or `find-internet-password` (a prefix of 6+ characters counts, as the
 # security tool may take one) with -w (print the password) or -g (print it to stderr), in any flag position or
 # combination (-gw, -wg, -gs), and `dump-keychain -d`. The existence check (no -w, no -g) and
-# `add-generic-password ... -w` (a prompt) pass. A `security` that leads its segment (after env, sudo, sh -c and the
-# like) with no subcommand, or with -i or -p, or a stdin redirect, reads its subcommands from stdin, out of this
-# scan's sight, so it counts too.
-# The command is read once, left to right, with the shell's own quoting: quotes and backslashes are removed
-# (sec"urity"), a backslash-newline joins lines, ( ) and ` become spaces, redirects and their targets are dropped, and
-# it is split at ; | & and newline outside quotes. A segment holding the word `security` (any case, any path, so
-# /usr/bin/security, env, command, exec, sudo, xargs and sh -c "..." all reduce to it) is then scanned. It over-matches
-# on purpose: an echo or a grep that spells the words out denies too (use the Grep tool for that), and a quoted
-# separator keeps the text around it in one segment.
+# `add-generic-password ... -w` (a prompt) pass. A `security` with no subcommand after it, or with -i or -p, reads
+# its subcommands from stdin, out of this scan's sight, so it counts too.
+# The match is over the whole command, with no parsing of the shell: quote characters and backslashes are removed
+# (sec"urity" is security, a backslash-newline joins lines), ( ) ` ; | & < > = and white space become word breaks,
+# and the words are compared in lower case. The checks are word-for-word, never per command: the flag may sit
+# anywhere, so quoting, comments, here-documents, $(...), `sh -c "..."` and separators with no space around them
+# need no handling of their own. It over-matches on purpose: an echo or a grep that spells the words out denies
+# too, and so does any word `security` that ends a command or is followed by something other than a subcommand
+# (`grep -i security notes.txt`, `ls docs/security`); use the Grep tool for that. Only a lookup passes
+# (`command -v security`, `which`, `type`, `whence`, `where`, each at the start of a command).
 # Known gaps, kept to keep the check simple: a name or flag built at run time (s=security; $s ..., -s svc $f, aliases,
-# functions, brace expansion, ${IFS}, $"..."), ANSI-C quoting ($'...'), a script written with the Write tool and then
+# functions, brace expansion, wildcards in a name or in zsh's -(w), ${IFS}, $"..."), ANSI-C quoting ($'...'), a script written with the Write tool and then
 # run, a program that runs the command itself (python -c), and the other secret-printing subcommands (export,
 # find-key). A normal-route fence, not a sandbox.
 keychain_read() {
   printf '%s' "$1" | LC_ALL=C awk '
-    BEGIN {
-      RS = "\001"
-      split("env command exec sudo nice nohup time builtin xargs sh bash zsh dash timeout caffeinate arch stdbuf { !", wr, " ")
-      for (k in wr) wrap[wr[k]] = 1
-    }
+    BEGIN { RS = "\001" }
     function isname(lt, full) { return length(lt) >= 6 && index(full, lt) == 1 }
-    function scan(s,    n, w, i, j, t, base, lb, lt, sec, lead, mode, hassub) {
-      n = split(s, w, /[ \t\r]+/); sec = 0; lead = 1; mode = ""
+    function cmdstart(x) { return x == "" || x == ";" || x ~ /^(if|then|elif|else|while|until|do|!|\{)$/ }
+    {
+      s = $0
+      gsub(/\\\\/, "", s); gsub(/\\\n/, "", s); gsub(/[\047"\\]/, "", s)
+      gsub(/[<>=]/, " & ", s); gsub(/[;|&()`\n\t\r]/, " ; ", s)
+      n = split(s, w, / +/)
       for (i = 1; i <= n; i++) {
         t = w[i]
         if (t == "") continue
-        if (!sec && t ~ /^-S./) t = substr(t, 3)
-        base = t; sub(/.*\//, "", base); sub(/^=/, "", base); lb = tolower(base)
-        if (!sec) {
-          if (lb == "command") {
-            for (j = i + 1; j <= n; j++) if (w[j] != "") { if (w[j] ~ /^-[vV]/) return 0; break }
+        lt = tolower(t); base = lt; sub(/.*\//, "", base)
+        if (isname(lt, "find-generic-password") || isname(lt, "find-internet-password")) fnd = 1
+        else if (isname(lt, "dump-keychain")) dmp = 1
+        if (t ~ /^-[A-Za-z]*[wg]/) wg = 1
+        if (t ~ /^-[A-Za-z]*d/) dd = 1
+        if (t ~ /^-.*[*?[]/) { wg = 1; dd = 1 }
+        if (base == "security" && !((p1 ~ /^(which|type|whence|where)$/ && cmdstart(p2)) || (p1 ~ /^-[pvV]*[vV]$/ && p2 == "command" && cmdstart(p3)))) {
+          sub_ok = 0
+          for (j = i + 1; j <= n; j++) {
+            if (w[j] == "") continue
+            if (w[j] ~ /^-/) { if (w[j] ~ /^-[A-Za-z]*[ip]/) { print "x"; exit } continue }
+            sub_ok = (tolower(w[j]) ~ /^[a-z]+-[a-z-]+$/)
+            break
           }
-          if (lb == "security") {
-            sec = 1
-            if (lead) {
-              hassub = 0
-              for (j = i + 1; j <= n; j++) {
-                if (w[j] == "") continue
-                if (w[j] !~ /^-/) { hassub = 1; break }
-                if (w[j] ~ /^-[A-Za-z]*[ip]/) return 1
-              }
-              if (!hassub && base == "security") return 1
-            }
-          } else if (!(t ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || (lb in wrap) || t ~ /^-/ || t ~ /^[0-9]+$/)) lead = 0
-          continue
+          if (!sub_ok) { print "x"; exit }
         }
-        lt = tolower(t)
-        if (isname(lt, "find-generic-password") || isname(lt, "find-internet-password")) mode = "f"
-        else if (isname(lt, "dump-keychain")) mode = "d"
-        else if (mode == "f" && t ~ /^-[A-Za-z]*[wg]/) return 1
-        else if (mode == "d" && t ~ /^-[A-Za-z]*d/) return 1
+        p3 = p2; p2 = p1; p1 = lt
       }
-      return 0
-    }
-    {
-      len = length($0); q = ""; seg = ""; rdt = 0
-      for (p = 1; p <= len; p++) {
-        c = substr($0, p, 1)
-        if (q == "\047") { if (c == q) q = ""; else if (!rdt) seg = seg c; continue }
-        if (c == "\\") {
-          p++; c = substr($0, p, 1)
-          if (c == "\n") { seg = seg " "; if (rdt == 2) rdt = 0 } else if (!rdt) seg = seg c
-          continue
-        }
-        if (q == "\"") { if (c == q) q = ""; else if (!rdt) seg = seg ((c ~ /[()`]/) ? " " : c); continue }
-        if (rdt == 1) { if (c == " " || c == "\t") continue; rdt = 2 }
-        if (rdt == 2) {
-          if (c == "\047" || c == "\"") { q = c; continue }
-          if (c == " " || c == "\t") { rdt = 0; seg = seg " "; continue }
-          if (c != ";" && c != "|" && c != "&" && c != "\n") continue
-          rdt = 0
-        }
-        if (c == "\047" || c == "\"") { q = c; continue }
-        if (c ~ /[()`]/) { seg = seg " "; continue }
-        if (c == "<" || c == ">" || (c == "&" && substr($0, p + 1, 1) == ">")) {
-          if (substr($0, p + 1, 1) == "(") { seg = seg " "; continue }
-          while (substr($0, p + 1, 1) ~ /[<>&|]/) p++
-          seg = seg " "; rdt = 1
-          continue
-        }
-        if (c == ";" || c == "|" || c == "&" || c == "\n") {
-          if (scan(seg)) { print "x"; exit }
-          seg = ""; continue
-        }
-        seg = seg c
-      }
-      if (scan(seg)) print "x"
+      if ((fnd && wg) || (dmp && dd)) print "x"
     }
   '
 }
