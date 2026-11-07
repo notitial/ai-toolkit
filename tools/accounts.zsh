@@ -23,7 +23,7 @@
 # that one launcher is skipped, with the reason on stderr.
 # The file is read by `bash tools/install-copies.sh accounts` (the one parser: never sourced, each field checked, a
 # bad line reported and skipped, a file you do not own or others can write refused). `ait-status` shows the file and
-# whether each Keychain item exists. Add or remove an account: .claude/skills/add-account/SKILL.md in the toolkit.
+# whether each Keychain item exists. Add or remove an account: the /add-account and /remove-account skills in the toolkit.
 # Tests: bash tools/test-ait.sh
 
 _ait_acct_dir=${${(%):-%x}:A:h}

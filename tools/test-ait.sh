@@ -133,7 +133,6 @@ for prog in claude code; do
   for a in "\$@"; do echo "arg=\$a"; done
   echo "oauth=\${CLAUDE_CODE_OAUTH_TOKEN-UNSET}"
   echo "apikey=\${ANTHROPIC_API_KEY-UNSET}"
-  echo "aitaccount=\${AIT_ACCOUNT-UNSET}"
 } > "\$FAKE_REC.$prog"
 echo "fake $prog ran"
 EOF
@@ -152,7 +151,7 @@ printf '{}\n' > "$MAIN/snippets/a.code-snippets"
 # za <zsh code>: accounts.zsh loaded (after ZA_PRE, when set), the fakes first on PATH (or ZA_PATH), no auth variable
 # inherited. Every output is kept in all.out, which must never hold a secret.
 za() {
-  env -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_API_KEY -u AIT_ACCOUNT HOME="$T/home" PATH="${ZA_PATH:-$FB:$PATH}" \
+  env -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_API_KEY HOME="$T/home" PATH="${ZA_PATH:-$FB:$PATH}" \
     zsh -f -c "${ZA_PRE:-:}; source '$R/tools/accounts.zsh'; $1" < /dev/null > "$T/last.out" 2>&1
   cat "$T/last.out"; cat "$T/last.out" >> "$T/all.out"
 }
@@ -197,7 +196,7 @@ out=$(za 'claude-work --resume ABC "two  words" "$HOME" ""; echo "rc=$?"; echo "
 rec=$(cat "$T/rec.claude" 2>/dev/null)
 expect_has "claude-work ran claude" "$out" "fake claude ran"
 expect_has "claude-work exits with the program's status" "$out" "rc=0"
-want=$(printf 'prog=claude\narg=--resume\narg=ABC\narg=two  words\narg=%s\narg=\noauth=SECRET-svc-work-VALUE\napikey=UNSET\naitaccount=UNSET' "$T/home")
+want=$(printf 'prog=claude\narg=--resume\narg=ABC\narg=two  words\narg=%s\narg=\noauth=SECRET-svc-work-VALUE\napikey=UNSET' "$T/home")
 [ "$rec" = "$want" ] && ok || bad "claude-work: arguments and variables: got: $rec"
 expect_has "the secret is in the shell afterwards: not at all" "$out" "after=unset/unset"
 expect_has "the Keychain is asked by service, for the value, with no account" "$(cat "$FAKE_SEC_LOG")" "find-generic-password -s svc-work -w"
@@ -210,7 +209,6 @@ rec=$(cat "$T/rec.claude" 2>/dev/null)
 expect_has "claude-batch sets ANTHROPIC_API_KEY" "$rec" "apikey=SECRET-svc-batch-VALUE"
 expect_has "claude-batch leaves the token variable alone" "$rec" "oauth=UNSET"
 expect_has "claude-batch passes -p hi" "$rec" "$(printf 'arg=-p\narg=hi')"
-expect_has "AIT_ACCOUNT is never set" "$rec" "aitaccount=UNSET"
 
 # The program's own exit status comes back.
 printf '#!/bin/sh\nexit 7\n' > "$FB/claude-exit7"; chmod 755 "$FB/claude-exit7"
@@ -256,7 +254,7 @@ out=$(za 'code-work /some/dir; echo "rc=$?"')
 rec=$(cat "$T/rec.code" 2>/dev/null)
 UD="$T/home/.vscode-accounts/work"
 expect_has "code-work ran code" "$out" "fake code ran"
-want=$(printf 'prog=code\narg=--user-data-dir\narg=%s\narg=/some/dir\noauth=SECRET-svc-work-VALUE\napikey=UNSET\naitaccount=UNSET' "$UD")
+want=$(printf 'prog=code\narg=--user-data-dir\narg=%s\narg=/some/dir\noauth=SECRET-svc-work-VALUE\napikey=UNSET' "$UD")
 [ "$rec" = "$want" ] && ok || bad "code-work: arguments and variables: got: $rec"
 [ -d "$UD/User" ] && ok || bad "code-work: no User folder"
 for f in settings.json keybindings.json snippets; do
