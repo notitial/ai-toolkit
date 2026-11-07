@@ -2,7 +2,8 @@
 # Install Checks: hooks run by their path, so a hook committed without the executable bit fails open.
 # test-install-copies.sh fails on one, and on the install status lines that report it. A required check in the main
 # ruleset, by this job name.
-# Tool Checks: every suite in tools/test-all.sh except the slow, timing-based workspace-lock-wait. Not required yet.
+# Tool Checks: every suite in tools/test-all.sh except the slow, timing-based workspace-lock-wait. Also a required
+# check in the main ruleset, by this job name.
 name: CI
 
 on:
