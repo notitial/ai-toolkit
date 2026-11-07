@@ -183,6 +183,13 @@ LOG=$(ls "$T"/work/.archive/audit/audit-*.log 2>/dev/null | head -1)
 if [ -n "$LOG" ] && jq -e 'select(.event == "deny" and .hook == "secret-detector" and .reason == "secret pattern blocked")' "$LOG" >/dev/null 2>&1; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: deny is not audited (log: ${LOG:-none})"; fi
 if [ -n "$LOG" ] && ! grep -q "$KEY_BODY" "$LOG"; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: audit log holds the raw secret"; fi
 
+# A Keychain read deny is audited with its own reason, and the row carries no secret.
+rm -rf "$T/work/.archive"
+printf '%s' "$(jq -nc --arg d "$T/work" '{tool_name: "Bash", cwd: $d, session_id: "s1", tool_input: {command: "security find-generic-password -s svc -w"}}')" \
+  | HOME="$T" "$SH" "$T/hooks/secret-detector.sh" >/dev/null 2>&1
+LOG=$(ls "$T"/work/.archive/audit/audit-*.log 2>/dev/null | head -1)
+if [ -n "$LOG" ] && jq -e 'select(.event == "deny" and .hook == "secret-detector" and .reason == "blocked Keychain secret read")' "$LOG" >/dev/null 2>&1; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: Keychain deny is not audited with its reason (log: ${LOG:-none})"; fi
+
 # A fail-closed deny is recorded too, from the hook's own cwd when the input cannot be read, and the row
 # never carries the input.
 rm -rf "$T/work/.archive"
@@ -311,6 +318,163 @@ check pass "redirect from .env.example"     "cat < .env.example"
 check pass "grep in .env.sample"            "grep KEY .env.sample"
 check pass "git add .env.example"           "git add .env.example"
 check pass "compose env-file flag"          "docker compose --env-file ci.cfg up"
+
+# Keychain secret reads: find-*-password with -w or -g, dump-keychain -d, in the wrappers an agent may use.
+check deny "keychain: generic -w"            "security find-generic-password -s svc -w"
+check deny "keychain: generic -g"            "security find-generic-password -s svc -g"
+check deny "keychain: internet -w"           "security find-internet-password -s svc -w"
+check deny "keychain: internet -g"           "security find-internet-password -a acct -g"
+check deny "keychain: combined -gw"          "security find-generic-password -gw -s svc"
+check deny "keychain: combined -wg"          "security find-generic-password -s svc -wg"
+check deny "keychain: flag fused with -s"    "security find-generic-password -gs svc"
+check deny "keychain: -w before other args"  "security find-generic-password -w -s svc -a acct"
+check deny "keychain: -w after redirect"     "security find-generic-password -s svc 2>&1 -w"
+check deny "keychain: absolute path"         "/usr/bin/security find-generic-password -s svc -w"
+check deny "keychain: command prefix"        "command security find-generic-password -s svc -w"
+check deny "keychain: env prefix"            "env X=1 security find-generic-password -s svc -w"
+check deny "keychain: exec prefix"           "exec security find-generic-password -s svc -w"
+check deny "keychain: sudo prefix"           "sudo security find-generic-password -s svc -w"
+check deny "keychain: global option first"   "security -q find-generic-password -s svc -w"
+check deny "keychain: quoted name"           "sec\"urity\" find-generic-password -s svc -w"
+check deny "keychain: upper-case binary"     "SECURITY find-generic-password -s svc -w"
+check deny "keychain: after semicolon"       "echo hi; security find-generic-password -s svc -w"
+check deny "keychain: after &&"              "true && security find-generic-password -s svc -w"
+check deny "keychain: piped"                 "security find-generic-password -s svc -w | pbcopy"
+check deny "keychain: command substitution"  "x=\$(security find-generic-password -s svc -w)"
+check deny "keychain: backticks"             "x=\`security find-generic-password -s svc -w\`"
+check deny "keychain: bash -c"               "bash -c \"security find-generic-password -s svc -w\""
+check deny "keychain: sh -c, absolute path"  "sh -c '/usr/bin/security find-generic-password -s svc -w'"
+check deny "keychain: zsh -c, chained"       "zsh -c 'cd /tmp; security find-generic-password -s svc -w'"
+check deny "keychain: dump-keychain -d"      "security dump-keychain -d"
+check deny "keychain: dump-keychain -ad"     "security dump-keychain -ad login.keychain"
+check deny "keychain: interactive -i"        "security -i"
+check deny "keychain: interactive via pipe"  "echo find-generic-password -w | security -i"
+check deny "keychain: bare security on pipe" "printf x | security"
+check pass "keychain: existence check"       "security find-generic-password -s svc"
+check pass "keychain: existence, redirected" "security find-generic-password -s svc >/dev/null 2>&1"
+check pass "keychain: existence in an if"    "if ! security find-generic-password -s svc >/dev/null 2>&1; then echo missing; fi"
+check pass "keychain: add with -w prompt"    "security add-generic-password -U -a acct -s svc -w"
+check pass "keychain: dump without -d"       "security dump-keychain"
+check pass "keychain: -G is not -g"          "security find-generic-password -s svc -G attr"
+check pass "keychain: find-identity"         "security find-identity -v"
+check pass "keychain: security.md file"      "cat docs/security.md"
+check deny "keychain: line continuation"     "security find-generic-password -s svc \\
+ -w"
+check deny "keychain: continuation in sh -c" "sh -c \"security find-generic-password -s svc \\
+ -w\""
+check deny "keychain: \$() argument"         "security find-generic-password -a \"\$(whoami)\" -s svc -w"
+check deny "keychain: bare \$() argument"    "security find-generic-password -s svc -a \$(whoami) -w"
+check deny "keychain: backtick argument"     "security find-generic-password -a \`id -un\` -s svc -w"
+check deny "keychain: quoted ;"              "security find-generic-password -s \"a;b\" -w"
+check deny "keychain: quoted |"              "security find-generic-password -s \"x|y\" -w"
+check deny "keychain: quoted &"              "security find-generic-password -l \"R&D key\" -w"
+check deny "keychain: quoted parentheses"    "security find-generic-password -s \"name (work)\" -w"
+check deny "keychain: redirect on binary"    "security</dev/null find-generic-password -s svc -w"
+check deny "keychain: redirect on subcommand" "security find-generic-password</dev/null -s svc -w"
+check deny "keychain: output redirect first" "security>/tmp/o find-generic-password -s svc -w"
+check deny "keychain: &> before the flag"    "security find-generic-password -s svc &>/tmp/o -w"
+check deny "keychain: 2> before the flag"    "security find-generic-password -s svc 2>/dev/null -w"
+check deny "keychain: abbreviated generic"   "security find-gen -s svc -w"
+check deny "keychain: abbreviated internet"  "security find-int -s host -w"
+check deny "keychain: abbreviated dump"      "security dump-k -d"
+check deny "keychain: zsh =security"         "=security find-generic-password -s svc -w"
+check deny "keychain: env -S attached"       "env -S'security find-generic-password -s svc -w'"
+check deny "keychain: -p prompt"             "echo find-generic-password -w | security -p x"
+check deny "keychain: heredoc into security" "security <<EOF
+find-generic-password -s svc -w
+EOF"
+check deny "keychain: stdin redirect"        "security < /tmp/cmds"
+check deny "keychain: leading redirect"      "</tmp/cmds security"
+check deny "keychain: here-string"           "security <<< \"find-generic-password -s svc -w\""
+check deny "keychain: via sh -c security"    "printf x | sh -c security"
+check deny "keychain: via timeout"           "printf x | timeout 5 security"
+check deny "keychain: newline before sub"    "security
+find-generic-password -s svc -w"
+check pass "keychain: existence, continued"  "security \\
+ find-generic-password -s svc"
+check pass "keychain: existence, quoted var" "security find-generic-password -s \"\$svc\" >/dev/null 2>&1"
+check pass "keychain: command -v security"   "command -v security >/dev/null 2>&1 && echo yes"
+check pass "keychain: command -V security"   "command -V security"
+check pass "keychain: which security"        "which security"
+check pass "keychain: type security"         "type security"
+check pass "keychain: whence security"       "whence security"
+check pass "keychain: no keychain word"      "ls -g; grep -w foo file | wc -l"
+check pass "keychain: add then ls -g"        "security add-generic-password -a acct -s svc -w; ls -g"
+check pass "keychain: process substitution"  "cat <(echo hi)"
+# Over-matches kept on purpose (a whole-command match cannot tell them from a read): a find-*-password word anywhere
+# with a -w or -g word anywhere, and a `security` word with no subcommand after it.
+check deny "keychain: existence, then ls -g" "security find-generic-password -s svc; ls -g"
+check deny "keychain: existence | grep -w"   "security find-generic-password -s svc 2>&1 | grep -w foo"
+check deny "keychain: quoted ; then ls -g"   "security find-generic-password -s \"a;b\"; ls -g"
+check deny "keychain: word in an echo"       "echo find-generic-password; ls -g"
+check deny "keychain: dump-keychain, ls -d"  "echo dump-keychain; ls -d /tmp"
+check deny "keychain: dump, then ls -d"      "security dump-keychain; ls -d /tmp"
+check deny "keychain: security as a word"    "grep -i security notes.txt"
+check deny "keychain: security in a log grep" "git log --grep security"
+check deny "keychain: xargs grep security"   "xargs grep -l security"
+check deny "keychain: grep -il after word"   "grep security -il file"
+check deny "keychain: path named security"   "grep -n foo docs/security -i"
+check deny "keychain: dir named security"    "ls docs/security"
+check deny "keychain: heading in a heredoc"  "cat <<EOF
+## Security
+Security
+EOF"
+# Review findings on the parser this replaced: each must deny.
+check deny "keychain: command -v guard, && read"  "bash -c 'command -v security >/dev/null && security find-generic-password -s svc -w'"
+check deny "keychain: command -v in \$(), read"   "echo \"\$(command -v jq)\" \"\$(security find-generic-password -s svc -w)\""
+check deny "keychain: command -v in if, read"     "sh -c \"if command -v security >/dev/null; then security find-generic-password -s svc -w; fi\""
+check deny "keychain: apostrophe in a comment"    "# fetch the CLI's token
+security find-generic-password -s svc -w"
+check deny "keychain: apostrophe in a heredoc"    "cat <<EOF
+don't
+EOF
+security find-generic-password -s svc -w"
+check deny "keychain: ; glued inside quotes"      "bash -c 'true;security find-generic-password -s svc -w'"
+check deny "keychain: && glued inside quotes"     "sh -c \"cd /tmp&&security find-generic-password -s svc -w\""
+check deny "keychain: newline inside quotes"      "sh -c 'true
+security find-generic-password -s svc -w'"
+check deny "keychain: stdin behind sudo -u"       "printf 'find-generic-password -s svc -w\n' | sudo -u root security"
+check deny "keychain: stdin behind sudo -u, file"  "cat /tmp/cmds | sudo -u root security"
+check deny "keychain: stdin behind timeout 5s"    "cat /tmp/cmds | timeout 5s security"
+check deny "keychain: stdin in an if, from a file"  "if security < /tmp/cmds; then :; fi"
+check deny "keychain: stdin in an if"             "if security <<'EOF'
+find-generic-password -s svc -w
+EOF
+then :; fi"
+check deny "keychain: stdin in a quoted pipe"     "bash -c 'printf \"find-generic-password -s svc -w\n\" | security'"
+check deny "keychain: stdin, flag then no sub"    "security -q"
+check deny "keychain: stdin, -qi combined"        "security -qi find-identity"
+check deny "keychain: quoted flag"                "security find-generic-password -s svc \"-w\""
+check deny "keychain: quoted subcommand"          "security \"find-generic-password\" -s svc -w"
+check deny "keychain: flag in a variable value"   "security find-generic-password -s svc \$(echo -w)"
+check deny "keychain: internet, fused flags"      "security find-internet-password -gs host"
+# Review findings on this replacement (auditor round): each must deny.
+check deny "keychain: \\ before a newline, array"    "a=(-s x\\\\
+-w -s svc)
+security find-generic-password \"\${a[@]}\""
+check deny "keychain: \\ before a newline, xargs"    "xargs security find-generic-password <<'EOF'
+-s x\\\\
+-w -s svc
+EOF"
+check deny "keychain: \\ before a newline, stdin"    "echo x\\\\
+security < /tmp/cmds"
+check pass "keychain: \\ + newline joins a word"     "security find-generic-password -s svc \\
+-x"
+check deny "keychain: \\ + newline joins -w"         "security find-generic-password -s svc -\\
+w"
+check deny "keychain: lookup word is an argument"    "cat /tmp/cmds | grep -v which | security"
+check deny "keychain: lookup word after a ;"         "echo which; security < /tmp/cmds"
+check deny "keychain: lookup word is env -u value"   "cat /tmp/cmds | env -u which security"
+check deny "keychain: lookup word is an assignment"  "cat /tmp/cmds | X=where security"
+check deny "keychain: lookup word is a redirect"     "</tmp/cmds/type security"
+check deny "keychain: lookup name is a redirect"     "< which security"
+check deny "keychain: path-qualified lookup word"    "/tmp/type security < /tmp/cmds"
+check deny "keychain: lookup, then a read"           "which security find-generic-password -s svc -w"
+check pass "keychain: lookup in an if"               "if command -v security >/dev/null; then echo yes; fi"
+check pass "keychain: lookup in a substitution"      "[ -x \"\$(command -v security)\" ] && echo yes"
+check pass "keychain: lookup after &&"               "true && which security"
+check deny "keychain: wildcard flag [w]"             "security find-generic-password -s svc -[w]"
+check deny "keychain: wildcard flag ?"               "security find-generic-password -s svc -?"
 
 echo "secret-detector: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

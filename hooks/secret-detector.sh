@@ -1,6 +1,7 @@
 #!/bin/bash
 # Pre-tool-use hook: blocks Bash/Write/Edit/MultiEdit/NotebookEdit/git_commit calls that carry a secret, read or
-# write a .env file, or search recursively over a tree that holds .env files.
+# write a .env file, search recursively over a tree that holds .env files, or (Bash only) print a macOS Keychain
+# secret (see keychain_read below).
 # Configured in ~/.claude/settings.json for PreToolUse on Bash|Write|Edit|MultiEdit|NotebookEdit|mcp__git-mcp__git_commit.
 #
 # Reads JSON from stdin and prints a deny decision, or nothing to allow. Exit 0 always.
@@ -179,7 +180,64 @@ recursive_env_search() {
   return 1
 }
 
+# keychain_read <command>: prints a word when the command may print a Keychain secret, nothing otherwise.
+# Secret: `security find-generic-password` or `find-internet-password` (a prefix of 6+ characters counts, as the
+# security tool may take one) with -w (print the password) or -g (print it to stderr), in any flag position or
+# combination (-gw, -wg, -gs), and `dump-keychain -d`. The existence check (no -w, no -g) and
+# `add-generic-password ... -w` (a prompt) pass. A `security` with no subcommand after it, or with -i or -p, reads
+# its subcommands from stdin, out of this scan's sight, so it counts too.
+# The match is over the whole command, with no parsing of the shell: quote characters and backslashes are removed
+# (sec"urity" is security, a backslash-newline joins lines), ( ) ` ; | & < > = and white space become word breaks,
+# and the words are compared in lower case. The checks are word-for-word, never per command: the flag may sit
+# anywhere, so quoting, comments, here-documents, $(...), `sh -c "..."` and separators with no space around them
+# need no handling of their own. It over-matches on purpose: an echo or a grep that spells the words out denies
+# too, and so does any word `security` that ends a command or is followed by something other than a subcommand
+# (`grep -i security notes.txt`, `ls docs/security`); use the Grep tool for that. Only a lookup passes
+# (`command -v security`, `which`, `type`, `whence`, `where`, each at the start of a command).
+# Known gaps, kept to keep the check simple: a name or flag built at run time (s=security; $s ..., -s svc $f, aliases,
+# functions, brace expansion, wildcards in a name or in zsh's -(w), ${IFS}, $"..."), ANSI-C quoting ($'...'), a script written with the Write tool and then
+# run, a program that runs the command itself (python -c), and the other secret-printing subcommands (export,
+# find-key). A normal-route fence, not a sandbox.
+keychain_read() {
+  printf '%s' "$1" | LC_ALL=C awk '
+    BEGIN { RS = "\001" }
+    function isname(lt, full) { return length(lt) >= 6 && index(full, lt) == 1 }
+    function cmdstart(x) { return x == "" || x == ";" || x ~ /^(if|then|elif|else|while|until|do|!|\{)$/ }
+    {
+      s = $0
+      gsub(/\\\\/, "", s); gsub(/\\\n/, "", s); gsub(/[\047"\\]/, "", s)
+      gsub(/[<>=]/, " & ", s); gsub(/[;|&()`\n\t\r]/, " ; ", s)
+      n = split(s, w, / +/)
+      for (i = 1; i <= n; i++) {
+        t = w[i]
+        if (t == "") continue
+        lt = tolower(t); base = lt; sub(/.*\//, "", base)
+        if (isname(lt, "find-generic-password") || isname(lt, "find-internet-password")) fnd = 1
+        else if (isname(lt, "dump-keychain")) dmp = 1
+        if (t ~ /^-[A-Za-z]*[wg]/) wg = 1
+        if (t ~ /^-[A-Za-z]*d/) dd = 1
+        if (t ~ /^-.*[*?[]/) { wg = 1; dd = 1 }
+        if (base == "security" && !((p1 ~ /^(which|type|whence|where)$/ && cmdstart(p2)) || (p1 ~ /^-[pvV]*[vV]$/ && p2 == "command" && cmdstart(p3)))) {
+          sub_ok = 0
+          for (j = i + 1; j <= n; j++) {
+            if (w[j] == "") continue
+            if (w[j] ~ /^-/) { if (w[j] ~ /^-[A-Za-z]*[ip]/) { print "x"; exit } continue }
+            sub_ok = (tolower(w[j]) ~ /^[a-z]+-[a-z-]+$/)
+            break
+          }
+          if (!sub_ok) { print "x"; exit }
+        }
+        p3 = p2; p2 = p1; p1 = lt
+      }
+      if ((fnd && wg) || (dmp && dd)) print "x"
+    }
+  '
+}
+
 if [ "$TOOL_NAME" = "Bash" ]; then
+  if [ -n "$(keychain_read "$CONTENT")" ]; then
+    deny "blocked Keychain secret read" "Keychain secret read blocked: a secret must never reach an agent. Ask the user to run this command in their own terminal. The existence check (security find-generic-password -s <service>, without -w or -g) is allowed. If this command only searches for the text, use the Grep tool."
+  fi
   CLEAN=$(env_clean "$CONTENT")
   # Readers: a .env token among a reader's arguments; source or `.` of a .env; an input redirect from one;
   # a curl-style upload of one (@file, -T, --upload-file).
