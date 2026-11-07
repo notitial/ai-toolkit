@@ -159,6 +159,24 @@ check "cache glyph between model and Context" 1 "$(plain | grep -cE '^\[Opus\] +
 check "no cache glyph after the context bar" 0 "$(plain | sed 's/.*Context //' | grep -cE '●|◕|◑|◔')"
 render "$IDLE"
 check "no cache field: model then Context, nothing between" 1 "$(plain | grep -cE '^\[Opus\] +Context ')"
+cache_json() {  # cache_json <prompt_cache object>
+  printf '{"model":{"display_name":"Opus"},"context_window":{"used_percentage":5,"context_window_size":1000000},"prompt_cache":%s,"session_id":"s1"}' "$1"
+}
+COLD_RE='^\[Opus\] +○ +Context '
+render "$(cache_json '{"warm":false,"caching_observed":true}')"
+check "cold cache: dim circle" 1 "$(plain | grep -cE "$COLD_RE")"
+render "$(cache_json '{"warm":true,"caching_observed":true,"ttl":"1h"}')"
+check "warm but no expires_at: dim circle" 1 "$(plain | grep -cE "$COLD_RE")"
+render "$(cache_json '{"caching_observed":true}')"
+check "observed, warm missing: dim circle" 1 "$(plain | grep -cE "$COLD_RE")"
+render "$(cache_json '{"warm":null,"caching_observed":true}')"
+check "observed, warm null: dim circle" 1 "$(plain | grep -cE "$COLD_RE")"
+render "$(cache_json '{"warm":false,"caching_observed":false}')"
+check "never observed: dim circle" 1 "$(plain | grep -cE "$COLD_RE")"
+render "$(cache_json '{"warm":true,"caching_observed":false,"ttl":"1h","expires_at":'$((NOW + 3000))'}')"
+check "not observed, even if warm: dim circle" 1 "$(plain | grep -cE "$COLD_RE")"
+render "$(cache_json 'null')"
+check "prompt_cache null: nothing between model and Context" 1 "$(plain | grep -cE '^\[Opus\] +Context ')"
 
 # ---- an account with no 5h window leaves the 5h segment out; one that may have a window keeps its placeholder
 WEEK_ONLY='{"model":{"display_name":"Opus"},"context_window":{"used_percentage":5,"context_window_size":1000000},
