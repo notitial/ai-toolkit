@@ -45,7 +45,14 @@ Alternate Claude Code accounts run beside the stored login in `~/.claude` on a t
 
 A file the user sourced from `~/.zshrc` that defines `claude-<x>` and `code-<x>` functions (typically each reading a Keychain item into a variable) is replaced by `accounts.conf`.
 
-1. Read the file; for each account note its variable (`CLAUDE_CODE_OAUTH_TOKEN` is `oauth`, `ANTHROPIC_API_KEY` is `apikey`) and its Keychain service. The services already hold the secrets: do not add them again. Write one `accounts.conf` line per account with those services, never a secret.
-2. Tell the user, as a step of their own, to remove that file's `source` line from `~/.zshrc`. Until they do, the old functions shadow or replace the new ones: sourced first, the old definitions make the new launchers skip with a message; sourced last, they overwrite the new ones without a word.
-3. In a new shell, run `bash tools/install-copies.sh status` and one `claude-<name>` per account. A launcher that is skipped names the thing that already has its name.
-4. The old `code-<name>` asked the user to quit VS Code first; the new one does not. It also no longer sets `AIT_ACCOUNT`, which only a retired hook read.
+1. **Search before reading; never read the file whole.** It may hold a literal token or key. First look for one, printing line numbers only, never the matched text:
+
+   ```
+   grep -nE -e "(CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY)=[\"']?[^\$\"' ]" -e 'sk-ant-' <file> | cut -d: -f1
+   ```
+
+   Any line number printed means a secret sits in a plain file: stop. Tell the user, as steps of their own, to store it in the Keychain with the prompting command from "Add an account" step 4, rotate it (it sat in a file), and delete that line from the file. Run the search again before going on.
+2. With nothing printed, read only the lines that name a service or a variable: `grep -nE 'find-generic-password|service=|CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY' <file>`. For each account note its variable (`CLAUDE_CODE_OAUTH_TOKEN` is `oauth`, `ANTHROPIC_API_KEY` is `apikey`) and its Keychain service; if those lines do not make the pairing clear, ask the user rather than reading more. The services already hold the secrets: do not add them again. Write one `accounts.conf` line per account with those services, never a secret.
+3. Tell the user, as a step of their own, to remove that file's `source` line from `~/.zshrc`. Until they do, the old functions shadow or replace the new ones: sourced first, the old definitions make the new launchers skip with a message; sourced last, they overwrite the new ones without a word.
+4. In a new shell, run `bash tools/install-copies.sh status` and one `claude-<name>` per account. A launcher that is skipped names the thing that already has its name.
+5. The old `code-<name>` asked the user to quit VS Code first; the new one does not. It also no longer sets `AIT_ACCOUNT`, which only a retired hook read.
