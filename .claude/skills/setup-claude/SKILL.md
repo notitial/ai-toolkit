@@ -428,7 +428,7 @@ entry never suppresses the prompt. Prompts are invisible to the model: after add
 confirm that the command prompts.
 
 **Live checkout denies (written from the real path, never from the template).** The hooks, rules, agents, skills,
-the status line, the lock script, the github MCP launcher and guard and the shell helpers run from this checkout
+the status line, the lock script, the github MCP launcher and guard, the shell helpers and the install script run from this checkout
 through the links this skill makes, so an edit of one takes effect on the next tool call, MCP start or window reload. Agents edit in `/tmp` clones (CLAUDE.md, Git
 Conventions) and never need to touch them, so a deny on the live paths costs nothing. A clone's own path does not
 match, so work in a clone stays free.
@@ -440,13 +440,13 @@ match, so work in a clone stays free.
    break the hook command or change what a deny matches. For a non-plain path that is not a temp folder, say plainly
    that the github MCP must not be registered from it (the launcher refuses to start there) and that the fix is to
    move the checkout to a plain path.
-2. Build ten entries, each `Edit(/` + the absolute path + `)` so that it starts with `//`: `<root>/.git/**` (the
+2. Build twelve entries, each `Edit(/` + the absolute path + `)` so that it starts with `//`: `<root>/.git/**` (the
    guard and the launcher run git there, and its config can name commands), `<root>/hooks/**`,
    `<root>/rules/**`, `<root>/agents/**`, `<root>/skills/**`, `<root>/tools/github-mcp/**`,
    `<root>/tools/workspace-lock/**`, `<root>/tools/statusline.sh`, `<root>/tools/shell-init.zsh`,
-   `<root>/tools/ait.zsh`. The template's six `~/.claude/...` link-path denies cover the same files by their link
-   location.
-3. These are a security control computed from a path, so show the ten entries word for word and add the missing ones
+   `<root>/tools/ait.zsh`, `<root>/tools/accounts.zsh`, `<root>/tools/install-copies.sh`. The template's six `~/.claude/...` link-path denies cover the linked files by their link
+   location; `accounts.zsh` and `install-copies.sh` have no link, so their live-path entries are their only deny.
+3. These are a security control computed from a path, so show the twelve entries word for word and add the missing ones
    to the live `deny` array only on the user's explicit go typed in this run. Without it, add none and say so.
    Additive like the template's deny entries: never remove a live entry, and report any live `Edit(//…)` entry for
    another checkout path as a leftover instead of touching it.
