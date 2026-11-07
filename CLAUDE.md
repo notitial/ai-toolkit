@@ -85,7 +85,7 @@ The live checkout is what `/setup-claude` links into `~/.claude` (hooks, rules, 
 | `tools/github-mcp/` | Optional guarded GitHub MCP setup: a launcher plus a hook limiting which GitHub writes agents may make, run from the live checkout, which they require to be reviewed code (clean main, HEAD on origin/main, binary hash pinned); its README covers install and token rotation |
 | `tools/shell-init.zsh` | The one line `~/.zshrc` sources (`source ~/.claude/tools/shell-init.zsh`): loads `tools/ait.zsh` |
 | `tools/ait.zsh` | zsh helpers: `ait`, `ait-status`, `ghm-status` (the GitHub MCP wiring check), `ghm-test` |
-| `tools/accounts.zsh` | macOS account launchers: `claude-<name>` and `code-<name>` for each line of `~/.claude/accounts.conf` (a Keychain secret in one variable of one process); `/add-account` manages them |
+| `tools/accounts.zsh` | macOS account launchers: `claude-<name>` and `code-<name>` for each line of `~/.claude/accounts.conf` (a Keychain secret in one variable of one process); `/add-account` and `/remove-account` manage them |
 | `.claude/settings.json` | Project-level permissions allowlist (no hooks) |
 | `.claude/rules/` | Path-scoped rules (loaded on demand) |
 | `.claude/commands/` | Project command claude-pr-review (a fork of the code-review command from Anthropic's Claude Code plugins) |
