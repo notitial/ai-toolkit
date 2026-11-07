@@ -217,7 +217,7 @@ Check for sensitive files in staged changes. Common patterns to block:
 ### Pre-commit hooks
 Use tools like `gitleaks` in a pre-commit hook to scan for secret patterns (API keys, tokens, passwords) in staged diffs. The hook runs on every commit, catching secrets that file-pattern matching misses.
 
-An agent-side complement: this repo's [hooks/secret-detector.sh](../hooks/secret-detector.sh) runs as a Claude Code PreToolUse hook, denying Bash, Write, Edit, MultiEdit, NotebookEdit and git commit-message calls whose content matches secret patterns — catching the secret before it ever reaches the working tree, rather than at commit time.
+An agent-side complement: this repo's [hooks/secret-detector.sh](../hooks/secret-detector.sh) runs as a Claude Code PreToolUse hook, denying Bash, Write, Edit, MultiEdit, NotebookEdit and git commit-message calls whose content matches secret patterns — catching the secret before it ever reaches the working tree, rather than at commit time. It also denies a Bash call that prints a macOS Keychain secret (`security find-generic-password -w` and its relatives), so the normal routes to a Keychain value are screened. A command built at run time still gets past it; only a sandbox stops that.
 
 The hook never sees the Read tool, so **path screening belongs to permission rules**: hooks screen content, and `Read(...)` deny rules screen paths (`/setup-claude` installs them for `.env` files, keys, cloud and tool credentials, and keychains). Neither stops a program that opens the file itself (`grep -r` from a parent directory, a script); only a sandbox does. The rules leave `.env.production`, `.env.staging`, `.env.test`, `.env.example` and `.env.sample` readable as public build config, so no secret may live in them.
 

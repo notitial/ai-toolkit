@@ -70,7 +70,7 @@ For each hook in `hooks/`:
 | 2.2 | Reads JSON from stdin | Script uses `cat` or similar to capture stdin, then parses with `jq` |
 | 2.3 | Uses structured JSON output | Deny decisions use `hookSpecificOutput.permissionDecision: "deny"` format |
 | 2.4 | Exit 0 always | Script never exits non-zero — uses JSON output for decisions, not exit codes |
-| 2.5 | Pattern coverage reasonable | Secret detector: covers AWS, GitHub, OpenAI/Stripe, PEM keys, JWT, Slack, .env files. Destructive blocker: covers rm -rf, DROP/DELETE/TRUNCATE, git force push/reset/clean, dd, mkfs |
+| 2.5 | Pattern coverage reasonable | Secret detector: covers AWS, GitHub, OpenAI/Stripe, PEM keys, JWT, Slack, .env files, Keychain secret reads (`security find-*-password -w/-g`, `dump-keychain -d`). Destructive blocker: covers rm -rf, DROP/DELETE/TRUNCATE, git force push/reset/clean, dd, mkfs |
 | 2.6 | No false positives on safe input | Run a mental walkthrough: would `echo "hello world"` or `git status` trigger a deny? |
 | 2.7 | Grep handles special patterns | Patterns starting with dashes use `--` end-of-options marker |
 

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Pre-tool-use hook: blocks Bash/Write/Edit/MultiEdit/NotebookEdit/git_commit calls that carry a secret, read or
-# write a .env file, or search recursively over a tree that holds .env files.
+# write a .env file, search recursively over a tree that holds .env files, or (Bash only) print a macOS Keychain
+# secret (see keychain_read below).
 # Configured in ~/.claude/settings.json for PreToolUse on Bash|Write|Edit|MultiEdit|NotebookEdit|mcp__git-mcp__git_commit.
 #
 # Reads JSON from stdin and prints a deny decision, or nothing to allow. Exit 0 always.
@@ -179,7 +180,105 @@ recursive_env_search() {
   return 1
 }
 
+# keychain_read <command>: prints a word when the command prints a Keychain secret, nothing otherwise.
+# Secret: `security find-generic-password` or `find-internet-password` (a prefix of 6+ characters counts, as the
+# security tool may take one) with -w (print the password) or -g (print it to stderr), in any flag position or
+# combination (-gw, -wg, -gs), and `dump-keychain -d`. The existence check (no -w, no -g) and
+# `add-generic-password ... -w` (a prompt) pass. A `security` that leads its segment (after env, sudo, sh -c and the
+# like) with no subcommand, or with -i or -p, or a stdin redirect, reads its subcommands from stdin, out of this
+# scan's sight, so it counts too.
+# The command is read once, left to right, with the shell's own quoting: quotes and backslashes are removed
+# (sec"urity"), a backslash-newline joins lines, ( ) and ` become spaces, redirects and their targets are dropped, and
+# it is split at ; | & and newline outside quotes. A segment holding the word `security` (any case, any path, so
+# /usr/bin/security, env, command, exec, sudo, xargs and sh -c "..." all reduce to it) is then scanned. It over-matches
+# on purpose: an echo or a grep that spells the words out denies too (use the Grep tool for that), and a quoted
+# separator keeps the text around it in one segment.
+# Known gaps, kept to keep the check simple: a name or flag built at run time (s=security; $s ..., -s svc $f, aliases,
+# functions, brace expansion, ${IFS}, $"..."), ANSI-C quoting ($'...'), a script written with the Write tool and then
+# run, a program that runs the command itself (python -c), and the other secret-printing subcommands (export,
+# find-key). A normal-route fence, not a sandbox.
+keychain_read() {
+  printf '%s' "$1" | LC_ALL=C awk '
+    BEGIN {
+      RS = "\001"
+      split("env command exec sudo nice nohup time builtin xargs sh bash zsh dash timeout caffeinate arch stdbuf { !", wr, " ")
+      for (k in wr) wrap[wr[k]] = 1
+    }
+    function isname(lt, full) { return length(lt) >= 6 && index(full, lt) == 1 }
+    function scan(s,    n, w, i, j, t, base, lb, lt, sec, lead, mode, hassub) {
+      n = split(s, w, /[ \t\r]+/); sec = 0; lead = 1; mode = ""
+      for (i = 1; i <= n; i++) {
+        t = w[i]
+        if (t == "") continue
+        if (!sec && t ~ /^-S./) t = substr(t, 3)
+        base = t; sub(/.*\//, "", base); sub(/^=/, "", base); lb = tolower(base)
+        if (!sec) {
+          if (lb == "command") {
+            for (j = i + 1; j <= n; j++) if (w[j] != "") { if (w[j] ~ /^-[vV]/) return 0; break }
+          }
+          if (lb == "security") {
+            sec = 1
+            if (lead) {
+              hassub = 0
+              for (j = i + 1; j <= n; j++) {
+                if (w[j] == "") continue
+                if (w[j] !~ /^-/) { hassub = 1; break }
+                if (w[j] ~ /^-[A-Za-z]*[ip]/) return 1
+              }
+              if (!hassub && base == "security") return 1
+            }
+          } else if (!(t ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || (lb in wrap) || t ~ /^-/ || t ~ /^[0-9]+$/)) lead = 0
+          continue
+        }
+        lt = tolower(t)
+        if (isname(lt, "find-generic-password") || isname(lt, "find-internet-password")) mode = "f"
+        else if (isname(lt, "dump-keychain")) mode = "d"
+        else if (mode == "f" && t ~ /^-[A-Za-z]*[wg]/) return 1
+        else if (mode == "d" && t ~ /^-[A-Za-z]*d/) return 1
+      }
+      return 0
+    }
+    {
+      len = length($0); q = ""; seg = ""; rdt = 0
+      for (p = 1; p <= len; p++) {
+        c = substr($0, p, 1)
+        if (q == "\047") { if (c == q) q = ""; else if (!rdt) seg = seg c; continue }
+        if (c == "\\") {
+          p++; c = substr($0, p, 1)
+          if (c == "\n") { seg = seg " "; if (rdt == 2) rdt = 0 } else if (!rdt) seg = seg c
+          continue
+        }
+        if (q == "\"") { if (c == q) q = ""; else if (!rdt) seg = seg ((c ~ /[()`]/) ? " " : c); continue }
+        if (rdt == 1) { if (c == " " || c == "\t") continue; rdt = 2 }
+        if (rdt == 2) {
+          if (c == "\047" || c == "\"") { q = c; continue }
+          if (c == " " || c == "\t") { rdt = 0; seg = seg " "; continue }
+          if (c != ";" && c != "|" && c != "&" && c != "\n") continue
+          rdt = 0
+        }
+        if (c == "\047" || c == "\"") { q = c; continue }
+        if (c ~ /[()`]/) { seg = seg " "; continue }
+        if (c == "<" || c == ">" || (c == "&" && substr($0, p + 1, 1) == ">")) {
+          if (substr($0, p + 1, 1) == "(") { seg = seg " "; continue }
+          while (substr($0, p + 1, 1) ~ /[<>&|]/) p++
+          seg = seg " "; rdt = 1
+          continue
+        }
+        if (c == ";" || c == "|" || c == "&" || c == "\n") {
+          if (scan(seg)) { print "x"; exit }
+          seg = ""; continue
+        }
+        seg = seg c
+      }
+      if (scan(seg)) print "x"
+    }
+  '
+}
+
 if [ "$TOOL_NAME" = "Bash" ]; then
+  if [ -n "$(keychain_read "$CONTENT")" ]; then
+    deny "blocked Keychain secret read" "Keychain secret read blocked: a secret must never reach an agent. Ask the user to run this command in their own terminal. The existence check (security find-generic-password -s <service>, without -w or -g) is allowed. If this command only searches for the text, use the Grep tool."
+  fi
   CLEAN=$(env_clean "$CONTENT")
   # Readers: a .env token among a reader's arguments; source or `.` of a .env; an input redirect from one;
   # a curl-style upload of one (@file, -T, --upload-file).
