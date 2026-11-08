@@ -48,6 +48,8 @@ suite() {  # suite <name> <slow:0|1> <needs> <command>; needs is a command on PA
 
 suites() {
   suite audit-logger         0 bash                                  'bash tools/audit-logger/test-audit-logger.sh'
+  suite build-kit            0 python3                               'python3 -I -B -m unittest discover -s tools/build-kit/tests'
+  suite build-redirect       0 jq                                    'bash tools/build-redirect/test-build-redirect.sh'
   suite destructive-blocker  0 bash                                  'bash tools/destructive-blocker/test-destructive-blocker.sh'
   suite gh-block             0 bash                                  'bash tools/gh-block/test-gh-block.sh'
   suite git-mcp-guard        0 bash                                  'bash tools/git-mcp-guard/test-git-mcp-guard.sh'

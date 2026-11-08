@@ -20,6 +20,10 @@ Audits a named repo against the repo-setup checklist ([docs/07](../docs/07-new-r
 
 Adds the automatic Claude PR review to the current repo from the kit in [tools/claude-review/](../tools/claude-review/README.md). Asks for the runner labels, the auth mode, the secret name and the reviewer GitHub App, applies only the documented replacement points, checks the SHAs and opens the PR; the user creates or installs the App, sets the variables and secrets, and merges. Also upgrades an existing copy. Run from the target repo.
 
+### [/add-build-kit](add-build-kit/SKILL.md)
+
+Adds the opt-in iOS and Android build, test and lint tools from [tools/build-kit/](../tools/build-kit/README.md) to the current repo. Copies the kit into `tools/build-kit/` with a VERSION stamp, writes `.build-kit.json` (the allow-lists) from what it detects and what the user answers, adds the `ios` and `android` entries to `.mcp.json` and the named-tool permissions to `.claude/settings.json` (never a wildcard), and opens the PR; the exact diffs of the two files are shown first and wait for the user's go. Also upgrades an existing copy by diff. Run from the target repo.
+
 ### [/eta](eta/SKILL.md)
 
 Reports where the current task stands and a grounded ETA, backed by a global learning KB at `~/.claude/.eta/` that improves as real durations are recorded. Produces a progress overview, a completion table (mirrors the ticket's structure when one is in scope, else done/remaining), and an ETA with a range and its basis; `/eta close` reconciles the actual duration back into the record so estimates sharpen over time. Run from any session.

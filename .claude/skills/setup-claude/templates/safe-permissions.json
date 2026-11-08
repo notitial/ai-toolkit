@@ -201,6 +201,17 @@
         ]
       },
       {
+        "_comment": "Opt-in per project: does nothing unless the project has a .build-kit.json (the build-kit tools, tools/build-kit/README.md). There it sends direct xcodebuild, gradlew and swiftlint builds, tests and lints to tools/build-kit/build.py.",
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/build-redirect.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
         "matcher": "mcp__git-mcp__git_push|mcp__git-mcp__git_reset|mcp__git-mcp__git_clean|mcp__git-mcp__git_worktree",
         "hooks": [
           {

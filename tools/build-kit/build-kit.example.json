@@ -1,0 +1,22 @@
+{
+  "timeoutSeconds": 1800,
+  "ios": {
+    "projectDir": "apps/ios",
+    "workspace": "App.xcworkspace",
+    "schemes": ["App"],
+    "configurations": ["Debug", "Release"],
+    "destinations": {
+      "sim": "platform=iOS Simulator,name=iPhone 16,OS=latest",
+      "catalyst": "platform=macOS,variant=Mac Catalyst"
+    },
+    "codeSigning": false,
+    "swiftlint": {"version": "0.57.0", "args": ["--strict"]}
+  },
+  "android": {
+    "projectDir": "apps/android",
+    "variants": ["Debug", "Release"],
+    "buildTask": "assemble{Variant}",
+    "testTask": "test{Variant}UnitTest",
+    "lintTasks": ["lint{Variant}", "detekt"]
+  }
+}
