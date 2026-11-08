@@ -32,6 +32,7 @@ Start here. Documents are numbered in reading order, but each is standalone.
 
 ### Specialized
 - **17** [Cross-Platform Parity](17-cross-platform-parity.md) — Parity enforcement for multi-target projects
+- **18** [Device E2E Under Agent Control](18-device-e2e-automation.md) — UI end-to-end suites on simulators and devices: the device as an exclusive resource, killed runs vs timeouts, rate limits as the iteration budget
 
 Decisions are recorded in [adr/](adr/README.md).
 

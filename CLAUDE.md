@@ -26,7 +26,7 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 
 ## Document Structure
 
-- `docs/` — Numbered knowledge base (01–17, no gaps) in reading order; each stands alone but builds on earlier ones. Organized in six groups: Foundations (01–05), Setting up a repo (06–07), Context (08–09), Quality (10–11), Orchestration (12–16), Specialized (17). See `docs/README.md` for the full index.
+- `docs/` — Numbered knowledge base (01–18, no gaps) in reading order; each stands alone but builds on earlier ones. Organized in six groups: Foundations (01–05), Setting up a repo (06–07), Context (08–09), Quality (10–11), Orchestration (12–16), Specialized (17–18). See `docs/README.md` for the full index.
 - `agents/` — Global agent definitions (symlinked to `~/.claude/agents/` via `/setup-claude`).
 - `hooks/` — Global hook scripts (symlinked to `~/.claude/hooks/` via `/setup-claude`).
 - `rules/` — Global always-on rule files (symlinked to `~/.claude/rules/` via `/setup-claude`; no frontmatter — distinct from project-scoped `.claude/rules/`).
@@ -57,7 +57,6 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 - No worktrees; branch in a plain clone under `/tmp` (see Where agents edit). Never push to `main`; land every change through a PR.
 - Check for secrets before committing — no `.env`, API keys, credentials.
 - Every non-draft PR gets an automatic Claude review (`.github/workflows/claude-review.yml`, see ADR 0013); its verdict is a signal, not a required approval. Every PR to `main` also runs `.github/workflows/ci.yml`: `Install Checks`, required, fails on a hook committed without the executable bit; `Tool Checks`, required, runs `tools/test-all.sh --quick`.
-
 ## Where agents edit
 
 The live checkout is what `/setup-claude` links into `~/.claude` (hooks, rules, skills, agents, the status line, the tool scripts) and what the github MCP launcher and guard run from, so a branch or half-done edit there goes live on the next tool call, MCP start or window reload. It stays on `main` and moves only with `git pull --ff-only` after a merge: the merge plus that pull is the install.
