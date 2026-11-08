@@ -137,6 +137,35 @@ check pass "tool name as an argument"      'grep xcodebuild README.md'
 check pass "a log file named after it"     'cat xcodebuild.log'
 check pass "a path containing the name"    'ls docs/gradlew-notes'
 check pass "the kit's own CLI"             'python3 tools/build-kit/build.py ios build'
+check pass "multi-line commit body line"   $'git commit -m "fix hook\n\nxcodebuild -scheme App build now fails"'
+check pass "multi-line single-quoted body" $'git commit -m \'fix hook\n\nswiftlint lint is slow\''
+check pass "multi-line string with a separator" $'git commit -m "fix\n\n./gradlew test; xcodebuild build"'
+check pass "unquoted heredoc body"         $'cat > notes.md <<EOF\nswiftlint lint\nxcodebuild -scheme App build\nEOF'
+check pass "quoted heredoc body"           $'cat > notes.md <<\'EOF\'\nswiftlint lint\ndon\'t run it\nEOF'
+check pass "dash heredoc with tabbed end"  $'cat <<-EOF\n\tswiftlint lint\n\tEOF'
+check pass "two heredocs on one line"      $'cat <<A; cat <<B\nxcodebuild build\nA\n./gradlew test\nB'
+check pass "tool in a comment"             $'ls # xcodebuild -scheme App build\nls'
+check pass "tool on a comment line"        $'# xcodebuild -scheme App build\nls'
+check deny "after a closed multi-line string" $'git commit -m "a\nb"\nxcodebuild -scheme App build'
+check deny "after a closed multi-line single-quoted string" $'git commit -m \'a\nb\'\nswiftlint lint'
+check deny "same line after a multi-line string" $'echo "a\nb" && ./gradlew test'
+check deny "after a heredoc"               $'cat <<EOF\nnotes\nEOF\nxcodebuild -scheme App build'
+check deny "after a quoted heredoc with an apostrophe" $'cat <<\'EOF\'\ndon\'t\nEOF\nswiftlint lint'
+check deny "after a dash heredoc"          $'cat <<-EOF\n\tnotes\n\tEOF\n./gradlew assembleDebug'
+check deny "after two heredocs"            $'cat <<A; cat <<B\nx\nA\ny\nB\nxcodebuild build'
+check deny "on the heredoc line"           $'cat <<EOF && ./gradlew test\nnotes\nEOF'
+check deny "after a here-string"           $'cat <<< "x"\nxcodebuild -scheme App build'
+check deny "after a comment with an apostrophe" $'# don\'t clean\nxcodebuild -scheme App build'
+check deny "after a comment line"          $'# build it\nxcodebuild -scheme App build'
+check pass "separator inside a comment"    $'ls # run; xcodebuild build\nls'
+check deny "heredoc fed to bash"           $'bash <<\'EOF\'\n./gradlew assembleDebug\nEOF'
+check deny "heredoc fed to sh with options" $'sh -s -- x <<EOF\nxcodebuild -scheme App build\nEOF'
+check deny "heredoc piped to bash"         $'cat <<EOF | bash\nswiftlint lint\nEOF'
+check pass "heredoc body after the shell one" $'bash <<A\nls\nA\ncat <<B\nswiftlint lint\nB'
+check deny "escaped space then a hash is not a comment" $'cd My\\ #1 && xcodebuild -scheme App build'
+check deny "ANSI-C string with an escaped quote" $'echo $\'it\\\'s\'\nxcodebuild -scheme App build'
+check deny "heredoc body ending in a backslash does not hide the rest" $'cat <<\'EOF\' > f\nrun \\\nEOF\nxcodebuild -scheme App build'
+check deny "heredoc with no end line is scanned" $'cat <<EOF\nxcodebuild -scheme App build'
 check pass "no build tool at all"          'ls -la'
 check pass "empty command"                 ''
 
@@ -156,8 +185,15 @@ check pass "no .build-kit.json: xcodebuild" 'xcodebuild -scheme App build' "$T/o
 check pass "no .build-kit.json: gradlew"    './gradlew assembleDebug' "$T/other"
 check pass "no .build-kit.json: swiftlint"  'swiftlint lint' "$T/other"
 check deny "cwd below the project"          'xcodebuild -scheme App build' "$T/work/sub/dir"
-out=$(bash_in 'xcodebuild -scheme App build' "$T/other" | CLAUDE_PROJECT_DIR="$T/work" HOME="$T" "$SH" "$T/hooks/build-redirect.sh" 2>/dev/null)
-if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: CLAUDE_PROJECT_DIR is not used: $out"; fi
+withproj() {  # withproj <stdin json>: the hook's stdout with CLAUDE_PROJECT_DIR set to the opted-in project
+  printf '%s' "$1" | CLAUDE_PROJECT_DIR="$T/work" HOME="$T" "$SH" "$T/hooks/build-redirect.sh" 2>/dev/null
+}
+out=$(withproj "$(bash_in 'xcodebuild -scheme App build' "$T/other")")
+if [ -z "$out" ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: CLAUDE_PROJECT_DIR beats the call's cwd: $out"; fi
+out=$(withproj '{"tool_name":"Bash","tool_input":{"command":"xcodebuild -scheme App build"}}')
+if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: no cwd falls back to CLAUDE_PROJECT_DIR: $out"; fi
+out=$(withproj '{"tool_name":"Bash","cwd":".","tool_input":{"command":"xcodebuild -scheme App build"}}')
+if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: relative cwd falls back to CLAUDE_PROJECT_DIR: $out"; fi
 
 # The gaps the hook header names, pinned so the header stays true: change both together.
 check pass "known gap: time wrapper"       'time xcodebuild -scheme App build'
@@ -170,6 +206,8 @@ check pass "known gap: task abbreviation"  './gradlew aD'
 check pass "known gap: system gradle"      'gradle assembleDebug'
 check pass "known gap: spliced name"       'x"code"build -scheme App build'
 check pass "known gap: option after sudo"  'sudo -u x xcodebuild -scheme App build'
+check pass "known gap: substitution in an unquoted heredoc" $'cat <<EOF\n$(xcodebuild -scheme App build)\nEOF'
+check pass "known gap: arithmetic shift as a heredoc" $'echo $((1<<n))\nxcodebuild -scheme App build\nn'
 
 # Input that is not a JSON object passes, like empty input: the redirect is advisory.
 want() {  # want <deny|pass> <label> <stdin json>
