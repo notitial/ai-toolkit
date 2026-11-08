@@ -15,7 +15,7 @@ A device or simulator is a **single exclusive resource**. A test that authentica
 Two UI-automation drivers attached to one simulator deadlock; neither completes and both eventually report a timeout. Treat the device as a mutex.
 
 - **Never** fan out flows across agents against a shared simulator or device.
-- If parallelism is required, it requires a device per lane. Nothing else works.
+- If parallelism is required, it requires a device per parallel agent. Nothing else works.
 - State this in the agent's instructions, not only in the runner script. An agent that sees a suite of N flows and a "run them" instruction will parallelize by default.
 
 ### Name exactly one driver in the agent's instructions
