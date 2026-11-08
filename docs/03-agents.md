@@ -154,6 +154,43 @@ The same tiering applies to whole sessions; the always-on rule is [`rules/model-
 
 **Case study.** Over one week on one machine, 70–90% of the turns in the largest Opus sessions were routine work Sonnet handles. Opus earned its keep only in design, threat-model and novel-algorithm phases, and subagents that inherited Opus added cost for nothing.
 
+### Effort and context
+
+Cost and quality have three dials; in order of leverage: **context**, then **model** ([`rules/model-discipline.md`](../rules/model-discipline.md)), then **effort**.
+
+**Effort** sets how much the model thinks per turn (`--effort`, `/effort`, `CLAUDE_CODE_EFFORT_LEVEL` or the `effortLevel` setting).
+
+| Level | Use for |
+|---|---|
+| `low` | Mechanical, well-specified work with one obvious path: formatting, a scripted edit, a bounded lookup |
+| `medium` | Ordinary implementation with light judgment |
+| `high` | Non-trivial implementation, tricky bugs, work that needs real tracing |
+| `xhigh` | Hard reasoning: subtle concurrency, security-sensitive logic, deep design, adversarial review. Slow, so worth it only when the problem's hardness demands it |
+| `max` | The hardest single problems, where any latency is acceptable for depth |
+
+- **Pass effort explicitly for any spawned or unattended session.** An unset flag falls through to the operator's own settings, then to the model's default, and those differ by model and by surface. The depth then shifts with every model change or machine.
+- **Check the pair.** Not every model has every level. A level the model lacks runs at the highest supported level below it, silently, and a model the docs do not list (Haiku 4.5) has no effort setting. Checked against Claude Code's [model configuration docs](https://code.claude.com/docs/en/model-config) on 2026-11-08; re-check at each model release:
+
+| Model | Effort levels |
+|---|---|
+| Fable 5.1; Opus 5.5, 4.8, 4.7; Sonnet 5.5; Haiku 5.5 | `low`, `medium`, `high`, `xhigh`, `max` |
+| Opus 4.6, Sonnet 4.6 | `low`, `medium`, `high`, `max` (no `xhigh`) |
+**Context is usually the biggest lever.** Effort deepens thinking per turn; context size sets how long each turn takes and how much the session burns. A lean context at `high` beats a bloated context at `xhigh` on both cost and wall-clock.
+
+- Name the files in play instead of "figure out X across the repo", and sequence probe, then map, then implement: a cheap reconnaissance pass that reports where the work is keeps the implementer's context small.
+- Delegate bulk reading to subagents so the main window keeps conclusions, not file dumps, and compact or hand off at task boundaries, not at the token ceiling ([13-orchestrator-context-discipline.md](13-orchestrator-context-discipline.md)).
+
+| Job | Model | Effort | Context note |
+|---|---|---|---|
+| Lookup, mechanical or scripted edit | fast or mid tier | `low` | Point at the exact source or files |
+| Ordinary feature, refactor, tricky bug | mid tier | `medium`–`high` | Probe first if broad; narrow to the failing path |
+| Deep design, adversarial review | capable tier | `xhigh` | Keep context lean |
+| Broad research | mid tier | `medium` | Delegate to subagents; never `xhigh` over a huge context |
+
+**Case study: context beat the tier.** A session on a capable-tier model at `xhigh` ran over a roughly 1.6M-token context. Each turn took 30–40 minutes, it hit the 90-minute wall and wrote no lines. The re-run kept the same model and effort but went context-lean (probe, map, implement over a narrow file set) and made 65 tool calls in 11 minutes. Only context size changed.
+
+**Case study: the unattended default.** Unattended sessions that pinned no model or effort inherited the operator's interactive settings. In one week Opus took 67% of their cost, about $117 of $174. A three-pair A/B on paired briefs compared Sonnet 5.5 at `medium` with Opus 5.5 at the operator's default effort. Cost per accepted job was about $0.28 against $1.07, a ratio of 0.26; all six jobs were accepted. The one quality gap was depth: on a date-library test task Opus wrote 102 tests including daylight-saving cases, Sonnet wrote 36 and said that area was untested. The brief had not asked for it. The default became Sonnet at `medium`, with a higher model or effort per job, or the coverage named in the brief. Source: retired ai-tooling doc 20.
+
 ## The Execution Policy Pattern
 
 Subagents may not have access to external rule files, project-level instructions, or shared config. A subagent spawned by the Task tool (Cursor) or Agent tool (Claude Code) receives its agent definition and the task prompt — nothing else is guaranteed. This means safety-critical constraints must be **inline** in each agent definition.

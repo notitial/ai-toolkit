@@ -98,6 +98,17 @@ Prohibit command chaining (`&&`, `||`, `;`) in agent-executed commands. Reasons:
 
 This is the simplest security rule and one of the most effective.
 
+## Matching Commands in Hooks
+
+A PreToolUse hook that classifies a Bash command by matching a token (`git`, say) as a bare **substring** over-denies whenever the token appears in prose or an argument: `echo "… git push …"`, a `--reason "…"` value. Match the token only in **command position** instead.
+
+- **Boundary:** line start, or after a separator (`|`, `;`, `&`, `&&`, `||`), a subshell `(`, a brace `{`, a backtick or a `$(` substitution opener.
+- **Leaders to skip:** `VAR=` assignments, wrappers (`env`, `sudo`, `command`, `timeout <duration>`), shell keywords (`then`, `do`, `else`, `elif`), a leading `!`, and an optional surrounding quote.
+- **Result:** wrapper-prefixed, keyword-led, negated, path-qualified and redirect-led invocations still match; prose does not.
+- **Trade-off for a security backstop:** narrowing a substring match trades prose precision for coverage of exotic interpreter and wrapper forms the match was catching by accident. Make that trade deliberately and pair it with a server-side control (branch protection, a guard on the tool itself) for the tail the hook no longer sees.
+
+**Case study.** [`hooks/git-mcp-redirect.sh`](../hooks/git-mcp-redirect.sh) was narrowed from a substring match to a shared `ANCHOR` and `LEADER` pair (the command-position boundary and the skippable leaders) after it denied read-only commands whose prose mentioned a git subcommand. Source: retired ai-tooling doc 16, "Lessons From Dogfooding".
+
 ## MCP Servers as Tool Replacement
 
 The Model Context Protocol (MCP) defines a standard way for AI agents to access external tools and resources through typed, server-based interfaces. Where Bash permissions use regex patterns against shell commands, MCP servers expose discrete tools with typed parameters, structured output, and atomic execution. This makes MCP the preferred permission model for any tool category where a server exists.
