@@ -18,7 +18,8 @@ No repo-wide build or lint — `docs/` is markdown only. `bash tools/test-all.sh
 - `tools/session-name/` — `bash tools/session-name/test-restore.sh` after changing `hooks/session-name-restore.sh`.
 - `tools/cleanup-claude/` — `bash tools/cleanup-claude/test-cleanup.sh` after changing `cleanup.sh` or what `/setup-claude` and the installers put on a machine (needs jq).
 - `tools/claude-review/` — `python3 -I -B -m unittest discover -s tools/claude-review/tests` after changing the workflow's inline scripts, the kit's files or this repo's installed copies (`.github/workflows/claude-review.yml`, `.claude/commands/claude-pr-review.md`).
-- `tools/audit-logger/`, `tools/destructive-blocker/`, `tools/git-mcp-guard/`, `tools/git-mcp-redirect/`, `tools/secret-detector/`, `tools/secret-redact-output/` — `bash tools/<name>/test-<name>.sh` after changing the matching `hooks/<name>.sh`.
+- `tools/build-kit/` — `python3 -I -B -m unittest discover -s tools/build-kit/tests` after changing the kit (`build.py`, `buildkit/`) or what `/add-build-kit` installs (Python 3.9+, no Xcode or Android SDK needed: fake tools stand in).
+- `tools/audit-logger/`, `tools/build-redirect/`, `tools/destructive-blocker/`, `tools/git-mcp-guard/`, `tools/git-mcp-redirect/`, `tools/secret-detector/`, `tools/secret-redact-output/` — `bash tools/<name>/test-<name>.sh` after changing the matching `hooks/<name>.sh`.
 - `tools/workspace-lock/` — `bash tools/workspace-lock/test-guard.sh` and `bash tools/workspace-lock/test-acquire.sh` (about 1.5 min) after changing the lock script or its guard.
 
 Outside those directories, do not search for `package.json`, `Makefile`, or similar.
@@ -82,6 +83,7 @@ The live checkout is what `/setup-claude` links into `~/.claude` (hooks, rules, 
 | `tools/` | Reusable tooling (statusline, scripts) |
 | `tools/workspace-lock/` | Advisory lock serializing independent unattended orchestrators (used by the `unattended-run` skill) |
 | `tools/claude-review/` | The Claude PR review kit: the canonical workflow and review command other repos copy (this repo runs the same copies), its setup guide, tests and reviewer cases; `/add-claude-review` installs it |
+| `tools/build-kit/` | Opt-in per-project iOS and Android build, test and lint tools (a Python CLI with an MCP mode); `/add-build-kit` copies it into a project, and `hooks/build-redirect.sh` sends direct builds there |
 | `tools/github-mcp/` | Optional guarded GitHub MCP setup: a launcher plus a hook limiting which GitHub writes agents may make, run from the live checkout, which they require to be reviewed code (clean main, HEAD on origin/main, binary hash pinned); its README covers install and token rotation |
 | `tools/shell-init.zsh` | The one line `~/.zshrc` sources (`source ~/.claude/tools/shell-init.zsh`): loads `tools/ait.zsh` |
 | `tools/ait.zsh` | zsh helpers: `ait`, `ait-status`, `ghm-status` (the GitHub MCP wiring check), `ghm-test` |
