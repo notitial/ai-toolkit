@@ -483,6 +483,12 @@ for bad_conf in 'github_write_owners=Not_An_Owner|github_write_owners: invalid v
   'github_username=$(id)|github_username: invalid value' \
   'lan_host=nas.example.com|lan_host: invalid value' \
   'router_ip=8.8.8.8|router_ip: invalid value' \
+  'github_projects=example-org/07|github_projects: invalid value' \
+  'github_projects=Example-Org/1|github_projects: invalid value' \
+  'github_projects=example-org|github_projects: invalid value' \
+  'github_projects=example-org/1  example-user/2|github_projects: invalid value' \
+  'github_projects=example-org/1234567890|github_projects: invalid value' \
+  'github_projects=example-org/1;x|github_projects: invalid value' \
   'Colour=blue|line 3: not a well-formed key' \
   'colour-name=blue|line 3: not a well-formed key' \
   'just text|line 3: not key=value'; do
@@ -516,7 +522,8 @@ conf_with 'github_username=Bad_User'
 printf '%s\n' 'other_tool_label=x' >> "$H/.claude/install.conf"
 ic status
 expect_re "a known key's value is still checked when other keys are skipped" "$OUT" '^STALE +install\.conf \(github_username: invalid value\)'
-for good_conf in 'lan_host=nas.home.arpa' 'lan_host=box.local' 'router_ip=172.16.0.1' 'router_ip=192.168.0.254'; do
+for good_conf in 'lan_host=nas.home.arpa' 'lan_host=box.local' 'router_ip=172.16.0.1' 'router_ip=192.168.0.254' \
+  'github_projects=example-org/1' 'github_projects=example-org/1 example-user/42'; do
   conf_with "$good_conf"
   ic status
   expect_re "valid setting $good_conf is ok" "$OUT" '^ok +install\.conf$'

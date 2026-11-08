@@ -12,7 +12,7 @@
 # Pieces `status` checks (/setup-claude Step 8b, and the `ait-status` zsh helper):
 #   install.conf   ~/.claude/install.conf, the install-time settings /setup-claude writes, one key=value line each,
 #                  never sourced. Required: github_write_owners, github_keychain_account; optional:
-#                  github_username, lan_host, router_ip. Any other well-formed key (lowercase letters and _) is
+#                  github_username, github_projects, lan_host, router_ip. Any other well-formed key (lowercase letters and _) is
 #                  skipped, so a file another installer added its own keys to still reads; `status` lists them.
 #   github-mcp     the launcher and the guard run from this checkout: it is on a clean main, the pinned server binary
 #                  is in tools/github-mcp/bin/, the `github` MCP server and the guard hook point at this checkout.
@@ -106,6 +106,7 @@ read_conf() {
       github_write_owners) conf_ok "$v" '[a-z0-9][a-z0-9-]*( [a-z0-9][a-z0-9-]*)*' && CONF_OWNERS=$v ;;
       github_keychain_account) conf_ok "$v" '[A-Za-z0-9._@-]+' && CONF_ACCOUNT=$v ;;
       github_username) conf_ok "$v" '[a-z0-9][a-z0-9-]*' && CONF_GITHUB_USERNAME=$v ;;
+      github_projects) conf_ok "$v" '[a-z0-9][a-z0-9-]*/[1-9][0-9]{0,8}( [a-z0-9][a-z0-9-]*/[1-9][0-9]{0,8})*' ;;
       lan_host) conf_ok "$v" '[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*\.(lan|local|home\.arpa)' && CONF_LAN_HOST=$v ;;
       router_ip) conf_ok "$v" "(10\\.$oct\\.$oct\\.$oct|172\\.(1[6-9]|2[0-9]|3[01])\\.$oct\\.$oct|192\\.168\\.$oct\\.$oct)" && CONF_ROUTER_IP=$v ;;
       *) CONF_SKIPPED="$CONF_SKIPPED${CONF_SKIPPED:+ }$k" ;;
