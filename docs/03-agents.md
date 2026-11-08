@@ -169,12 +169,13 @@ Cost and quality have three dials; in order of leverage: **context**, then **mod
 | `max` | The hardest single problems, where any latency is acceptable for depth |
 
 - **Pass effort explicitly for any spawned or unattended session.** An unset flag falls through to the operator's own settings, then to the model's default, and those differ by model and by surface. The depth then shifts with every model change or machine.
-- **Check the pair.** Not every model has every level. A level the model lacks runs at the highest supported level below it, silently, and a model the docs do not list (Haiku 4.5) has no effort setting. Checked against Claude Code's [model configuration docs](https://code.claude.com/docs/en/model-config) on 2026-11-08; re-check at each model release:
+- **Check the pair.** Not every model has every level. A level the model lacks runs at the highest supported level below it, silently, and a model the docs do not list (older Haiku, 4.5) has no effort setting. Checked against Claude Code's [model configuration docs](https://code.claude.com/docs/en/model-config) on 2026-11-08; re-check at each model release:
 
 | Model | Effort levels |
 |---|---|
 | Fable 5.1; Opus 5.5, 4.8, 4.7; Sonnet 5.5; Haiku 5.5 | `low`, `medium`, `high`, `xhigh`, `max` |
 | Opus 4.6, Sonnet 4.6 | `low`, `medium`, `high`, `max` (no `xhigh`) |
+
 **Context is usually the biggest lever.** Effort deepens thinking per turn; context size sets how long each turn takes and how much the session burns. A lean context at `high` beats a bloated context at `xhigh` on both cost and wall-clock.
 
 - Name the files in play instead of "figure out X across the repo", and sequence probe, then map, then implement: a cheap reconnaissance pass that reports where the work is keeps the implementer's context small.

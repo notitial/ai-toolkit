@@ -57,6 +57,7 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 - No worktrees; branch in a plain clone under `/tmp` (see Where agents edit). Never push to `main`; land every change through a PR.
 - Check for secrets before committing — no `.env`, API keys, credentials.
 - Every non-draft PR gets an automatic Claude review (`.github/workflows/claude-review.yml`, see ADR 0013); its verdict is a signal, not a required approval. Every PR to `main` also runs `.github/workflows/ci.yml`: `Install Checks`, required, fails on a hook committed without the executable bit; `Tool Checks`, required, runs `tools/test-all.sh --quick`. `.github/workflows/secret-scan.yml` runs `Secret Scan / gitleaks` on every PR to `main`, also required.
+
 ## Where agents edit
 
 The live checkout is what `/setup-claude` links into `~/.claude` (hooks, rules, skills, agents, the status line, the tool scripts) and what the github MCP launcher and guard run from, so a branch or half-done edit there goes live on the next tool call, MCP start or window reload. It stays on `main` and moves only with `git pull --ff-only` after a merge: the merge plus that pull is the install.
