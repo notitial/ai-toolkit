@@ -164,10 +164,10 @@ can run.
 ### Heartbeat before a human-paced wait
 Wedge detection and expiry key on the holder's ETA and last heartbeat. An *interactive* holder that
 idles waiting on a person (a question, a review, a decision) stops heartbeating, so its ETA lapses:
-waiters flag it `WEDGED` though it is alive, the guard denies its own next edit until it retakes the
-lock, and after the grace another session may ask the user to clear it. Before a human-paced wait,
+the guard denies its own next edit until it retakes the lock, and after the grace waiters flag it
+`WEDGED` though it is alive and another session may ask the user to clear it. Before a human-paced wait,
 run `heartbeat --id <id> --eta <generous>` with an ETA that covers the wait. Found by re-running the
-protocol in a fresh interactive session (retired ai-tooling doc 16, "Lessons From Dogfooding").
+protocol in a fresh interactive session.
 
 ## Deliberate limitations
 

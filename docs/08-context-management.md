@@ -107,7 +107,7 @@ A session re-sends its whole conversation every turn. While the prompt cache is 
 
 **Measure before trusting.** The discount is a published API price (0.1x for a read), but the weighting a subscription's usage meter gives cache reads is not, so treat the keepalive rule as advisory until measured.
 
-**Case study.** Two months of heavy agent use showed cache reads were 95.35% of all input-side tokens (7.28 billion; raw input was 7.75 million, the rest cache writes), so the cache is most of the input side, not a marginal optimisation. Two local cost tools disagreed 4x on the same data ($1,663 against $6,955), because both shipped stale price tables that zeroed cache pricing for the newest models. Token counts were reliable; the dollar columns were not. Source: retired ai-tooling doc 17.
+**Case study.** Two months of heavy agent use showed cache reads were 95.35% of all input-side tokens (7.28 billion; raw input was 7.75 million, the rest cache writes), so the cache is most of the input side, not a marginal optimisation. Two local cost tools disagreed 4x on the same data ($1,663 against $6,955), because both shipped stale price tables that zeroed cache pricing for the newest models. Token counts were reliable; the dollar columns were not.
 
 ## Context Exhaustion Signals
 

@@ -108,7 +108,7 @@ A PreToolUse hook that classifies a Bash command by matching a token (`git`, say
 - **Known gaps, kept on purpose:** a leading `!`, a shell keyword (`then`, `do`), a leading redirect and other wrappers (`time`, `nohup`, `xargs`) pass. Skipping more leaders buys coverage at the price of a more complex pattern; list the gaps in the hook header and pin them in its tests.
 - **Trade-off for a security backstop:** narrowing a substring match trades prose precision for coverage of exotic interpreter and wrapper forms the match was catching by accident. Make that trade deliberately and pair it with a server-side control (branch protection, a guard on the tool itself) for the tail the hook no longer sees.
 
-**Case study.** [`hooks/git-mcp-redirect.sh`](../hooks/git-mcp-redirect.sh) was narrowed from a substring match to a shared `ANCHOR` and `LEADER` pair (the command-position boundary and the skippable leaders) after it denied read-only commands whose prose mentioned a git subcommand. Source: retired ai-tooling doc 16, "Lessons From Dogfooding".
+**Case study.** [`hooks/git-mcp-redirect.sh`](../hooks/git-mcp-redirect.sh) was narrowed from a substring match to a shared `ANCHOR` and `LEADER` pair (the command-position boundary and the skippable leaders) after it denied read-only commands whose prose mentioned a git subcommand.
 
 ## MCP Servers as Tool Replacement
 

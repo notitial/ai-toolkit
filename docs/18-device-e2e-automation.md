@@ -62,7 +62,7 @@ How often an agent can run an auth-touching suite is capped by the backend's thr
 
 A subcommand accepting test source inline, plus environment injection, is arbitrary code execution wearing a test runner's allowlist entry. Allowlist only the form that takes a path to a file already in the repo, where the content is reviewable and version-controlled.
 
-This is the shell-wrapper rule from [05-permissions-and-safety.md](05-permissions-and-safety.md), repeated because test runners rarely read as dangerous.
+This applies the whitelist principle from [05-permissions-and-safety.md](05-permissions-and-safety.md) (allow specific commands, never a form that runs arbitrary code) to test runners, which rarely read as dangerous.
 
 ## When Not to Use This
 
@@ -83,5 +83,3 @@ A suite of about 25 UI flows on a simulator, with a shell runner and an agent de
 The audit changed the answer from "most of the suite" to "one flow". None of the five findings was visible in a test report; every one came from reading the runner and the service, not from running the tests.
 
 **The general lesson.** For this tier, the artifacts that decide whether an agent can operate safely are the *runner script*, the *agent instructions* and the *service's rate limits*, not the tests. Audit those three before granting an agent the suite.
-
-Source: retired ai-tooling doc 18.

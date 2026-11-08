@@ -71,7 +71,7 @@ An unattended run has no human to catch a false green, so the [verification gate
 - **Land on branches:** a run ends on a branch, never an auto-merge to `main`, and writes a [handover](../skills/handover/SKILL.md) as its morning report. The human reviews each branch with [review-gate](../skills/review-gate/SKILL.md) on waking. An orchestrator merging an unverified fix at 3am is the worst case; the no-push, no-merge rule forbids it structurally.
 - **Serialize shared working copies:** independent unattended runs on one machine take turns through [workspace-lock](../tools/workspace-lock/README.md).
 
-**Case study.** One engineer aligned three independent workstreams during the day, then armed three sessions overnight on one machine. They ran one after another under the lock, two to three hours of build and end-to-end work each, and by morning there were three local branches, none pushed, each with a handover. The review-gate pass caught one false green: an integration test that passed on both the broken and the fixed build, which no overnight check would have flagged. Source: retired ai-tooling doc 16.
+**Case study.** One engineer aligned three independent workstreams during the day, then armed three sessions overnight on one machine. They ran one after another under the lock, two to three hours of build and end-to-end work each, and by morning there were three local branches, none pushed, each with a handover. The review-gate pass caught one false green: an integration test that passed on both the broken and the fixed build, which no overnight check would have flagged.
 
 ## Structured Reports and File-Based Messaging
 
