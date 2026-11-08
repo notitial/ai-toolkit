@@ -18,7 +18,7 @@ Do the steps in order: later ones assume earlier ones (the ruleset names the CI 
 | 1 | Create the repo in the org, private | owner | reference deployment, "GitHub plan" |
 | 2 | Repo settings: squash merge only, update-branch on, head branches auto-deleted | owner | reference deployment; CLAUDE.md "Git Conventions" |
 | 3 | CI workflow: one job per package (typecheck, lint, test) | files | the app template in the reference deployment |
-| 4 | Secret scanning in CI (gitleaks, pinned) | files | an existing app repo's `ci.yml` "Secret Scan" job |
+| 4 | Secret scanning: gitleaks pre-commit hook and a CI scan (pinned) | files | [tools/gitleaks/](../tools/gitleaks/README.md) |
 | 5 | PR title check | files | an existing app repo's `pr-title.yml` |
 | 6 | PR description template | files | an existing app repo's `.github/pull_request_template.md` |
 | 7 | CLAUDE.md conventions and a Review section | files | [01](01-project-instructions.md), [06](06-repo-initialization.md), this toolkit's CLAUDE.md ("Git Conventions") |
@@ -46,7 +46,7 @@ Do the steps in order: later ones assume earlier ones (the ruleset names the CI 
 
 ### 4. Secret scanning
 
-- A `Secret Scan` job in `ci.yml`: gitleaks at a pinned version, downloaded and checked against its SHA-256, scanning the full history (`fetch-depth: 0`) with `--redact`. It is a required check (step 8). Why: a secret pushed to a branch is in history even after a fix commit; the scan fails the PR before it reaches `main`.
+- A `secret-scan.yml` caller workflow, SHA-pinned to the org's reusable gitleaks workflow (the binary pinned by version and SHA-256), plus a `.pre-commit-config.yaml` at the repo root. The job `Secret Scan / gitleaks` is a required check (step 8). Why: a secret pushed to a branch is in history even after a fix commit; the scan fails the PR before it reaches `main`. The pattern, the workflow and how to bump the pin: [tools/gitleaks/](../tools/gitleaks/README.md).
 - The agent-side layer is global, not per repo: `hooks/secret-detector.sh` blocks a secret in an edit or a commit, and `hooks/secret-redact-output.sh` redacts one in tool output (both installed by `/setup-claude`).
 
 ### 5. PR title check
@@ -68,7 +68,7 @@ Do the steps in order: later ones assume earlier ones (the ruleset names the CI 
 
 ### 8. Ruleset `main protection`
 
-- One ruleset on `main` per repo, with the rules and bypass the reference deployment lists: PR required (squash only), linear history, signed commits, no force push, no deletion, the CI job names, `Secret Scan` and `Check PR Title` as required checks; Admin bypass in pull-request-only mode. Why: it is the only control between an agent's branch and `main`, and in a merge-is-deploy repo, production.
+- One ruleset on `main` per repo, with the rules and bypass the reference deployment lists: PR required (squash only), linear history, signed commits, no force push, no deletion, the CI job names, `Secret Scan / gitleaks` and `Check PR Title` as required checks; Admin bypass in pull-request-only mode. Why: it is the only control between an agent's branch and `main`, and in a merge-is-deploy repo, production.
 - A repo with no CI carries the same ruleset without the required-checks rule. The checks don't require an up-to-date branch, so a stale branch is brought current by hand (step 2).
 - **Never require a review bot's jobs.** Its verdict is a signal, and a bot's approval must never satisfy a required review ([ADR 0013](adr/0013-app-owned-pr-review.md)).
 - A repo with required checks can't merge a `[skip ci]` PR: the required checks never report.

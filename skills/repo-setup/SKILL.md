@@ -57,8 +57,8 @@ On a 401 or "Bad credentials" from a github MCP tool, stop and tell the user: no
      same with `--org <owner>`: a repo-level copy of an org secret or variable name is a finding (doc step 1).
 2. **Archived repo.** If `archived` is true, report "`<owner/repo>` is archived" and stop: no file audit, no table, no
    setup. An archived repo is read-only on GitHub; there is nothing to set up.
-3. **Files**, from the default branch: `.github/workflows/` (CI jobs and their names, the secret-scan job and its
-   pin, `pr-title.yml` and its type list and limit, `deploy.yml`), `.github/pull_request_template.md`, the
+3. **Files**, from the default branch: `.github/workflows/` (CI jobs and their names, the secret-scan caller and its
+   pin (with the root `.pre-commit-config.yaml`, per `tools/gitleaks/`), `pr-title.yml` and its type list and limit, `deploy.yml`), `.github/pull_request_template.md`, the
    automatic PR review's workflow and command files if the file model has one (doc step 9), and the CLAUDE.md
    sections doc step 7 names. Compare each against the file model: present, missing, or different (say how).
 4. Write the result as one table: checklist step × expected (with its source) × found × gap. Save it to
