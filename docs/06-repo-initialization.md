@@ -125,7 +125,7 @@ Same phases as init, but starts from existing setup. Key differences:
 
 Every project at Level A should have:
 
-1. **Git safety rule** — Secret patterns, force-push prevention, pre-commit hooks
+1. **Git safety rule** — Secret patterns, force-push prevention, pre-commit hooks. Add the gitleaks hook and the CI scan: [tools/gitleaks/](../tools/gitleaks/README.md)
 2. **Code quality rule** — Naming, error handling, patterns specific to the project's stack
 3. **CLAUDE.md** — Project identity, build commands, key paths
 4. **Build command documentation** — How to build, test, lint (even if it is just `npm test`)
