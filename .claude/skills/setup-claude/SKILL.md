@@ -240,12 +240,17 @@ Resolve the script from this skill's location (`../../../tools/install-copies.sh
 write owners and the launcher's keychain account are read from `~/.claude/install.conf`, the user's own file (mode 600,
 one `key=value` line each, read by a strict reader in `tools/install-copies.sh`, never sourced). The agent's Edit and
 Write tools are denied on it and every Bash command naming it asks (Step 10). When the `install.conf` line of
-`status` (item 1) is `MISSING` or `STALE`, do this before items 2-4:
+`status` (item 1) is `MISSING` or `STALE`, or the user asks to change or add a setting (such as `github_projects`), do
+this before items 2-4 (keep the values already in the file unless the user changes them):
 
 - Ask the user for each value and offer no default (no value is anyone's name until the user types it):
   `github_write_owners`, the GitHub owners whose repos the github MCP write tools may target, space-separated, each
   `^[a-z0-9][a-z0-9-]*$` (this sets a security control's scope); `github_keychain_account`, the account of the
-  launcher's `mcp-github` keychain item, `^[A-Za-z0-9._@-]+$`. Then the optional ones, each skippable: the three that fill the auto
+  launcher's `mcp-github` keychain item, `^[A-Za-z0-9._@-]+$`. Then the optional ones, each skippable:
+  `github_projects`, the GitHub Projects the github MCP guard lets agents change without a prompt, space-separated
+  `<owner>/<number>` entries, each `^[a-z0-9][a-z0-9-]*/[1-9][0-9]{0,8}$` with an owner that is one of the write owners
+  (an entry under any other owner counts for nothing; unset, every Project write asks; this sets a security control's
+  scope); and the three that fill the auto
   mode classifier's placeholders in Step 10 (an unset one drops the entries that name it): `github_username`, the
   user's GitHub login, one of the write owners (its entries count only while `github_write_owners` lists it);
   `lan_host`, the

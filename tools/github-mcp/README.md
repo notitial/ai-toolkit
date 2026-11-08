@@ -6,7 +6,7 @@ the install fetches the Darwin arm64 build.
 
 It relies on the toolkit's tooling: the zsh helpers `ghm-status` and `ghm-test` (`tools/ait.zsh`) and the
 install-time settings file `~/.claude/install.conf`, which `/setup-claude` writes and the guard and launcher read when they
-run (`github_write_owners`, `github_keychain_account`).
+run (`github_write_owners`, `github_keychain_account`, and the optional `github_projects`).
 
 | File | What it is |
 |---|---|
@@ -31,8 +31,12 @@ deliberately not in `hooks/`, which `/setup-claude` symlinks into `~/.claude/hoo
 
 ## Layers
 
-1. **Token:** a classic PAT, scope `repo`, 180 days, keychain service `mcp-github`, account `<keychain-account>` (the `github_keychain_account` install setting). It reaches
-   every repo you can, with merge and push power. The layers below are the only fences.
+1. **Token:** a classic PAT, scopes `repo` and `project`, 180 days, keychain service `mcp-github`, account `<keychain-account>` (the `github_keychain_account` install setting). It reaches
+   every repo you can, with merge and push power, and every Project you own or can reach in an organization. The
+   layers below are the only fences. `repo` covers the issue, sub-issue and label tools; `project` covers
+   `projects_write`, and includes the `read:project` that `projects_list` and `projects_get` need (the binary's own
+   `github-mcp-server list-scopes`, which runs without a token). A fine-grained token has a single resource owner, so
+   it would reach only that owner's repos and Projects, and every other write owner would be cut off.
 2. **Launcher:** runs under `sh -p`, so the shell ignores an exported `SHELLOPTS` (`xtrace` would print the token),
    exported functions (an exported `cd` would undo the `cd` below), `BASH_ENV` and `ENV`. Stage one re-execs it
    under `env -i` with `HOME` from the user record (`dscl`), `TMPDIR` from `getconf DARWIN_USER_TEMP_DIR` and
@@ -52,9 +56,11 @@ deliberately not in `hooks/`, which `/setup-claude` symlinks into `~/.claude/hoo
      it.
    - It loads `github-mcp-server-config.json` (tool-description overrides) from its working directory
      (`pkg/translations/translations.go`). Started in a checkout, a planted file would put text into every session.
-3. **`--tools`:** only the 19 tools below exist. Everything else is absent from the server.
-4. **Permission rules** (the `safe-permissions.json` template): reads allowed, the 5 write tools on ask, the rest
-   denied by name as a second layer. Every one of them keys on the server name `github` (allow rules can't glob the
+3. **`--tools`:** only the 26 tools below exist. Everything else is absent from the server. The per-field issue tools
+   (`create_issue`, `update_issue_state` and the rest) sit behind the server's `issues_granular` feature flag, so
+   `--tools` cannot expose them; the bundled `issue_write` is used instead.
+4. **Permission rules** (the `safe-permissions.json` template): reads allowed, `actions_run_trigger` on ask, the
+   guard-decided writes on no list, the rest denied by name as a second layer. Every one of them keys on the server name `github` (allow rules can't glob the
    server), so the template also
    denies `claude mcp add`, `add-json`, `add-from-claude-desktop` and `remove` (`list` stays usable) and edits to
    `~/.claude.json`, asks on edits to any `.mcp.json`, and enforces `enableAllProjectMcpServers: false`;
@@ -88,7 +94,30 @@ deliberately not in `hooks/`, which `/setup-claude` symlinks into `~/.claude/hoo
      ask shows the new title and body (up to 600 characters each; when cut, the first and last 300 and the full
      size) and warns when `draft` goes to false, which marks the PR ready and starts the automatic paid review.
      Merge, closing and re-basing stay with you;
-   - returns ask for every write it lets through except four, so the prompt doesn't depend on the name-keyed ask
+   - lets `issue_write` (`create`, `update`) through in the write repos, with only the arguments of its v2.0.3 schema
+     and values of the right type. A state change asks: it closes or reopens an issue, and the same call closes or
+     reopens a PR, which `update_pull_request` denies. Assignees ask too (assigning Copilot starts a paid
+     coding-agent run), and so do `state_reason` and `duplicate_of`, a parent on an `update` (it can move the
+     issue), and `@claude` in the title or body. A named parent repo (`parent_owner`/`parent_repo`) must be a write
+     repo. The ask shows the fields it sets, cut like
+     `update_pull_request`'s. v2.0.3 has no issue delete or transfer;
+   - lets `sub_issue_write` add and reorder sub-issues, and asks on `remove` and on `replace_parent: true` (a move
+     away from the current parent, which can sit in another repo);
+   - lets `label_write` create and update labels (a rename included), and asks on `delete`, which strips the label
+     from every issue and PR;
+   - judges `projects_write` by the Project, which belongs to an owner, not to a repo. The Project's `owner` must be a
+     write owner, and any `item_owner`/`item_repo` (top level or in a bulk `items` list) a write repo; otherwise it
+     denies. Adding or updating one item and posting a status update are allowed in the Projects of the
+     `github_projects` install setting (`<owner>/<number>` entries, space-separated, read from `~/.claude/install.conf`
+     on every call like the owners; an entry counts only while its owner is a write owner; to add it to an install
+     whose `install.conf` is already `ok`, ask `/setup-claude` to redo its install-time settings step). A Project not
+     listed, a bulk update (`update_project_items`, the only method that takes an `items` list, each entry an item
+     reference; the server caps it at 50), item and view deletes, view and iteration-field changes,
+     creating a Project and `@claude` in the text ask. A missing or invalid setting lists no Project, so every Project
+     write asks;
+   - denies, on all four, an argument it does not know, a method it does not know and a value of the wrong type, so
+     a server upgrade that adds one stays shut until reviewed;
+   - returns ask for every write it lets through except those above, so the prompt doesn't depend on the name-keyed ask
      rules (a hook ask prompts in auto mode too), and adds a cost warning when a comment mentions `@claude` (a paid
      review run);
    - returns allow for `create_pull_request`, `add_issue_comment`,
@@ -96,21 +125,26 @@ deliberately not in `hooks/`, which `/setup-claude` symlinks into `~/.claude/hoo
      and no agent route merges). A comment, title or body that mentions `@claude`, a body that is
      not text, and `draft: false` stay ask, and so does a `create_pull_request` that is not a draft. The template lists the four names nowhere: an ask rule would outrank the
      hook's allow, and an allow rule would pass them unchecked when the hook is missing. The template merge only
-     adds, so ask entries for them already in your settings stay until you remove them by hand.
+     adds, so ask entries for them already in your settings stay until you remove them by hand. The same goes for
+     the four issue and Project writes, and for the `issue_write`, `sub_issue_write` and `label_write` denies that
+     earlier templates carried: a live deny outranks the hook's allow, so those tools stay denied until you remove
+     the three entries from `permissions.deny` in `~/.claude/settings.json`.
 
-   Reads pass with no decision. Every write other than those four is ask or deny. It fails closed on what it handles, but if the hook is
-   missing, crashes or times out, Claude Code goes ahead without it: reads stay allowed, the four writes fall back to
+   Reads pass with no decision. Every write other than those eight is ask or deny. It fails closed on what it handles, but if the hook is
+   missing, crashes or times out, Claude Code goes ahead without it: reads stay allowed, the eight writes fall back to
    the default prompt (in auto mode the classifier may decide it, since no ask rule forces it), and the other write
-   tools to their ask rules, so a dispatch asks either way, without the warning text. For `update_pull_request` the fallback is wide: the template does not deny the name, and a name rule can't split arguments, so without
-   the hook it is an unrestricted ask (any owner; `state`, `base` and `reviewers` included). Read the keys in the
-   prompt, and keep the hook healthy (`ghm-status`).
+   tools to their ask rules, so a dispatch asks either way, without the warning text. For `update_pull_request` and
+   the four issue and Project writes the fallback is wide: the template does not deny the names, and a name rule
+   can't split arguments, so without the hook each is an unrestricted ask (any owner; `state`, `base` and `reviewers`
+   included, and any method, deletes and bulk updates among them). Read the keys in the prompt, and keep the hook
+   healthy (`ghm-status`).
 
 | Rule | Tools (`mcp__github__<name>`) |
 |---|---|
-| allow | `get_me`, `pull_request_read`, `list_pull_requests`, `search_pull_requests`, `issue_read`, `list_issues`, `search_issues`, `get_file_contents`, `get_commit`, `list_commits`, `list_branches`, `actions_get`, `actions_list`, `get_job_logs` |
-| none in the template; hook allow on the `github` server | `create_pull_request`, `add_issue_comment`, `add_reply_to_pull_request_comment`, `update_pull_request` (title, body and draft only), in repos of the write owners only; ask when a comment, title or body mentions `@claude`, when `draft` is false, and on `create_pull_request` unless `draft` is true |
+| allow | `get_me`, `pull_request_read`, `list_pull_requests`, `search_pull_requests`, `issue_read`, `list_issues`, `search_issues`, `get_file_contents`, `get_commit`, `list_commits`, `list_branches`, `actions_get`, `actions_list`, `get_job_logs`, `list_label`, `projects_list`, `projects_get` |
+| none in the template; hook allow on the `github` server | `create_pull_request`, `add_issue_comment`, `add_reply_to_pull_request_comment`, `update_pull_request` (title, body and draft only), `issue_write`, `sub_issue_write`, `label_write`, in repos of the write owners only; `projects_write` in Projects of `github_projects` only. Ask when a comment, title or body mentions `@claude`, when `draft` is false, on `create_pull_request` unless `draft` is true, on an issue state change or assignees, on a sub-issue removed or moved, on a label deletion, and on a Project bulk update, delete, view or field change or new Project, or a Project not listed |
 | ask | `actions_run_trigger` (re-run, re-run failed, cancel, dispatch), in repos of the write owners only (hook) |
-| deny | `merge_pull_request`, `push_files`, `create_or_update_file`, `delete_file`, `create_branch`, `fork_repository`, `create_repository`, `delete_repository`, `update_issue_comment`, `update_pull_request_branch`, `pull_request_review_write`, `add_comment_to_pending_review`, `issue_write`, `sub_issue_write`, `label_write`, `create_repository_ruleset`, `custom_properties_write`; `actions_run_trigger` log deletion (hook) |
+| deny | `merge_pull_request`, `push_files`, `create_or_update_file`, `delete_file`, `create_branch`, `fork_repository`, `create_repository`, `delete_repository`, `update_issue_comment`, `update_pull_request_branch`, `pull_request_review_write`, `add_comment_to_pending_review`, `create_repository_ruleset`, `custom_properties_write`; `actions_run_trigger` log deletion, and unknown methods and arguments of the four issue and Project writes (hook) |
 
 v2.0.3 has no tool for Actions variables or secret names; its `secret_protection` toolset is secret-scanning alerts.
 
@@ -151,7 +185,7 @@ If `claude mcp list` already shows a `github` server in another scope, remove th
 Remove the hosted GitHub server at its sources: `/plugin uninstall github@claude-plugins-official`, and if your
 organization syncs a plugin that carries the GitHub connector, ask its admin to drop the connector there.
 
-Then check in a new session: `/mcp` lists the `github` server with exactly the 19 tools above, and
+Then check in a new session: `/mcp` lists the `github` server with exactly the 26 tools above, and
 `claude mcp list` shows no `plugin:*:github`. That passes after the uninstall alone, so prove the URL block
 separately from a new empty folder (the probe is local scope, so it stays in that folder): add a probe server,
 check that `claude mcp list` shows it blocked, then remove it:
@@ -193,14 +227,18 @@ needs a `launch` and `guard.sh` change in the same PR, then the merge and the pu
 
 ## Token rotation
 
-The token expires 180 days after creation. Create the new classic PAT (scope `repo` only), then store it (you type
-it at the prompt):
+The token expires 180 days after creation. Create the new classic PAT (scopes `repo` and `project`, nothing else),
+then store it (you type it at the prompt):
 
 ```
 security add-generic-password -U -s mcp-github -a <keychain-account> -w
 ```
 
 Restart the sessions that use the server, check one read, and revoke the old token on GitHub.
+
+To add a scope to the current token instead (`project` on a token made with `repo` only), edit the token on
+GitHub's token settings page: the token's value does not change, so the Keychain item stays as it is. Restart the
+sessions that use the server afterwards.
 
 A 401 or "Bad credentials" means the token expired or was revoked: sessions stop and tell you
 (`rules/security.md`), with no `gh` fallback.
@@ -216,17 +254,28 @@ you don't need (fewer scopes on the `gh` login, a passphrase on SSH keys).
 ## Residuals
 
 - The token's `repo` scope covers every repo you can reach; the guard limits writes, not reads, so a session can
-  read any of those repos without a prompt.
-- Lockdown mode is off (2026-11-04): issue, PR and comment text by any GitHub user on a public repo, the owner's own
-  public repos included, reaches the agent unfiltered through the allowed reads (`pull_request_read`, `issue_read`,
-  `list_issues`, `search_*`). That is a prompt-injection route toward the hook-allowed comment and PR writes in
-  write-owner repos.
+  read any of those repos without a prompt. Its `project` scope covers every Project you own and every organization
+  Project you can reach: the guard limits Project writes to the write owners (and, without a prompt, to the listed
+  Projects), but `projects_list` and `projects_get` read all of them.
+- Lockdown mode is off (2026-11-04): issue, PR, comment, label and Project item text by any GitHub user on a public
+  repo, the owner's own public repos included, reaches the agent unfiltered through the allowed reads
+  (`pull_request_read`, `issue_read`, `list_issues`, `search_*`, `list_label`, `projects_*`). That is a
+  prompt-injection route toward the hook-allowed writes in write-owner repos: comments and PRs, and now issues,
+  labels, sub-issues and items of the listed Projects, all without a prompt. What asks stays asking (a close or
+  reopen, assignees, `@claude`, a sub-issue removed or moved, a label deletion, a Project bulk update or delete);
+  what an injected agent can do silently is noise: new or edited issues and labels, items added or updated.
+- `projects_write` can delete Project items and views and update up to 50 items in one call. The guard asks on those;
+  without the hook they fall back to the default prompt.
+- Some targets can't be traced to a repo by the guard: a sub-issue is named by its global id (`sub_issue_id`), and a
+  Project item by `item_id` (or `node_id` in a bulk update). An allowed `sub_issue_write add` can attach an issue from
+  any repo you can write to, outside the write owners included, and adding an item by id can put such an issue on a
+  listed Project: that issue gets a parent link or a Project membership and a timeline event.
 - Any same-user process can read the keychain item, or the running server's environment, and call the API outside
   every rule. The Bash denies are defence in depth only.
 - A draft PR changing `.github/**` gets no prompt: `create_pull_request` of a draft is a hook allow in the write-owner repos. A
   same-repo PR runs its own copy of a changed workflow when it is opened, so merge staying with you does not cover
   it; a branch push already allows the same for `on: push` workflows.
-- Text in a PR title, body or comment leaves the machine without a prompt: a secret an agent pastes there is not seen first (the output-redaction hook filters tool output, not this input; the secret detector does not match `mcp__github__*`).
+- Text in a PR or issue title, body or comment, a label and a Project status update leaves the machine without a prompt: a secret an agent pastes there is not seen first (the output-redaction hook filters tool output, not this input; the secret detector does not match `mcp__github__*`).
 - `update_pull_request` can edit the title and body of a PR you already reviewed, and of other people's PRs in the write repos, and the squash merge takes its commit record from them.
 - The audit logger records the first short string argument of each github call, which can be a short comment body.
 - Only the server registered as `github` is guarded: a launcher or plugin server under any other name gets no repo
@@ -287,6 +336,6 @@ User scope loads the server in every session on the machine.
 Each session runs its own server process, which holds the token in its environment, and all of them share the
 token's 5,000 requests an hour.
 
-**Context cost:** tool search is on by default, so a session starts with the 19 tool names and the server's
+**Context cost:** tool search is on by default, so a session starts with the 26 tool names and the server's
 instructions (about 150 words); a tool's schema loads only when it is called. Don't set `alwaysLoad`, and leave
 `ENABLE_TOOL_SEARCH` unset.

@@ -19,7 +19,7 @@ printf 'tracked\n' > "$CO/README"
 GIT_Q=(git -C "$CO" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false)
 "${GIT_Q[@]}" init -q -b main && "${GIT_Q[@]}" add -A && "${GIT_Q[@]}" commit -q -m init && "${GIT_Q[@]}" update-ref refs/remotes/origin/main HEAD || { echo "ABORT: cannot build the throwaway checkout"; exit 1; }
 write_conf() { printf '%s\n' "$@" > "$TMP/.claude/install.conf"; }
-write_conf 'github_write_owners=notitial example-user' 'github_keychain_account=test-account'
+write_conf 'github_write_owners=notitial example-user' 'github_keychain_account=test-account' 'github_projects=example-user/7'
 HOOK="$CO/tools/github-mcp/guard.sh"
 PASS=0
 FAIL=0
@@ -103,7 +103,7 @@ check deny "owner not a string" "$(call create_pull_request '{"owner":["notitial
 check deny "repo with a trailing newline" "$(call create_pull_request '{"owner":"notitial","repo":"toolkit-repo\n","title":"t","head":"b","base":"main","draft":true}')"
 check deny "rerun in a repo of another owner" "$(call actions_run_trigger '{"owner":"github","repo":"github-mcp-server","method":"rerun_workflow_run","run_id":1}')"
 check ask "rerun in a new write-owner repo" "$(call actions_run_trigger '{"owner":"notitial","repo":"new-project","method":"rerun_workflow_run","run_id":1}')"
-for t in merge_pull_request push_files create_or_update_file delete_file create_branch fork_repository create_repository delete_repository update_issue_comment update_pull_request_branch pull_request_review_write add_comment_to_pending_review issue_write create_gist create_issue update_issue run_workflow get_gist some_future_tool foo__bar; do
+for t in merge_pull_request push_files create_or_update_file delete_file create_branch fork_repository create_repository delete_repository update_issue_comment update_pull_request_branch pull_request_review_write add_comment_to_pending_review create_gist create_issue update_issue update_issue_state get_label run_workflow get_gist some_future_tool foo__bar; do
   check deny "unexposed $t" "$(acall "$t" '{}')"
 done
 check deny "github, empty tool name" '{"tool_name":"mcp__github__","tool_input":{}}'
@@ -212,6 +212,130 @@ case "$reason" in
   *'"state"'*'stay with the user'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo "FAIL: update PR deny does not name the rejected key: $reason" ;;
 esac
+reason_of() {  # reason_of <tool> <input without owner and repo>
+  printf '%s' "$(acall "$1" "$2")" | HOME="$TMP" bash "$HOOK" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecisionReason'
+}
+
+# issue_write: create and edit pass; a state change, assignees and @claude ask; anything unparsed denies.
+check pass "list_label is a read" "$(call list_label '{"owner":"someone-else","repo":"r"}')"
+check allow "issue_write create" "$(acall issue_write '{"method":"create","title":"t","body":"b","labels":["bug"]}')"
+check allow "issue_write update of title and body" "$(acall issue_write '{"method":"update","issue_number":3,"title":"t","body":"b"}')"
+check allow "issue_write update of labels, milestone and type" "$(acall issue_write '{"method":"update","issue_number":3,"labels":[],"milestone":2,"type":"Bug"}')"
+check allow "issue_write update clearing the type" "$(acall issue_write '{"method":"update","issue_number":3,"type":null}')"
+check allow "issue_write create under a parent in another write-owner repo" "$(acall issue_write '{"method":"create","title":"t","parent_issue_number":1,"parent_owner":"example-user","parent_repo":"repo-two"}')"
+check allow "issue_write with an empty assignees list" "$(acall issue_write '{"method":"create","title":"t","assignees":[]}')"
+check ask "issue_write closes an issue" "$(acall issue_write '{"method":"update","issue_number":3,"state":"closed","state_reason":"completed"}')"
+check ask "issue_write reopens an issue" "$(acall issue_write '{"method":"update","issue_number":3,"state":"open"}')"
+check ask "issue_write create with a state" "$(acall issue_write '{"method":"create","title":"t","state":"closed"}')"
+check ask "issue_write with assignees" "$(acall issue_write '{"method":"create","title":"t","assignees":["Copilot"]}')"
+check ask "issue_write with @claude in the body" "$(acall issue_write '{"method":"create","title":"t","body":"@Claude fix this"}')"
+check ask "issue_write with @claude in the title" "$(acall issue_write '{"method":"update","issue_number":3,"title":"ping @claude"}')"
+check deny "issue_write in a repo of another owner" "$(call issue_write '{"owner":"github","repo":"github-mcp-server","method":"create","title":"t"}')"
+check deny "issue_write with no owner" "$(call issue_write '{"repo":"toolkit-repo","method":"create","title":"t"}')"
+check deny "issue_write with an unknown key" "$(acall issue_write '{"method":"create","title":"t","lock":true}')"
+check deny "issue_write with an unknown method" "$(acall issue_write '{"method":"delete","issue_number":3}')"
+check deny "issue_write with no method" "$(acall issue_write '{"title":"t"}')"
+check deny "issue_write method with a trailing newline" "$(acall issue_write '{"method":"create\n","title":"t"}')"
+check deny "issue_write update with no issue_number" "$(acall issue_write '{"method":"update","title":"t"}')"
+check deny "issue_write issue_number zero" "$(acall issue_write '{"method":"update","issue_number":0,"title":"t"}')"
+check deny "issue_write issue_number a string" "$(acall issue_write '{"method":"update","issue_number":"3","title":"t"}')"
+check deny "issue_write issue_number fractional" "$(acall issue_write '{"method":"update","issue_number":3.5,"title":"t"}')"
+check deny "issue_write title not a string" "$(acall issue_write '{"method":"create","title":["t"]}')"
+check deny "issue_write body null" "$(acall issue_write '{"method":"create","title":"t","body":null}')"
+check deny "issue_write labels not a list" "$(acall issue_write '{"method":"create","title":"t","labels":"bug"}')"
+check deny "issue_write labels with a number" "$(acall issue_write '{"method":"create","title":"t","labels":[5]}')"
+check deny "issue_write state not open or closed" "$(acall issue_write '{"method":"update","issue_number":3,"state":"locked"}')"
+check deny "issue_write state null" "$(acall issue_write '{"method":"update","issue_number":3,"state":null}')"
+check deny "issue_write parent outside the write owners" "$(acall issue_write '{"method":"create","title":"t","parent_issue_number":1,"parent_owner":"github","parent_repo":"github-mcp-server"}')"
+check deny "issue_write parent_owner without parent_repo" "$(acall issue_write '{"method":"create","title":"t","parent_issue_number":1,"parent_owner":"notitial"}')"
+reason=$(reason_of issue_write '{"method":"update","issue_number":3,"state":"closed"}')
+case "$reason" in
+  *'"notitial"/"toolkit-repo" #3 sets state "closed"'*'closes or reopens a pull request'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo "FAIL: issue_write ask does not show the issue, the state and the PR warning: $reason" ;;
+esac
+reason=$(reason_of issue_write "$(jq -n -c --arg b "HEADMARK$huge" --arg t "TAILMARK" '{method:"create",title:"t",body:($b + $t),assignees:["x"]}')")
+case "$reason" in
+  *'HEADMARK'*'...(truncated)'*'TAILMARK'*'paid coding-agent run'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo "FAIL: a cut issue_write body carries no truncation marker or no assignee warning" ;;
+esac
+
+# sub_issue_write: add and reprioritize pass; remove and a move from another parent ask.
+check allow "sub_issue_write add" "$(acall sub_issue_write '{"method":"add","issue_number":1,"sub_issue_id":12345}')"
+check allow "sub_issue_write reprioritize" "$(acall sub_issue_write '{"method":"reprioritize","issue_number":1,"sub_issue_id":12345,"after_id":678}')"
+check allow "sub_issue_write add with replace_parent false" "$(acall sub_issue_write '{"method":"add","issue_number":1,"sub_issue_id":12345,"replace_parent":false}')"
+check ask "sub_issue_write remove" "$(acall sub_issue_write '{"method":"remove","issue_number":1,"sub_issue_id":12345}')"
+check ask "sub_issue_write add with replace_parent" "$(acall sub_issue_write '{"method":"add","issue_number":1,"sub_issue_id":12345,"replace_parent":true}')"
+check deny "sub_issue_write unknown method" "$(acall sub_issue_write '{"method":"move","issue_number":1,"sub_issue_id":12345}')"
+check deny "sub_issue_write sub_issue_id a string" "$(acall sub_issue_write '{"method":"add","issue_number":1,"sub_issue_id":"12345"}')"
+check deny "sub_issue_write no sub_issue_id" "$(acall sub_issue_write '{"method":"add","issue_number":1}')"
+check deny "sub_issue_write replace_parent a string" "$(acall sub_issue_write '{"method":"add","issue_number":1,"sub_issue_id":12345,"replace_parent":"true"}')"
+check deny "sub_issue_write unknown key" "$(acall sub_issue_write '{"method":"add","issue_number":1,"sub_issue_id":12345,"parent":2}')"
+check deny "sub_issue_write in a repo of another owner" "$(call sub_issue_write '{"owner":"github","repo":"github-mcp-server","method":"add","issue_number":1,"sub_issue_id":12345}')"
+
+# label_write: create and update (a rename too) pass; a delete asks.
+check allow "label_write create" "$(acall label_write '{"method":"create","name":"triage","color":"f29513"}')"
+check allow "label_write update" "$(acall label_write '{"method":"update","name":"triage","description":"needs a look"}')"
+check allow "label_write rename" "$(acall label_write '{"method":"update","name":"triage","new_name":"to-triage"}')"
+check ask "label_write delete" "$(acall label_write '{"method":"delete","name":"triage"}')"
+check deny "label_write unknown method" "$(acall label_write '{"method":"merge","name":"triage"}')"
+check deny "label_write name not a string" "$(acall label_write '{"method":"create","name":["triage"]}')"
+check deny "label_write no name" "$(acall label_write '{"method":"create","color":"f29513"}')"
+check deny "label_write unknown key" "$(acall label_write '{"method":"create","name":"triage","repo_id":1}')"
+check deny "label_write in a repo of another owner" "$(call label_write '{"owner":"github","repo":"github-mcp-server","method":"delete","name":"bug"}')"
+
+# projects_write: one item or a status update in a listed Project passes; the rest asks; outside the owners denies.
+pcall() { jq -n -c --argjson i "$1" '{tool_name: "mcp__github__projects_write", tool_input: ({owner: "example-user", project_number: 7} + $i)}'; }
+check pass "projects_list is a read" "$(call projects_list '{"method":"list_projects","owner":"someone-else"}')"
+check pass "projects_get is a read" "$(call projects_get '{"method":"get_project","owner":"someone-else","project_number":1}')"
+check allow "projects_write add an issue" "$(pcall '{"method":"add_project_item","item_type":"issue","item_owner":"notitial","item_repo":"toolkit-repo","issue_number":3}')"
+check allow "projects_write update an item" "$(pcall '{"method":"update_project_item","item_id":99,"updated_field":{"name":"Status","value":"Done"}}')"
+check allow "projects_write update an item by issue" "$(pcall '{"method":"update_project_item","item_owner":"example-user","item_repo":"repo-one","issue_number":3,"updated_field":{"id":5,"value":null}}')"
+check allow "projects_write status update" "$(pcall '{"method":"create_project_status_update","body":"on track","status":"ON_TRACK"}')"
+check allow "projects_write owner case-insensitive" "$(pcall '{"owner":"Example-User","method":"update_project_item","item_id":99,"updated_field":{"name":"Status","value":"Done"}}')"
+check ask "projects_write in a Project not listed" "$(pcall '{"project_number":8,"method":"update_project_item","item_id":99,"updated_field":{"name":"Status","value":"Done"}}')"
+check ask "projects_write listed number under another write owner" "$(pcall '{"owner":"notitial","method":"update_project_item","item_id":99,"updated_field":{"name":"Status","value":"Done"}}')"
+check ask "projects_write with no project_number" "$(jq -n -c '{tool_name: "mcp__github__projects_write", tool_input: {owner: "example-user", method: "add_project_item", item_type: "issue", item_owner: "notitial", item_repo: "toolkit-repo", issue_number: 3}}')"
+check ask "projects_write bulk update" "$(pcall '{"method":"update_project_items","items":[{"item_id":1},{"item_id":2}],"updated_field":{"name":"Status","value":"Done"}}')"
+check ask "projects_write delete an item" "$(pcall '{"method":"delete_project_item","item_id":99}')"
+check ask "projects_write delete a view" "$(pcall '{"method":"delete_project_view","view_id":"PVTV_x"}')"
+check ask "projects_write create a view" "$(pcall '{"method":"create_project_view","name":"Board","layout":"board"}')"
+check ask "projects_write update a view" "$(pcall '{"method":"update_project_view","view_id":"PVTV_x","filter":null}')"
+check ask "projects_write add an iteration field" "$(pcall '{"method":"create_iteration_field","field_name":"Sprint","iteration_duration":14,"start_date":"2026-11-09"}')"
+check ask "projects_write create a Project" "$(jq -n -c '{tool_name: "mcp__github__projects_write", tool_input: {owner: "example-user", owner_type: "user", method: "create_project", title: "Roadmap"}}')"
+check ask "projects_write status update with @claude" "$(pcall '{"method":"create_project_status_update","body":"@claude look"}')"
+check deny "projects_write Project owner outside the write owners" "$(pcall '{"owner":"github","method":"update_project_item","item_id":99,"updated_field":{"name":"Status","value":"Done"}}')"
+check deny "projects_write no owner" "$(jq -n -c '{tool_name: "mcp__github__projects_write", tool_input: {project_number: 7, method: "delete_project_item", item_id: 1}}')"
+check deny "projects_write item repo outside the write owners" "$(pcall '{"method":"add_project_item","item_type":"issue","item_owner":"github","item_repo":"github-mcp-server","issue_number":3}')"
+check deny "projects_write item_owner without item_repo" "$(pcall '{"method":"add_project_item","item_type":"issue","item_owner":"notitial","issue_number":3}')"
+check deny "projects_write bulk item outside the write owners" "$(pcall '{"method":"update_project_items","items":[{"item_id":1},{"item_owner":"github","item_repo":"x","issue_number":2}],"updated_field":{"name":"Status","value":"Done"}}')"
+check deny "projects_write items not a list" "$(pcall '{"method":"update_project_items","items":{"item_id":1},"updated_field":{"name":"Status","value":"Done"}}')"
+check deny "projects_write unknown method" "$(pcall '{"method":"delete_project","item_id":1}')"
+check deny "projects_write no method" "$(pcall '{"item_id":1}')"
+check deny "projects_write unknown key" "$(pcall '{"method":"delete_project_item","item_id":1,"force":true}')"
+check deny "projects_write project_number a string" "$(pcall '{"project_number":"7","method":"delete_project_item","item_id":1}')"
+check deny "projects_write project_number zero" "$(pcall '{"project_number":0,"method":"delete_project_item","item_id":1}')"
+check deny "projects_write body not a string" "$(pcall '{"method":"create_project_status_update","body":5}')"
+check deny "projects_write body null" "$(pcall '{"method":"create_project_status_update","body":null}')"
+check deny "projects_write items on a single-item method" "$(pcall '{"method":"update_project_item","item_id":99,"items":[{"node_id":"x"}],"updated_field":{"name":"Status","value":"Done"}}')"
+check deny "projects_write bulk item with an unknown key" "$(pcall '{"method":"update_project_items","items":[{"item_id":1,"itemRepo":"x"}],"updated_field":{"name":"Status","value":"Done"}}')"
+check ask "projects_write bulk by node_id" "$(pcall '{"method":"update_project_items","items":[{"node_id":"PVTI_x"}],"updated_field":{"name":"Status","value":"Done"}}')"
+check deny "projects_write create_project under another owner" "$(jq -n -c '{tool_name: "mcp__github__projects_write", tool_input: {owner: "github", owner_type: "org", method: "create_project", title: "x"}}')"
+check ask "issue_write state_reason alone" "$(acall issue_write '{"method":"update","issue_number":3,"state_reason":"not_planned"}')"
+check ask "issue_write duplicate_of alone" "$(acall issue_write '{"method":"update","issue_number":3,"duplicate_of":2}')"
+check ask "issue_write update with a parent" "$(acall issue_write '{"method":"update","issue_number":3,"parent_issue_number":1}')"
+reason=$(printf '%s' "$(pcall '{"project_number":8,"method":"delete_project_item","item_id":99}')" | HOME="$TMP" bash "$HOOK" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecisionReason')
+case "$reason" in
+  *'not in the github_projects install setting'*'item 99'*'not restored'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo "FAIL: the unlisted-Project ask drops the delete warning: $reason" ;;
+esac
+check deny "label_write description null" "$(acall label_write '{"method":"update","name":"triage","description":null}')"
+check deny "sub_issue_write after_id null" "$(acall sub_issue_write '{"method":"reprioritize","issue_number":1,"sub_issue_id":12345,"after_id":null}')"
+check deny "issue_write milestone null" "$(acall issue_write '{"method":"update","issue_number":3,"milestone":null}')"
+reason=$(printf '%s' "$(pcall '{"method":"update_project_items","items":[{"item_id":1},{"item_id":2},{"item_id":3}],"updated_field":{"name":"Status","value":"Done"}}')" | HOME="$TMP" bash "$HOOK" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecisionReason')
+case "$reason" in
+  *'on "example-user" Project #7. It is a bulk update of 3 items ('*'"item_id":2'*'"Status"'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo "FAIL: the bulk ask does not show the count, the Project and the field: $reason" ;;
+esac
 
 # The template's hook matcher: every tool of the github server, nothing else.
 TEMPLATE="$HERE/../../.claude/skills/setup-claude/templates/safe-permissions.json"
@@ -226,6 +350,23 @@ if jq -e '.permissions.deny | index("Bash(*mcp-github*)")' "$TEMPLATE" >/dev/nul
 else
   FAIL=$((FAIL + 1)); echo "FAIL: template deny list lacks the mcp-github tripwire"
 fi
+# The guard's write tools are on no template list (an ask outranks its allow, a deny blocks them, an allow skips it
+# without the hook); its read tools are allowed.
+for t in $(sed -n -E 's/^WRITE_TOOLS="(.*)"$/\1/p' "$SRC"); do
+  [ "$t" = actions_run_trigger ] && continue
+  if jq -e --arg n "mcp__github__$t" '[.permissions.allow, .permissions.ask, .permissions.deny] | map(index($n)) | all(. == null)' "$TEMPLATE" >/dev/null 2>&1; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1)); echo "FAIL: template lists the guard-decided write tool $t"
+  fi
+done
+for t in $(sed -n -E 's/^READ_TOOLS="(.*)"$/\1/p' "$SRC"); do
+  if jq -e --arg n "mcp__github__$t" '.permissions.allow | index($n)' "$TEMPLATE" >/dev/null 2>&1; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1)); echo "FAIL: template does not allow the read tool $t"
+  fi
+done
 check deny "malformed JSON" 'not json'
 check deny "tool_name missing" '{"tool_input":{}}'
 
@@ -389,7 +530,22 @@ check deny "no install.conf: an owner-bearing write is denied" "$WRITE_CALL"
 check pass "no install.conf: a read still passes" "$READ_CALL"
 write_conf 'github_write_owners=evil-owner' 'github_write_owners=notitial'
 check deny "only the first owners line counts" "$WRITE_CALL"
-write_conf 'github_write_owners=notitial example-user' 'github_keychain_account=test-account'
+# The Projects come from the optional github_projects setting; a missing or invalid one leaves no Project (ask).
+PROJECT_CALL=$(pcall '{"method":"update_project_item","item_id":99,"updated_field":{"name":"Status","value":"Done"}}')
+write_conf 'github_write_owners=notitial example-user' 'github_projects=notitial/3 example-user/7'
+check allow "a Project listed second in github_projects passes" "$PROJECT_CALL"
+write_conf 'github_write_owners=notitial example-user'
+check ask "no github_projects line: a Project write asks" "$PROJECT_CALL"
+for bad in 'github_projects=' 'github_projects=Example-User/7' 'github_projects=example-user/07' 'github_projects=example-user/x' \
+  'github_projects=example-user/7;x' 'github_projects=example-user/7  notitial/3' 'github_projects=example-user' 'github_projects=example-user/1234567890'; do
+  write_conf 'github_write_owners=notitial example-user' "$bad"
+  check ask "invalid projects ($bad): a Project write asks" "$PROJECT_CALL"
+done
+write_conf 'github_write_owners=notitial' 'github_projects=example-user/7'
+check deny "a listed Project whose owner is not a write owner is denied" "$PROJECT_CALL"
+write_conf 'github_write_owners=notitial example-user' 'github_projects=notitial/7' 'github_projects=example-user/7'
+check ask "only the first github_projects line counts" "$PROJECT_CALL"
+write_conf 'github_write_owners=notitial example-user' 'github_keychain_account=test-account' 'github_projects=example-user/7'
 
 # Launcher: run a copy inside a throwaway checkout, with stand-ins for security and the server, under a hostile
 # environment. Each stand-in records what it saw; the keychain call and the settings path are swapped for the temp folder.

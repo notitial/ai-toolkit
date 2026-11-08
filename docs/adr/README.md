@@ -38,6 +38,7 @@ rewrite.
 | 0013 | [App-Owned PR Review, Verdict as a Signal](0013-app-owned-pr-review.md) | accepted | 2026-10-23 |
 | 0014 | [Run Installs From the Live Checkout](0014-live-checkout-installs.md) | accepted | 2026-11-06 |
 | 0015 | [A Vendored Build Kit With a Standard-Library MCP Server](0015-vendored-build-kit.md) | accepted | 2026-11-08 |
+| 0016 | [Guarded Issue, Label and Project Writes](0016-guarded-issue-and-project-writes.md) | accepted | 2026-11-08 |
 
 ADR 0012's file name keeps "overnight-orchestrator-lock" from its first title; links depend on the name, so it
 stays.

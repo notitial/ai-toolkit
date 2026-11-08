@@ -1,7 +1,7 @@
 #!/bin/sh -p
 set +x
 set -eu
-TOOLS=get_me,pull_request_read,list_pull_requests,search_pull_requests,issue_read,list_issues,search_issues,get_file_contents,get_commit,list_commits,list_branches,actions_get,actions_list,get_job_logs,create_pull_request,add_issue_comment,add_reply_to_pull_request_comment,actions_run_trigger,update_pull_request
+TOOLS=get_me,pull_request_read,list_pull_requests,search_pull_requests,issue_read,list_issues,search_issues,get_file_contents,get_commit,list_commits,list_branches,actions_get,actions_list,get_job_logs,list_label,projects_list,projects_get,create_pull_request,add_issue_comment,add_reply_to_pull_request_comment,actions_run_trigger,update_pull_request,issue_write,sub_issue_write,label_write,projects_write
 # Absolute paths only before the clean-env re-exec: a tool found on the caller's PATH would decide where DIR points.
 DIR=$(cd "$(/usr/bin/dirname "$0")" && pwd -P)
 ROOT=$(cd "$DIR/../.." && pwd -P)
