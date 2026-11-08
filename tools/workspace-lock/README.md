@@ -161,6 +161,14 @@ can run.
   asks the user with the holder, ETA, heartbeat and lock dir. The cleared id's next `heartbeat`,
   `release` or `acquire` fails loudly naming who cleared it — the retake cannot follow a clear.
 
+### Heartbeat before a human-paced wait
+Wedge detection and expiry key on the holder's ETA and last heartbeat. An *interactive* holder that
+idles waiting on a person (a question, a review, a decision) stops heartbeating, so its ETA lapses:
+the guard denies its own next edit until it retakes the lock, and after the grace waiters flag it
+`WEDGED` though it is alive and another session may ask the user to clear it. Before a human-paced wait,
+run `heartbeat --id <id> --eta <generous>` with an ETA that covers the wait. Found by re-running the
+protocol in a fresh interactive session.
+
 ## Deliberate limitations
 
 - **No automatic break of a stale lock.** A waiter that sees a wedged or empty-holder lock

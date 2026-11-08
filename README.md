@@ -45,7 +45,7 @@ The guarded GitHub MCP setup ([tools/github-mcp/](tools/github-mcp/README.md)) i
 
 ## Where to Go Next
 
-- [docs/README.md](docs/README.md): the reading order, 17 docs in six groups
+- [docs/README.md](docs/README.md): the reading order, 18 docs in six groups
 - A new repo: [docs/06](docs/06-repo-initialization.md) and [docs/07](docs/07-new-repo-setup.md), plus `/repo-setup`
 - [skills/README.md](skills/README.md): every skill, global and project-scoped
 - [tools/README.md](tools/README.md): the scripts, with [github-mcp](tools/github-mcp/README.md), [workspace-lock](tools/workspace-lock/README.md) and the opt-in [build-kit](tools/build-kit/README.md)

@@ -92,6 +92,23 @@ Without measurement, optimization is guesswork. Log these metrics from early run
 
 Multi-agent systems use about 15x the tokens of a single chat (Anthropic, "How we built our multi-agent research system", 2025). Measure your own runs before budgeting.
 
+### Prompt Cache
+
+A session re-sends its whole conversation every turn. While the prompt cache is warm that costs a discounted cache read; once the cache expires, the next turn reprocesses everything cold, the most expensive turn the session takes. Every request that hits the cache resets its timer.
+
+**TTL.** In Claude Code the main conversation's cache lasts one hour on a subscription within plan usage and five minutes on usage credits, an API key or a cloud provider. Subagents get five minutes unless you set a longer TTL. Read the TTL from the docs or from `usage.cache_creation` in `claude -p … --output-format json` instead of hardcoding it. Source: [Claude Code prompt caching](https://code.claude.com/docs/en/prompt-caching.md), checked 2026-11-08.
+
+**When keeping the cache warm pays.** Compare how long the session will sit idle with the TTL:
+
+- Idle for less than the TTL: the cache survives alone. A keepalive is pure cost.
+- Idle for longer than the TTL: a trivial call every half TTL keeps it warm, and one missed call still leaves a full TTL of margin.
+- Context below roughly 200k tokens: skip it. A cold reprocess costs less than the calls.
+- Pause below a usage limit, not at it. At 100% no request succeeds, so the keepalive must be paid for from headroom reserved before the wall.
+
+**Measure before trusting.** The discount is a published API price (0.1x for a read), but the weighting a subscription's usage meter gives cache reads is not, so treat the keepalive rule as advisory until measured.
+
+**Case study.** Two months of heavy agent use showed cache reads were 95.35% of all input-side tokens (7.28 billion; raw input was 7.75 million, the rest cache writes), so the cache is most of the input side, not a marginal optimisation. Two local cost tools disagreed 4x on the same data ($1,663 against $6,955), because both shipped stale price tables that zeroed cache pricing for the newest models. Token counts were reliable; the dollar columns were not.
+
 ## Context Exhaustion Signals
 
 Watch for these signs that an agent's context is degrading:

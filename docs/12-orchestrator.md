@@ -63,6 +63,16 @@ For unattended runs:
 - **Caps**: max turns per subagent, wall-clock timeout, **token/budget** ceiling.
 - **Failure policy**: fix loops respect the headless fix-loop cap in the [canonical iteration caps](11-convergence.md#canonical-iteration-caps), then log and continue or halt the wave.
 
+## Overnight Runs
+
+An unattended run has no human to catch a false green, so the [verification gate](10-reviews.md#verification-gate) is the only backstop.
+
+- **Prove the oracle first:** a check counts only if it was shown to fail on the broken state. A NO-GO on a live failure needs a ground-truth pre-flight ([Verification Failures](15-failure-patterns.md#verification-failures)).
+- **Land on branches:** a run ends on a branch, never an auto-merge to `main`, and writes a [handover](../skills/handover/SKILL.md) as its morning report. The human reviews each branch with [review-gate](../skills/review-gate/SKILL.md) on waking. An orchestrator merging an unverified fix at 3am is the worst case; the no-push, no-merge rule forbids it structurally.
+- **Serialize shared working copies:** independent unattended runs on one machine take turns through [workspace-lock](../tools/workspace-lock/README.md).
+
+**Case study.** One engineer aligned three independent workstreams during the day, then armed three sessions overnight on one machine. They ran one after another under the lock, two to three hours of build and end-to-end work each, and by morning there were three local branches, none pushed, each with a handover. The review-gate pass caught one false green: an integration test that passed on both the broken and the fixed build, which no overnight check would have flagged.
+
 ## Structured Reports and File-Based Messaging
 
 Subagents return a short, fixed-format report, so the coordinator spends tens of tokens per handoff, not hundreds ([format](14-prompt-engineering.md#the-structured-report-pattern)).

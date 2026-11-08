@@ -98,6 +98,18 @@ Prohibit command chaining (`&&`, `||`, `;`) in agent-executed commands. Reasons:
 
 This is the simplest security rule and one of the most effective.
 
+## Matching Commands in Hooks
+
+A PreToolUse hook that classifies a Bash command by matching a token (`git`, say) as a bare **substring** over-denies whenever the token appears in prose or an argument: `echo "… git push …"`, a `--reason "…"` value. Match the token only in **command position** instead.
+
+- **Boundary:** line start, or after a separator (`|`, `;`, `&`, `&&`, `||`), a subshell `(`, a brace `{`, a backtick or a `$(` substitution opener.
+- **Leaders to skip:** `VAR=` assignments, wrappers (`env`, `sudo`, `command`, `timeout <duration>`) and an optional surrounding quote.
+- **Result:** wrapper-prefixed, path-qualified and quoted invocations still match; prose does not.
+- **Known gaps, kept on purpose:** a leading `!`, a shell keyword (`then`, `do`), a leading redirect and other wrappers (`time`, `nohup`, `xargs`) pass. Skipping more leaders buys coverage at the price of a more complex pattern; list the gaps in the hook header and pin them in its tests.
+- **Trade-off for a security backstop:** narrowing a substring match trades prose precision for coverage of exotic interpreter and wrapper forms the match was catching by accident. Make that trade deliberately and pair it with a server-side control (branch protection, a guard on the tool itself) for the tail the hook no longer sees.
+
+**Case study.** [`hooks/git-mcp-redirect.sh`](../hooks/git-mcp-redirect.sh) was narrowed from a substring match to a shared `ANCHOR` and `LEADER` pair (the command-position boundary and the skippable leaders) after it denied read-only commands whose prose mentioned a git subcommand.
+
 ## MCP Servers as Tool Replacement
 
 The Model Context Protocol (MCP) defines a standard way for AI agents to access external tools and resources through typed, server-based interfaces. Where Bash permissions use regex patterns against shell commands, MCP servers expose discrete tools with typed parameters, structured output, and atomic execution. This makes MCP the preferred permission model for any tool category where a server exists.
@@ -272,6 +284,9 @@ A team onboarding kit installs a three-tier permission model: careful, recommend
 | Secrets hook matcher `Bash` only, `Read(*)` pre-allowed | The hook never sees the Read tool, so `.env` is one Read call away | Screen paths with `Read(...)` deny rules; keep hooks for content (see [Secrets Safety](#secrets-safety)) |
 | `Bash(git push --force *)` deny | A Bash rule matches the command's shape: `git push origin main --force` doesn't fit the pattern | Deny the dangerous word wherever it appears, in a hook; a pattern rule stops only the spellings it names |
 | `Read(~/.ssh/**)` deny beside a pre-allowed script runner | Current Claude Code applies Read denies to the Bash readers it recognises (`cat`, `head`, `sed`), but not to a script or `grep -r` that opens the file itself | Treat Read denies as tool-level only; reach for a sandbox when the file must be unreachable |
+| A hard line written only as a scoped deny (`Bash(rm *)`) | A scoped rule leaves the tool available and blocks matching calls; only a bare tool-name deny removes the tool from the model's context, and the rule applies to the main conversation and to subagents | Deny the whole tool name in `settings.json` where the role must never have it; re-check the list when a server upgrade adds tools |
+| `Bash` deny plus an allow for one wrapper command | Deny is checked before allow whatever the specificity, so the wrapper is denied too: "deny all except X" cannot be written | Allow `Bash` broadly and reject the specific commands in a PreToolUse hook, or accept a prose instruction for that line |
+| `mcp__<server>__*` deny to keep an MCP server out | The rule matches the name the server was registered under, a label anyone can choose; the same server added again under another name is not covered. Servers register in several places (`~/.claude.json`, `.mcp.json`, plugins), so one search can miss a copy | Treat a name rule as a deterrent. For a real block use `deniedMcpServers` with `serverUrl` or `serverCommand`, strongest from managed settings |
 | Union-only settings merge | Lists only gain entries, so moving from full to careful leaves `Bash(*)` in place: the merge can't tighten | Track the keys a preset manages, and replace those lists instead of merging them |
 | Policy text names a "second hook" | The settings file registers one: the docs and the behaviour drifted | Assert what the docs claim, as `/setup-claude`'s drift check does for hooks |
 

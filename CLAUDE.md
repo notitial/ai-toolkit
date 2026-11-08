@@ -26,7 +26,7 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 
 ## Document Structure
 
-- `docs/` — Numbered knowledge base (01–17, no gaps) in reading order; each stands alone but builds on earlier ones. Organized in six groups: Foundations (01–05), Setting up a repo (06–07), Context (08–09), Quality (10–11), Orchestration (12–16), Specialized (17). See `docs/README.md` for the full index.
+- `docs/` — Numbered knowledge base (01–18, no gaps) in reading order; each stands alone but builds on earlier ones. Organized in six groups: Foundations (01–05), Setting up a repo (06–07), Context (08–09), Quality (10–11), Orchestration (12–16), Specialized (17–18). See `docs/README.md` for the full index.
 - `agents/` — Global agent definitions (symlinked to `~/.claude/agents/` via `/setup-claude`).
 - `hooks/` — Global hook scripts (symlinked to `~/.claude/hooks/` via `/setup-claude`).
 - `rules/` — Global always-on rule files (symlinked to `~/.claude/rules/` via `/setup-claude`; no frontmatter — distinct from project-scoped `.claude/rules/`).
@@ -56,7 +56,7 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 - No force push. A PR branch that falls behind `main` gets `main` merged in, never a rebase (`rules/workflow.md`, Stale PR Branches).
 - No worktrees; branch in a plain clone under `/tmp` (see Where agents edit). Never push to `main`; land every change through a PR.
 - Check for secrets before committing — no `.env`, API keys, credentials.
-- Every non-draft PR gets an automatic Claude review (`.github/workflows/claude-review.yml`, see ADR 0013); its verdict is a signal, not a required approval. Every PR to `main` also runs `.github/workflows/ci.yml`: `Install Checks`, required, fails on a hook committed without the executable bit; `Tool Checks`, required, runs `tools/test-all.sh --quick`.
+- Every non-draft PR gets an automatic Claude review (`.github/workflows/claude-review.yml`, see ADR 0013); its verdict is a signal, not a required approval. Every PR to `main` also runs `.github/workflows/ci.yml`: `Install Checks`, required, fails on a hook committed without the executable bit; `Tool Checks`, required, runs `tools/test-all.sh --quick`. `.github/workflows/secret-scan.yml` runs `Secret Scan / gitleaks` on every PR to `main`, also required.
 
 ## Where agents edit
 
