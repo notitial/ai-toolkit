@@ -1,0 +1,12 @@
+title = "ai-toolkit gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Deliberately fake fixtures in the tests of the secret tools"
+paths = [
+  '''^tools/audit-logger/test-audit-logger\.sh$''',
+  '''^tools/secret-detector/test-secret-detector\.sh$''',
+  '''^tools/secret-redact-output/test-secret-redact-output\.sh$''',
+]

@@ -15,6 +15,7 @@ decision changes.
 | `delete_branch_on_merge` | on |
 | PR title length limit | 45 |
 | Claude review jobs as required checks | never |
+| Secret scan | gitleaks: `.pre-commit-config.yaml` plus a `secret-scan.yml` caller of the org's reusable workflow (`tools/gitleaks/`) |
 | Repo-level copies of org secret or variable names | never |
 | GitHub secret scanning and push protection | open (no decision yet); report the current value, not a gap |
 | Dependabot alerts | open; report the current value, not a gap |
