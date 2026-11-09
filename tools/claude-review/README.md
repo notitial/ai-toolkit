@@ -109,8 +109,9 @@ python3 -I -B tools/claude-review/replay/replay.py --repo OWNER/NAME --pr N --he
   [--verifier-model sonnet] [--arm NAME] [--run K] [--title T] [--body-file F] [--command FILE] [--model M] [--prepare-only]
 ```
 
-- `--verifier-model` rewrites the 7.4 line for the defect, interaction, security and failure-path verifiers in a temp
-  copy of the command; the run fails if the line has changed, so a reworded command cannot run the unpatched arm.
+- `--verifier-model` moves the verifiers that 7.4 puts on `opus` to the given model, in a temp copy of the command
+  (the tracked file is never touched); the run fails if the 7.4 model line is not found exactly once, so a reworded
+  command cannot run the unpatched arm.
 - Results go to `~/review-replay-results/<owner_name>/pr<N>-<head8>-<arm>-<run>.json` (the result, `total_cost_usd`,
   per-model cost, duration, turns, agent count by requested model) plus the gzipped stream next to it. Nothing is
   written in the repo.

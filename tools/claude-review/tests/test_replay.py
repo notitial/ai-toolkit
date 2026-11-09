@@ -12,12 +12,22 @@ def run(*a, cwd):
 
 
 class PatchCommand(unittest.TestCase):
+    OLD = "- Model: `opus` for a defect, interaction, security or failure-path candidate; `sonnet` for a written-rule or private-data candidate.\n"
+    NEW = "- Model: `opus` for an interaction, security or failure-path candidate; `sonnet` for a defect, written-rule or private-data candidate.\n"
+
     def test_kit_command_has_the_verifier_line_and_only_it_changes(self):
         text = (KIT / "claude-pr-review.md").read_text()
         out = replay.patch_command(text, "sonnet")
-        self.assertIn("- Model: `sonnet` for a defect, interaction, security or failure-path candidate;", out)
         before, after = text.splitlines(), out.splitlines()
-        self.assertEqual([i for i, (a, b) in enumerate(zip(before, after)) if a != b].__len__(), 1)
+        changed = [(a, b) for a, b in zip(before, after) if a != b]
+        self.assertEqual(len(changed), 1)
+        self.assertTrue(changed[0][0].startswith("- Model: `opus` for ") and changed[0][1].startswith("- Model: `sonnet` for "))
+
+    def test_both_wordings_of_the_line(self):
+        for line in (self.OLD, self.NEW):
+            out = replay.patch_command("a\n" + line + "b\n", "sonnet")
+            self.assertEqual(out, "a\n" + line.replace("`opus`", "`sonnet`", 1) + "b\n")
+            self.assertEqual(out.count("`opus`"), 0)
 
     def test_missing_line_fails_instead_of_running_the_wrong_arm(self):
         with self.assertRaises(SystemExit):

@@ -9,17 +9,19 @@ Nothing is posted anywhere. See README.md next to this file.
 import argparse, datetime, gzip, hashlib, json, os, pathlib, re, shutil, subprocess, sys
 
 KIT = pathlib.Path(__file__).resolve().parent.parent
-VERIFIER_LINE = "- Model: `opus` for a defect, interaction, security or failure-path candidate;"
+# 7.4's model line: "- Model: `opus` for <kinds> candidate; `sonnet` for <kinds> candidate." The first model is the one patched,
+# whichever kinds the command gives it (the line was reworded when the defect verifier moved to sonnet).
+VERIFIER_LINE = re.compile(r"^(- Model: )`opus`( for [^`\n]*candidate; `[a-z0-9.-]+` for )", re.M)
 
 
 def patch_command(text, verifier_model):
-    """The command with its defect, interaction, security and failure-path verifiers on `verifier_model`.
+    """The command with the verifiers 7.4 puts on `opus` moved to `verifier_model`.
     Fails when the line is not found, so a reworded command cannot silently run the unpatched arm."""
     if not re.fullmatch(r"[a-z0-9.-]+", verifier_model):
         raise SystemExit(f"bad verifier model: {verifier_model!r}")
-    if text.count(VERIFIER_LINE) != 1:
+    if len(VERIFIER_LINE.findall(text)) != 1:
         raise SystemExit("the command's verifier-model line (7.4) was not found exactly once: update VERIFIER_LINE")
-    return text.replace(VERIFIER_LINE, VERIFIER_LINE.replace("`opus`", f"`{verifier_model}`"))
+    return VERIFIER_LINE.sub(lambda m: f"{m.group(1)}`{verifier_model}`{m.group(2)}", text)
 
 
 def workflow_settings(workflow_text):
