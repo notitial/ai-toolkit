@@ -42,6 +42,8 @@ Ask clarifying questions before coding when:
 
 Ask 2-5 focused, decision-oriented questions. Always stop and ask on the risk topics listed under "Unattended (armed) runs" above. Proceed without questions only if the request is fully specified and clearly low-risk.
 
+Write each question and option in plain language: what the thing does, what you recommend and why, what each choice costs. Keep plan-internal labels ("step 38", "decision 3") and file:line cites out of the question; they belong in the written record (STATE, reports). If a free-text answer is ambiguous or changes a standing rule, record it verbatim and ask one plain follow-up.
+
 ## Validation
 Validate changes. Run the most relevant checks available (build/typecheck, unit/integration tests, lint/format). If automated checks are not available, do a manual sanity check: code paths compile/run, key scenarios are covered, and errors are handled.
 

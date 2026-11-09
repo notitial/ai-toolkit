@@ -17,7 +17,7 @@ Start here. Documents are numbered in reading order, but each is standalone.
 
 ### Context
 - **08** [Context Management](08-context-management.md) — Token optimization: checkpoints, compaction, session degradation
-- **09** [Structural Context](09-structural-context.md) — Repo maps, code graphs, and structural indexing for agent navigation
+- **09** [Structural Context](09-structural-context.md) — Key paths, golden files, the native LSP tool, repo maps and code graphs for agent navigation
 
 ### Quality
 - **10** [Reviews](10-reviews.md) — Multi-agent review: layered gates, severity rubrics, readiness verdicts

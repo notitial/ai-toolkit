@@ -52,7 +52,7 @@ Classify the project's AI-assisted development maturity based on which artifacts
 - Convergence patterns with iteration caps
 - Structured report formats for inter-agent communication
 - Multiple agent roles with role-appropriate tool scoping
-- For repos exceeding 500 files: structural context tooling (code graph MCP server, repo map generator, or equivalent) configured and referenced in CLAUDE.md
+- For repos exceeding 500 files: structural context per doc 09 (key paths, golden files, a CLAUDE.md in major subdirectories), with heavier tooling (the code-intelligence plugin, a repo map, a code graph server) only where doc 09's signals call for it
 
 **Typical indicators:**
 - Orchestrator agent or launch prompt that can run unattended
@@ -61,7 +61,7 @@ Classify the project's AI-assisted development maturity based on which artifacts
 - Wave-based execution grouping tasks by dependency
 - Commit verification after agent completion
 - Review layers (self-review, design review, or full review)
-- Code graph MCP server or repo map for large codebases
+- Per-directory CLAUDE.md files, or the code-intelligence plugin, in large codebases
 
 **What to check at this level:** All 10 categories. Category 9 only if multi-platform. Category 10 only if repo exceeds 500 files.
 
@@ -73,7 +73,7 @@ Classify the project's AI-assisted development maturity based on which artifacts
 3. If Level A is met, check for skills/commands. If fewer than 2 → Level A.
 4. If Level B is met, check every Level C criterion above: orchestration artifacts (checkpoint, convergence,
    structured reports), multiple agent roles with role-appropriate tool scoping and, in a repo over 500 files,
-   structural context tooling. If any is missing → Level B, and list the missing ones as the gap to Level C.
+   structural context per doc 09. If any is missing → Level B, and list the missing ones as the gap to Level C.
 5. If all are present → Level C.
 
 When a project is between levels (e.g., has CLAUDE.md and skills but no rules), classify it at the lower level (here
