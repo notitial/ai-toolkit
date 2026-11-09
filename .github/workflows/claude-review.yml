@@ -587,7 +587,7 @@ jobs:
                  mode: $mode,
                  event: $event,
                  head_sha: ($head | if test("^[0-9a-f]{40}$") then . else null end),
-                 reviewer: "claude-pr-review@v3.1",
+                 reviewer: "claude-pr-review@v3.2",
                  action: "anthropics/claude-code-action@f27be6b65a4652f08a2ba3cff79114829b588967",
                  total_cost_usd: ((.total_cost_usd | numbers) // null),
                  duration_ms: ((.duration_ms | numbers) // null),
