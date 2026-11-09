@@ -88,9 +88,35 @@ Three modes:
 ## Reviewer cases
 
 `cases/` holds changes the reviewer saw and let through, each with the finding it should have raised, checked by the
-owner. They are the regression set for changes to the command, `REVIEW.md` or the model; there is no runner yet, and
-the set starts empty in this repo. Format and how to add one: `cases/README.md`. `tests/test_cases.py` checks the
-shape.
+owner. They are the regression set for changes to the command, `REVIEW.md` or the model; there is no scorer yet (the
+replay runner below runs a PR but does not score it), and the set starts empty in this repo. Format and how to add
+one: `cases/README.md`. `tests/test_cases.py` checks the shape.
+
+### Replaying a PR offline
+
+`replay/replay.py` (stdlib Python, git on the path, `claude` logged in) runs one PR through the review command on a
+local `claude -p`, to compare a command or a model change on PRs already reviewed. It posts nothing and calls no
+GitHub API: it fetches `refs/pull/<N>/head`, builds the context folder from git (`pr.json` with state `OPEN` and
+`isDraft` false so the gate passes, `pr-files.json`, `pr.diff`), checks the head out in a clone under `--work-dir`
+(default `/tmp/review-replay`), restores `.claude/` and the root `CLAUDE.md` from `--base` as the workflow does,
+installs the command, and runs `claude -p` with the workflow's own `--disallowedTools`, `TOOLS` and result schema,
+read from `claude-review.yml` so they cannot drift. Each run is one full review: use the subscription outside a busy
+window and run PRs one after the other.
+
+```text
+python3 -I -B tools/claude-review/replay/replay.py --repo OWNER/NAME --pr N --base BASE_SHA --head HEAD_SHA \
+  [--verifier-model sonnet] [--arm NAME] [--run K] [--title T] [--body-file F] [--command FILE] [--model M] [--prepare-only]
+```
+
+- `--verifier-model` rewrites the 7.4 line for the defect, interaction, security and failure-path verifiers in a temp
+  copy of the command; the run fails if the line has changed, so a reworded command cannot run the unpatched arm.
+- Results go to `~/review-replay-results/<owner_name>/pr<N>-<head8>-<arm>-<run>.json` (the result, `total_cost_usd`,
+  per-model cost, duration, turns, agent count by requested model) plus the gzipped stream next to it. Nothing is
+  written in the repo.
+- Differences from CI: the PR title and description are placeholders unless given, the lead model is the CLI's
+  default for the account, and the review runs on your machine's `claude` version, not the pinned action's.
+
+`tests/test_replay.py` covers the parts that do not call claude.
 
 ## REVIEW.md (the owner's review brief)
 
