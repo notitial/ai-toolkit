@@ -70,6 +70,16 @@ class Context(unittest.TestCase):
             self.assertIsNone(files["renamed.txt"]["patch"])
 
 
+class Command(unittest.TestCase):
+    def test_tool_limits_and_model_reach_the_claude_command(self):
+        s = replay.workflow_settings((KIT / "claude-review.yml").read_text())
+        cmd = replay.claude_command(s, pathlib.Path("/ctx"), "/claude-pr-review x", "sonnet")
+        self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
+        self.assertEqual(cmd[cmd.index("--allowedTools") + 1], "Agent,Task")
+        self.assertEqual(cmd[cmd.index("--add-dir") + 1], "/ctx")
+        self.assertNotIn("Bash", cmd[cmd.index("--allowedTools") + 1])
+
+
 class Summarize(unittest.TestCase):
     def test_counts_agents_by_model_and_reads_the_result(self):
         lines = [

@@ -158,7 +158,7 @@ def main(argv=None):
     p.add_argument("--command", default=str(KIT / "claude-pr-review.md"), help="the review command file")
     p.add_argument("--workflow", default=str(KIT / "claude-review.yml"), help="the workflow to take tool limits from")
     p.add_argument("--verifier-model", help="run the 7.4 defect, interaction, security and failure-path verifiers on this model")
-    p.add_argument("--model", help="the lead's model (default: the CLI default, as in the workflow)")
+    p.add_argument("--model", default="sonnet", help="the lead's model; CI's main session runs on sonnet (default)")
     p.add_argument("--arm", default="asis", help="label for the results file")
     p.add_argument("--run", type=int, default=1, help="repeat number, for the results file")
     p.add_argument("--title", help="the PR title (default: a placeholder)")

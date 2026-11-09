@@ -113,8 +113,9 @@ python3 -I -B tools/claude-review/replay/replay.py --repo OWNER/NAME --pr N --ba
 - Results go to `~/review-replay-results/<owner_name>/pr<N>-<head8>-<arm>-<run>.json` (the result, `total_cost_usd`,
   per-model cost, duration, turns, agent count by requested model) plus the gzipped stream next to it. Nothing is
   written in the repo.
-- Differences from CI: the PR title and description are placeholders unless given, the lead model is the CLI's
-  default for the account, and the review runs on your machine's `claude` version, not the pinned action's.
+- Differences from CI: the PR title and description are placeholders unless given, the lead
+  model is `sonnet` (CI's main session runs on it; the workflow pins no model, so `--model` overrides this default),
+  and the review runs on your machine's `claude` version, not the pinned action's.
 
 `tests/test_replay.py` covers the parts that do not call claude.
 
