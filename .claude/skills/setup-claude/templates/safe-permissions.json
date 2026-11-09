@@ -296,7 +296,7 @@
     "type": "command",
     "command": "bash $HOME/.claude/statusline.sh"
   },
-  "_autoMode_comment": "Auto mode classifier context, user scope (the classifier never reads autoMode from a project's .claude/settings*.json). Every list keeps the literal \"$defaults\": a list without it REPLACES the built-in one. MERGED list by list, not overwritten: see SKILL.md Step 10, Auto mode. Machine-wide on purpose; skillOverrides turns off /auto-mode-setup, whose per-repo drafts replace the environment list. Angle-bracket placeholders (the GitHub login, the LAN host, the router IP) are filled from ~/.claude/install.conf by `install-copies.sh automode` before any merge or comparison; an entry whose setting is unset is dropped, never written with a placeholder.",
+  "_autoMode_comment": "Auto mode classifier context, user scope (the classifier never reads autoMode from a project's .claude/settings*.json). Every list keeps the literal \"$defaults\": a list without it REPLACES the built-in one. MERGED list by list, not overwritten: see SKILL.md Step 10, Auto mode. Machine-wide on purpose; skillOverrides turns off /auto-mode-setup, whose per-repo drafts replace the environment list (more in _startContext_comment). Angle-bracket placeholders (the GitHub login, the LAN host, the router IP) are filled from ~/.claude/install.conf by `install-copies.sh automode` before any merge or comparison; an entry whose setting is unset is dropped, never written with a placeholder.",
   "autoMode": {
     "environment": [
       "$defaults",
@@ -315,9 +315,17 @@
       "Router Changes [named+specifics — **must name:** the change]: any state-changing command over ssh to <router.ip> or through its web UI, such as editing, adding or removing config, reloading or restarting a service, firewall or DNS changes, package installs or firmware upgrades. Not covered: read-only commands that print no secrets. This applies in addition to the default rules; the user's words must satisfy the must-name item of every rule that matches"
     ]
   },
+  "_startContext_comment": "Start-context cut, user scope: about 5.1k tokens less loaded at every session start (42.6k to 37.4k, measured 2026-11-09). ADDITIVE like skillOverrides: add a key that is absent, never overwrite a live value, report it. skillOverrides switches off built-in skills not used locally. syncClaudeAiSkills and syncClaudeAiPlugins switch off every claude.ai-synced skill and plugin (today the engineering plugin). Trade-off: claude.ai skills, skill-creator included, no longer load locally.",
   "skillOverrides": {
-    "auto-mode-setup": "off"
+    "auto-mode-setup": "off",
+    "dataviz": "off",
+    "claude-api": "off",
+    "schedule": "off",
+    "run": "off",
+    "keybindings-help": "off"
   },
+  "syncClaudeAiSkills": false,
+  "syncClaudeAiPlugins": false,
   "_migration": {
     "_comment": "Bash git permissions replaced by MCP git. Remove these if found in existing settings.",
     "removeBashGit": [
