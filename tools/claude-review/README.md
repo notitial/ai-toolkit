@@ -12,10 +12,13 @@ copies equal to these (`tests/test_install.py` checks).
 
 | File | Install path in the target repo | SHA-256 |
 |---|---|---|
-| [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` | `11c526b5d9d347ee96141b76523ce6e9bf530acb1114389f35b64968433d2cb2` |
-| [claude-pr-review.md](claude-pr-review.md) | `.claude/commands/claude-pr-review.md` | `7b96973af49215e0ab073d305df5651d996ca7ba90ccbb0c9533e40a4d5b8137` |
+| [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` | `66fa83fd3720a054d571abf3d01bef77e100f88e28884883a3c588938fb4da8e` |
+| [claude-pr-review.md](claude-pr-review.md) | `.claude/commands/claude-pr-review.md` | `bc2a803832478c6fc811e94ca419c5b424bd162e402d84dce5acd5309c193f01` |
 
-**Version:** v3.1 (2026-11-05): a sixth review pass flags private data (credentials, people, clients, private ticket
+**Version:** v3.2 (2026-11-09): a cheaper model mix. The defects pass and its verifiers, and the judges of a
+`--comments` follow-up, run on `sonnet` instead of `opus`; interaction, security and failure-path passes and
+verifiers, and the judges of a full `@claude review`, stay on `opus`. Findings format and modes are unchanged.
+v3.1 (2026-11-05): a sixth review pass flags private data (credentials, people, clients, private ticket
 keys, hosts and home paths, ignored folders) in the lines a PR adds and in its title and description, and the review
 is told never to repeat the value. v3.0 (2026-11-04): a new review command, written from the kit's interface alone. It keeps v2.5's result
 format and modes, and an incomplete review now posts no verdict instead of approving. v2.5 (2026-10-24): a full
@@ -394,7 +397,7 @@ Don't loosen any of this when adapting the files.
 
 - Keep `RESULT_SCHEMA` in the workflow byte-identical with the schema in the command's "The result" section (a test
   checks).
-- Keep the cost record's `reviewer` string (`claude-pr-review@v3.1`) equal to the version above (a test checks).
+- Keep the cost record's `reviewer` string (`claude-pr-review@v3.2`) equal to the version above (a test checks).
 - Run `tests/` after any change to the inline scripts.
 - `REVIEW.md` (repo root) is the repo's own file, not part of the kit: edit it freely.
 - A new version updates both files here first, with new SHAs in the table above, then this repo's installed copies in
