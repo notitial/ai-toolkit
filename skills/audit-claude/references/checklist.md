@@ -122,6 +122,6 @@ Evaluation criteria distilled from the knowledge base in `docs/`. Each check pro
 | # | Check | How to verify |
 |---|-------|---------------|
 | 10.1 | Key paths table exists in CLAUDE.md | Already checked in 1.7 — reference that result |
-| 10.2 | Structural context appropriate for repo size | Count files in repo. If >500 and no repo map, code graph MCP, or structural index exists, flag as PARTIAL. If >2000 with no structural tooling, flag as MISSING |
-| 10.3 | Code graph MCP server configured for large repos | Check `mcp.json` or `.mcp.json` for code indexing servers. N/A for repos under 500 files |
-| 10.4 | No entire-repo context dumps | Check for tools or scripts that flatten entire repos into single files for context injection. Flag as anti-pattern if found |
+| 10.2 | Structural context appropriate for repo size | In a large repo (roughly 500+ files), check doc 09 Tiers 1-2: a key paths table, golden files, a CLAUDE.md in major subdirectories. Flag as PARTIAL only if those are thin and nothing else covers navigation. A missing repo map or code graph server is never a finding on file count alone: doc 09 adds them only when its "Choosing the Right Tier" signals show Tiers 1-2 fall short |
+| 10.3 | Heavier structural tooling is justified | If a code-intelligence (LSP) plugin, repo map or code graph MCP server (`.mcp.json`) is configured, check that it is referenced in CLAUDE.md. N/A when none is configured |
+| 10.4 | No entire-repo context dumps or LLM-built maps | Check for tools or scripts that flatten entire repos into single files for context injection, or generate a codebase map whose layers an LLM writes. Flag as anti-pattern if found (doc 09, Anti-Patterns) |
