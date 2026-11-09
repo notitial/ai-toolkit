@@ -36,7 +36,7 @@ Do the steps in order: later ones assume earlier ones (the ruleset names the CI 
 
 - **Squash merge only** (merge commits and rebase merges off), with the squash commit taking the PR title and description. Why: the PR title becomes the one commit on `main`, so the title rule (step 5) is the commit rule.
 - **Always suggest updating pull request branches** (`allow_update_branch`). Why: without it the Update branch button shows only when a rule requires up-to-date branches, and agents bring a stale branch current by merging `main` into it, never by rebasing (`rules/workflow.md`, Stale PR Branches). There is no org-level switch: set it on every repo.
-- **Automatically delete head branches** (`delete_branch_on_merge`). Why: a merged branch left on the remote reads as open work; the local copy is deleted separately once its tip matches the merged PR head.
+- **Automatically delete head branches** (`delete_branch_on_merge`). Why: a merged branch left on the remote reads as open work; the local copy is deleted separately once its tip matches the merged PR head. The setting fires on merge only: closing a PR without merging (a superseded Dependabot PR, an abandoned branch) leaves its branch, so delete the branch in the same step as the close.
 - Open (no decision recorded yet): GitHub secret scanning and push protection, Dependabot alerts. Until then, the CI gitleaks job (step 4) is the only scan. The audit reports each repo's current value; decide once, then add the row here.
 
 ### 3. CI workflow
