@@ -157,9 +157,13 @@ def summarize(stream_lines):
             m = json.loads(line)
         except ValueError:
             continue
+        if not isinstance(m, dict):
+            continue
         if m.get("type") == "result":
             result = m
-        for block in (m.get("message") or {}).get("content") or []:
+        message = m.get("message")   # some stream messages (system notices) carry a plain string here
+        content = message.get("content") if isinstance(message, dict) else None
+        for block in content if isinstance(content, list) else []:
             if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") in ("Agent", "Task"):
                 model = (block.get("input") or {}).get("model") or "default"
                 agents[model] = agents.get(model, 0) + 1
