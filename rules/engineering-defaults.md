@@ -26,5 +26,8 @@ Handle error paths explicitly (network failures, missing data, invalid inputs, e
 ## Testing
 Write tests for new functionality when a test suite exists. Maintain or improve existing test coverage. Do not remove or weaken existing tests without explicit approval. **Verify in proportion:** run the smallest check that discriminates the question, not the most — over-verification (another check, round, or reviewer on a finding already understood) is a failure mode of equal standing to under-verification.
 
+## Proportionate Hardening
+Weigh the realistic setting before adding a guard or another fix round. Drop edge cases and attackers that cannot occur where the code runs (a bootstrap step that runs once on a fresh machine before any agent exists needs no defence against a hostile agent). Prefer the simple guard: layered fix rounds make code dense and hard for a person to follow. Before briefing a fix for an obscure finding, ask whether a human designer would decide to handle it, and say so when you recommend not fixing it. This never relaxes input validation or the other rules in `rules/security.md`, and the risk topics in `rules/workflow.md` still go to the user.
+
 ## Dependencies
 Avoid adding dependencies unless there is a clear benefit. Prefer built-in libraries and existing dependencies. If adding a dependency is necessary, choose a maintained, widely used option and document why it's needed.

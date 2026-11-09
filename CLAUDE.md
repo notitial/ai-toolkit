@@ -52,7 +52,7 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 - Commit titles: `<prefix>: <description>` — prefix is one of `docs` (knowledge base, ADRs), `feat` (new tool/agent/skill/hook capability), `fix` (broken behavior corrected), `chore` (repo maintenance). Never a bare, unprefixed title.
 - Imperative mood, lowercase, title ≤50 characters. Specifics go in the body, not the title.
 - One commit per logical change. Squash review-churn ("address findings", "round-N fixes") into the commit it amends before landing; never commit the same fix twice.
-- Squash-merge PRs (the repo allows nothing else): the PR title, with its `(#N)`, becomes the commit title, and the PR description becomes the commit body — so the title must be conventional and the description must stand as the commit's record. Avoid merge commits on `main` — pull with `--ff-only`.
+- Squash-merge PRs (the repo allows nothing else): the PR title, with its `(#N)`, becomes the commit title, and the PR description becomes the commit body — so the title must be conventional and the description must stand as the commit's record. After a fix round changes what a PR does (counts, behavior, review status), re-read the description against the final head and update it before handing the PR over: a merged commit message can't be fixed. Avoid merge commits on `main` — pull with `--ff-only`.
 - No force push. A PR branch that falls behind `main` gets `main` merged in, never a rebase (`rules/workflow.md`, Stale PR Branches).
 - No worktrees; branch in a plain clone under `/tmp` (see Where agents edit). Never push to `main`; land every change through a PR.
 - Check for secrets before committing — no `.env`, API keys, credentials.
