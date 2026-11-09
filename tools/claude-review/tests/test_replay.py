@@ -80,6 +80,38 @@ class Context(unittest.TestCase):
             self.assertIsNone(files["renamed.txt"]["patch"])
 
 
+class ContextEdgeCases(unittest.TestCase):
+    def test_non_utf8_file_and_glob_like_names(self):
+        with tempfile.TemporaryDirectory() as d:
+            run("init", "-q", cwd=d)
+            run("config", "user.email", "t@example.com", cwd=d)
+            run("config", "user.name", "t", cwd=d)
+            p = pathlib.Path(d)
+            (p / "keep.txt").write_text("x\n")
+            run("add", ".", cwd=d)
+            run("commit", "-qm", "base", cwd=d)
+            base = replay.git("rev-parse", "HEAD", cwd=d).strip()
+            (p / "latin.txt").write_bytes("caf\xe9\r\n".encode("latin-1"))
+            (p / "[id].tsx").write_text("one\n")
+            (p / "i.tsx").write_text("two\ntwo\n")
+            run("add", "-A", cwd=d)
+            run("commit", "-qm", "head", cwd=d)
+            head = replay.git("rev-parse", "HEAD", cwd=d).strip()
+            files = {f["filename"]: f for f in replay.file_entries(d, base, head)}
+            self.assertEqual(set(files), {"latin.txt", "[id].tsx", "i.tsx"})
+            self.assertEqual(files["[id].tsx"]["additions"], 1)   # not also i.tsx's 2 lines
+            self.assertEqual(files["i.tsx"]["additions"], 2)
+            self.assertIn("�", files["latin.txt"]["patch"])
+
+    def test_clone_dir_that_is_not_a_clone_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            work = pathlib.Path(d) / "w"
+            (work / "clone").mkdir(parents=True)
+            args = type("A", (), {"repo": "o/r", "pr": 1, "base": "auto", "head": "0" * 40})()
+            with self.assertRaises(SystemExit):
+                replay.prepare_clone(args, work)
+
+
 class Command(unittest.TestCase):
     def test_tool_limits_and_model_reach_the_claude_command(self):
         s = replay.workflow_settings((KIT / "claude-review.yml").read_text())
@@ -112,6 +144,13 @@ class Summarize(unittest.TestCase):
 
     def test_no_result_message(self):
         self.assertIsNone(replay.summarize(["{}"]))
+
+    def test_structured_output_as_json_string_or_missing(self):
+        def result(out):
+            return [json.dumps({"type": "result", "is_error": False, "structured_output": out})]
+        self.assertEqual(replay.summarize(result('{"findings": []}'))["structured_output"], {"findings": []})
+        self.assertIsNone(replay.summarize(result("not json"))["structured_output"])
+        self.assertIsNone(replay.summarize(result(None))["structured_output"])
 
 
 if __name__ == "__main__":

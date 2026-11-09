@@ -117,7 +117,11 @@ python3 -I -B tools/claude-review/replay/replay.py --repo OWNER/NAME --pr N --he
   written in the repo.
 - Differences from CI: the PR title and description are placeholders unless given, the lead
   model is `sonnet` (CI's main session runs on it; the workflow pins no model, so `--model` overrides this default),
-  and the review runs on your machine's `claude` version, not the pinned action's.
+  the review runs on your machine's `claude` version, not the pinned action's, and `.claude/` and `CLAUDE.md` come
+  from the PR's merge base, not the default branch's tip.
+- `--base auto` fails when the head is already in the default branch's history (a PR merged with a merge commit): pass
+  `--base` then. A run that returns no structured result exits 1 with `NO RESULT`: do not score it. Set
+  `ANTHROPIC_API_KEY` and `claude` bills the API instead of the subscription (the runner warns).
 
 `tests/test_replay.py` covers the parts that do not call claude.
 

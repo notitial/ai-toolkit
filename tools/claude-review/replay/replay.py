@@ -38,21 +38,33 @@ def workflow_settings(workflow_text):
     return {"allowed": tools, "disallowed": deny, "schema": schema}
 
 
-def git(*args, cwd=None, check=True, text=True):
-    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=text)
-    if check and r.returncode:
-        err = r.stderr if text else r.stderr.decode(errors="replace")
-        raise SystemExit(f"git {' '.join(args[:2])} failed: {err.strip()[:300]}")
+# Plain git, whatever the user's config says: literal paths, GitHub's a/ b/ prefixes, no external diff, no colour.
+GIT = ["git", "--literal-pathspecs", "-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false",
+       "-c", "color.ui=false", "-c", "core.quotepath=false"]
+DIFF = ["--no-ext-diff", "--no-textconv", "--no-color"]
+GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+
+def run_git(args, cwd):
+    r = subprocess.run([*GIT, *args], cwd=cwd, env=GIT_ENV, capture_output=True)   # bytes: no newline translation
+    r.stdout, r.stderr = (b.decode("utf-8", errors="replace") for b in (r.stdout, r.stderr))
+    return r
+
+
+def git(*args, cwd=None):
+    r = run_git(args, cwd)
+    if r.returncode:
+        raise SystemExit(f"git {' '.join(args[:2])} failed: {r.stderr.strip()[:300]}")
     return r.stdout
 
 
 def git_ok(*args, cwd):
-    return subprocess.run(["git", *args], cwd=cwd, capture_output=True).returncode == 0
+    return run_git(args, cwd).returncode == 0
 
 
 def file_entries(clone, merge_base, head):
     """pr-files.json: what the pulls/files API returns for each changed file (renames detected, binary files without a patch)."""
-    out = git("diff", "-M", "--name-status", "-z", merge_base, head, cwd=clone)
+    out = git("diff", *DIFF, "-M", "--name-status", "-z", merge_base, head, cwd=clone)
     parts = out.split("\0")
     entries, i = [], 0
     while i < len(parts) and parts[i]:
@@ -61,10 +73,12 @@ def file_entries(clone, merge_base, head):
             old, new, i = parts[i + 1], parts[i + 2], i + 3
         else:
             old, new, i = None, parts[i + 1], i + 2
-        numstat = git("diff", "-M", "--numstat", merge_base, head, "--", *( [old, new] if old else [new] ), cwd=clone).split("\t")
+        paths = [old, new] if old else [new]
+        numstat = git("diff", *DIFF, "-M", "--numstat", merge_base, head, "--", *paths, cwd=clone).split("\t")
         binary = numstat[0] == "-"
-        diff = git("diff", "-M", merge_base, head, "--", *([old, new] if old else [new]), cwd=clone)
-        patch = None if binary or "@@" not in diff else diff[diff.index("\n@@") + 1:]
+        diff = git("diff", *DIFF, "-M", merge_base, head, "--", *paths, cwd=clone)
+        hunks = re.search(r"^@@ ", diff, re.M)
+        patch = None if binary or not hunks else diff[hunks.start():]
         entries.append({
             "filename": new,
             "status": {"A": "added", "D": "removed", "R": "renamed", "C": "copied"}.get(code, "modified"),
@@ -86,14 +100,16 @@ def build_context(clone, ctx, args, merge_base):
         "files": [{"path": f["filename"], "additions": f["additions"], "deletions": f["deletions"]} for f in files[:100]],
         "url": f"https://github.com/{args.repo}/pull/{args.pr}",
     }
-    (ctx / "pr.json").write_text(json.dumps(pr))
-    (ctx / "pr-files.json").write_text(json.dumps(files))
-    (ctx / "pr.diff").write_text(git("diff", "-M", merge_base, args.head, cwd=clone))
+    (ctx / "pr.json").write_text(json.dumps(pr), encoding="utf-8")
+    (ctx / "pr-files.json").write_text(json.dumps(files), encoding="utf-8")
+    (ctx / "pr.diff").write_text(git("diff", *DIFF, "-M", merge_base, args.head, cwd=clone), encoding="utf-8", newline="")
     return files
 
 
 def prepare_clone(args, work):
     clone = work / "clone"
+    if clone.exists() and not (clone / ".git").exists():
+        raise SystemExit(f"{clone} exists but is not a clone: remove it or use another --work-dir")
     if not clone.exists():
         work.mkdir(parents=True, exist_ok=True)
         git("clone", "--quiet", "--no-checkout", f"https://github.com/{args.repo}.git", str(clone))
@@ -104,14 +120,17 @@ def prepare_clone(args, work):
         refs.append(args.base)
     git("fetch", "--quiet", "origin", *refs, cwd=clone)
     base = git("rev-parse", "refs/replay/default" if args.base == "auto" else args.base, cwd=clone).strip()
-    git("cat-file", "-e", f"{args.head}^{{commit}}", cwd=clone)
+    if not git_ok("cat-file", "-e", f"{args.head}^{{commit}}", cwd=clone) or not git_ok("cat-file", "-e", f"{base}^{{commit}}", cwd=clone):
+        raise SystemExit("head or base is not in the fetched history (a force-pushed PR?)")
     merge_base = git("merge-base", base, args.head, cwd=clone).strip()
+    if merge_base == args.head:
+        raise SystemExit("the head is already in the base's history, so there is no diff: pass --base <the PR's base SHA>")
     git("checkout", "--quiet", "--force", "--detach", args.head, cwd=clone)
     git("clean", "-fdxq", cwd=clone)
     # The workflow runs the default branch's .claude/ and root CLAUDE.md, whatever the PR changes: take them from the base.
     for path in (".claude", "CLAUDE.md"):
         target = clone / path
-        if target.is_dir():
+        if target.is_dir() and not target.is_symlink():
             shutil.rmtree(target)
         else:
             target.unlink(missing_ok=True)
@@ -136,8 +155,14 @@ def summarize(stream_lines):
                 agents[model] = agents.get(model, 0) + 1
     if result is None:
         return None
+    out = result.get("structured_output")
+    if isinstance(out, str):   # the workflow's own save step accepts a JSON string too
+        try:
+            out = json.loads(out)
+        except ValueError:
+            out = None
     return {
-        "structured_output": result.get("structured_output"),
+        "structured_output": out if isinstance(out, dict) else None,
         "is_error": result.get("is_error"),
         "subtype": result.get("subtype"),
         "total_cost_usd": result.get("total_cost_usd"),
@@ -184,6 +209,10 @@ def main(argv=None):
             raise SystemExit(f"--{k} must be a full 40-character SHA" + (" (or auto)" if k == "base" else ""))
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", args.repo):
         raise SystemExit("--repo must look like owner/name")
+    if not re.fullmatch(r"[\w.-]+", args.arm):
+        raise SystemExit("--arm may hold only letters, digits, _ . -")
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        print("warning: ANTHROPIC_API_KEY is set, so claude bills the API instead of the subscription", file=sys.stderr)
 
     command_text = pathlib.Path(args.command).read_text()
     if args.verifier_model:
@@ -191,7 +220,7 @@ def main(argv=None):
     settings = workflow_settings(pathlib.Path(args.workflow).read_text())
 
     slug = args.repo.replace("/", "_")
-    work = pathlib.Path(args.work_dir) / slug
+    work = pathlib.Path(args.work_dir).expanduser().resolve() / slug
     clone, merge_base = prepare_clone(args, work)
     cmd_path = clone / ".claude" / "commands" / "claude-pr-review.md"
     cmd_path.parent.mkdir(parents=True, exist_ok=True)
@@ -199,6 +228,8 @@ def main(argv=None):
     ctx = work / f"context-{args.pr}-{args.head[:8]}"
     shutil.rmtree(ctx, ignore_errors=True)
     files = build_context(clone, ctx, args, merge_base)
+    if not files:
+        raise SystemExit("the PR changes no files between the merge base and the head: nothing to review")
     prompt = f"/claude-pr-review {args.repo}/pull/{args.pr} --mode initial --context {ctx}"
     cmd = claude_command(settings, ctx, prompt, args.model)
     print(f"prepared {args.repo}#{args.pr}: {len(files)} files, clone {clone}, context {ctx}", file=sys.stderr)
@@ -206,7 +237,7 @@ def main(argv=None):
         print(json.dumps(cmd))
         return 0
 
-    out_dir = pathlib.Path(args.results_dir) / slug
+    out_dir = pathlib.Path(args.results_dir).expanduser().resolve() / slug
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = f"pr{args.pr}-{args.head[:8]}-{args.arm}-{args.run}"
     started = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
@@ -219,7 +250,7 @@ def main(argv=None):
     with gzip.open(out_dir / f"{stem}.stream.jsonl.gz", "wt") as f:
         f.write(stream)
     record = {
-        "repo": args.repo, "pr": args.pr, "base": args.base, "head": args.head, "arm": args.arm, "run": args.run,
+        "repo": args.repo, "pr": args.pr, "base": args.base, "merge_base": merge_base, "head": args.head, "arm": args.arm, "run": args.run,
         "verifier_model": args.verifier_model, "lead_model": args.model,
         "command_sha256": hashlib.sha256(command_text.encode()).hexdigest(),
         "started": started, "exit_code": rc, "stderr_tail": stderr,
@@ -227,9 +258,13 @@ def main(argv=None):
     }
     (out_dir / f"{stem}.json").write_text(json.dumps(record, indent=1))
     s = record["summary"] or {}
+    result = s.get("structured_output")
+    if result is None:
+        print(f"{stem}: NO RESULT (exit {rc}): do not score this run", file=sys.stderr)
+        return 1
     print(f"{stem}: exit {rc}, ${s.get('total_cost_usd')}, {s.get('agent_calls')} agents, "
-          f"{len((s.get('structured_output') or {}).get('findings') or [])} findings", file=sys.stderr)
-    return 0 if record["summary"] and not record["summary"]["is_error"] else 1
+          f"{len(result.get('findings') or [])} findings", file=sys.stderr)
+    return 0 if not s.get("is_error") else 1
 
 
 if __name__ == "__main__":
