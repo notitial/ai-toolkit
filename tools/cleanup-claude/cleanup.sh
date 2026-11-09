@@ -227,8 +227,11 @@ def toolkit_cmd:
     .deniedMcpServers |= map(select(. as $e | ([tl.deniedMcpServers[]? | select(.serverUrl == ($e | try .serverUrl catch null))] | length) == 0))
     | prune("deniedMcpServers")
   else . end)
-| (if (.skillOverrides | type) == "object" and .skillOverrides["auto-mode-setup"] == tl.skillOverrides["auto-mode-setup"]
-   then del(.skillOverrides["auto-mode-setup"]) | prune("skillOverrides") else . end)
+| (if (.skillOverrides | type) == "object" then
+    reduce (tl.skillOverrides | keys[]) as $k (.; if .skillOverrides[$k] == tl.skillOverrides[$k] then del(.skillOverrides[$k]) else . end)
+    | prune("skillOverrides")
+  else . end)
+| rm_eq("syncClaudeAiSkills") | rm_eq("syncClaudeAiPlugins")
 | (if (.statusLine | type) == "object" and .statusLine.command == tl.statusLine.command then del(.statusLine) else . end)
 | (if (.hooks | type) == "object" then
     .hooks |= (with_entries(

@@ -50,7 +50,8 @@ mkhome() {  # mkhome -> sets H to a fresh fake home with a toolkit install and s
     env: {CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY: "1", DISABLE_FEEDBACK_COMMAND: "1", ENABLE_CLAUDEAI_MCP_SERVERS: "false", MY_VAR: "x"},
     attribution: {commit: "", pr: "", sessionUrl: false}, autoCompactWindow: 500000, promptCacheTtl: "1h", subagentPromptCacheTtl: "1h", enableAllProjectMcpServers: false,
     deniedMcpServers: [{serverUrl: $url}, {serverUrl: "https://mine.example/*"}],
-    skillOverrides: {"auto-mode-setup": "off", "other-skill": "on"},
+    skillOverrides: {"auto-mode-setup": "off", "dataviz": "off", "claude-api": "off", "schedule": "off", "run": "off", "keybindings-help": "on", "other-skill": "on"},
+    syncClaudeAiSkills: false, syncClaudeAiPlugins: true,
     statusLine: {type: "command", command: $sl},
     enabledPlugins: {($plugin): true, "mine@somewhere": true},
     autoMode: {environment: ["$defaults", $ame, "my own env line"], soft_deny: ["$defaults", $ams, "my own rule"]},
@@ -107,7 +108,8 @@ check "settings: toolkit env keys gone, the connector switch and MY_VAR kept" 'h
 check "settings: attribution, compact window, statusLine gone; the MCP flag (a security entry) kept" 'has "((has(\"attribution\") or has(\"autoCompactWindow\") or has(\"statusLine\")) | not) and .enableAllProjectMcpServers == false"'
 check "settings: an opted-in cache TTL of 1h is gone from both keys" 'has "((has(\"promptCacheTtl\") or has(\"subagentPromptCacheTtl\")) | not)"'
 check "settings: denied MCP servers are kept by default" 'has "(.deniedMcpServers | length) == 2"'
-check "settings: only the user's skill override stays" 'has ".skillOverrides == {\"other-skill\": \"on\"}"'
+check "settings: only the user's skill overrides stay (a template key with another value is theirs)" 'has ".skillOverrides == {\"keybindings-help\": \"on\", \"other-skill\": \"on\"}"'
+check "settings: the matching sync key is gone, the one the user set to another value stays" 'has "(has(\"syncClaudeAiSkills\") | not) and .syncClaudeAiPlugins == true"'
 check "settings: toolkit plugin gone, user plugin kept" 'has ".enabledPlugins == {\"mine@somewhere\": true}"'
 check "settings: the toolkit allow entry is gone, the user's kept" 'has ".permissions.allow == [\"Bash(my-cmd:*)\"]"'
 check "settings: ask entries are kept by default" 'has "(.permissions.ask | index(\"$ASK1\")) != null and (.permissions.ask | index(\"Bash(my-ask:*)\")) != null"'
@@ -296,6 +298,12 @@ mkhome
 jq --slurpfile t "$TEMPLATE" '.autoMode = {environment: $t[0].autoMode.environment}' "$C/settings.json" > "$C/s.tmp" && mv "$C/s.tmp" "$C/settings.json"
 run --apply
 check "autoMode holding only the template's lines is dropped whole" 'has "has(\"autoMode\") | not"'
+
+# ---- skillOverrides and sync keys holding only what the template wrote are dropped whole
+mkhome
+jq --slurpfile t "$TEMPLATE" '.skillOverrides = $t[0].skillOverrides' "$C/settings.json" > "$C/s.tmp" && mv "$C/s.tmp" "$C/settings.json"
+run --apply
+check "skillOverrides holding only the template's keys is dropped whole" 'has "has(\"skillOverrides\") | not"'
 
 # ---- shell rc edge cases
 mkhome

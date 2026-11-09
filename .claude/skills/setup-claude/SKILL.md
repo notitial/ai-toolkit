@@ -304,7 +304,8 @@ Read `templates/safe-permissions.json` for:
 - `permissions.ask` — commands that always prompt (added if missing, never removed)
 - the live checkout denies — not in the template: built from this checkout's real path and added only on the user's go (see **Permissions**)
 - `enabledPlugins` — plugins to ensure are enabled
-- `autoMode` and `skillOverrides` — auto mode classifier context and the /auto-mode-setup switch (merged; see **Auto mode**)
+- `autoMode` and `skillOverrides` — auto mode classifier context and the skill switches (merged; see **Auto mode**)
+- `syncClaudeAiSkills`, `syncClaudeAiPlugins` — claude.ai sync switches, added when absent (see **Start context**)
 - `_migration.removeBashGit` — old Bash git permissions to remove (replaced by MCP git)
 - `_migration.removeOverbroad` — overbroad permissions to remove (e.g. `Bash(cat *)`, which bypasses the workspace read boundary; the Read tool covers it)
 
@@ -576,8 +577,9 @@ own, and written list by list, never as a copy of the template object. Template 
   (umask 077; b="$HOME/.claude/settings.json.bak-$(date +%Y%m%d-%H%M%S)-automode"; cp -n "$HOME/.claude/settings.json" "$b" && chmod 600 "$b" && ls -l "$b")
   ```
 - **`skillOverrides`:** add each template key that is absent (`auto-mode-setup: "off"` turns off the command and its
-  end-of-turn offer, so a per-repo draft cannot replace the list again). A live key with another value is the user's
-  choice: report it, do not overwrite. An added key disables a command, so name it in the report.
+  end-of-turn offer, so a per-repo draft cannot replace the list again; the rest are in **Start context**). A live key
+  with another value is the user's choice: report it, do not overwrite. An added key disables a command, so name it in
+  the report.
 - **Live `allow` or `hard_deny`** (not in the template): leave it as it is, but report whether it has `"$defaults"`.
   A live `allow` without it replaces the built-in exceptions and can be far more permissive than intended; a
   `hard_deny` without it drops the built-in exfiltration rule.
@@ -591,6 +593,17 @@ Step 11 summary.
 A `--settings` file that carries no `autoMode` inherits this
 user-scope block: entries from each scope are combined, per the auto mode docs ("Where the classifier reads
 configuration", code.claude.com/docs/en/auto-mode-config).
+
+### Start context
+
+The template's `skillOverrides` (beyond `auto-mode-setup`), `syncClaudeAiSkills` and `syncClaudeAiPlugins` cut about
+5.1k tokens from every session start (42.6k to 37.4k, measured 2026-11-09). The overrides switch off built-in skills
+not used locally; the sync keys switch off every claude.ai-synced skill and plugin (today the engineering plugin).
+Trade-off: claude.ai skills, `skill-creator` included, no longer load locally.
+
+- **Sync key absent from live settings:** add it with the template value (`false`).
+- **Sync key present, any value:** leave it, report it. It is the user's choice.
+- **`skillOverrides` keys:** merged per key, as under **Auto mode**.
 
 ### Status line
 
@@ -610,7 +623,7 @@ The status line command references `$HOME/.claude/statusline.sh` — this is the
 2. Plugins sorted alphabetically
 3. Hooks after plugins
 4. Status line after hooks
-5. `autoMode`, then `skillOverrides`, after the status line when they are new; an existing key keeps its position
+5. `autoMode`, then `skillOverrides`, then `syncClaudeAiSkills` and `syncClaudeAiPlugins`, after the status line when they are new; an existing key keeps its position
 6. Other fields last
 
 Write the updated `~/.claude/settings.json`.
@@ -687,6 +700,7 @@ Live checkout denies: <root>; added <list> / already present / declined / skippe
 Hooks config: Added / Already configured / Merged
 Status line config: Added / Already configured / Skipped
 Auto mode, per list (environment, soft_deny): Added / Merged <entries added> / Already configured / DRIFT (replaced on go, backup <path> mode 600 | left as is); live allow / hard_deny: <absent | with "$defaults" | WITHOUT "$defaults">; skillOverrides: <keys added, or "none">
+Start context: syncClaudeAiSkills / syncClaudeAiPlugins, per key: Added false / Already set (<value>, left as is)
 Auto mode critique: <the output of `claude auto-mode critique`>
 
 ### Plugins
