@@ -98,13 +98,14 @@ one: `cases/README.md`. `tests/test_cases.py` checks the shape.
 local `claude -p`, to compare a command or a model change on PRs already reviewed. It posts nothing and calls no
 GitHub API: it fetches `refs/pull/<N>/head`, builds the context folder from git (`pr.json` with state `OPEN` and
 `isDraft` false so the gate passes, `pr-files.json`, `pr.diff`), checks the head out in a clone under `--work-dir`
-(default `/tmp/review-replay`), restores `.claude/` and the root `CLAUDE.md` from `--base` as the workflow does,
+(default `/tmp/review-replay`), restores `.claude/` and the root `CLAUDE.md` from the PR's merge base as the workflow
+does (`--base` defaults to `auto`: the default branch's tip, whose merge base with the head is what GitHub diffs),
 installs the command, and runs `claude -p` with the workflow's own `--disallowedTools`, `TOOLS` and result schema,
 read from `claude-review.yml` so they cannot drift. Each run is one full review: use the subscription outside a busy
 window and run PRs one after the other.
 
 ```text
-python3 -I -B tools/claude-review/replay/replay.py --repo OWNER/NAME --pr N --base BASE_SHA --head HEAD_SHA \
+python3 -I -B tools/claude-review/replay/replay.py --repo OWNER/NAME --pr N --head HEAD_SHA [--base BASE_SHA] \
   [--verifier-model sonnet] [--arm NAME] [--run K] [--title T] [--body-file F] [--command FILE] [--model M] [--prepare-only]
 ```
 

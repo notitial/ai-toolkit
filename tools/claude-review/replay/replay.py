@@ -95,8 +95,15 @@ def prepare_clone(args, work):
     if not clone.exists():
         work.mkdir(parents=True, exist_ok=True)
         git("clone", "--quiet", "--no-checkout", f"https://github.com/{args.repo}.git", str(clone))
-    git("fetch", "--quiet", "origin", f"refs/pull/{args.pr}/head", args.base, cwd=clone)
+    refs = [f"refs/pull/{args.pr}/head"]
+    if args.base == "auto":   # the default branch's tip: the PR's merge base is where its head left it
+        refs.append("+HEAD:refs/replay/default")
+    else:
+        refs.append(args.base)
+    git("fetch", "--quiet", "origin", *refs, cwd=clone)
+    base = git("rev-parse", "refs/replay/default" if args.base == "auto" else args.base, cwd=clone).strip()
     git("cat-file", "-e", f"{args.head}^{{commit}}", cwd=clone)
+    merge_base = git("merge-base", base, args.head, cwd=clone).strip()
     git("checkout", "--quiet", "--force", "--detach", args.head, cwd=clone)
     git("clean", "-fdxq", cwd=clone)
     # The workflow runs the default branch's .claude/ and root CLAUDE.md, whatever the PR changes: take them from the base.
@@ -106,9 +113,9 @@ def prepare_clone(args, work):
             shutil.rmtree(target)
         else:
             target.unlink(missing_ok=True)
-        if git_ok("cat-file", "-e", f"{args.base}:{path}", cwd=clone):
-            git("checkout", "--quiet", args.base, "--", path, cwd=clone)
-    return clone, git("merge-base", args.base, args.head, cwd=clone).strip()
+        if git_ok("cat-file", "-e", f"{merge_base}:{path}", cwd=clone):
+            git("checkout", "--quiet", merge_base, "--", path, cwd=clone)
+    return clone, merge_base
 
 
 def summarize(stream_lines):
@@ -153,7 +160,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--repo", required=True, help="owner/name on GitHub")
     p.add_argument("--pr", required=True, type=int)
-    p.add_argument("--base", required=True, help="the PR's base commit")
+    p.add_argument("--base", default="auto", help="the PR's base commit, or auto: the merge base with the default branch")
     p.add_argument("--head", required=True, help="the PR head commit (refs/pull/N/head must contain it)")
     p.add_argument("--command", default=str(KIT / "claude-pr-review.md"), help="the review command file")
     p.add_argument("--workflow", default=str(KIT / "claude-review.yml"), help="the workflow to take tool limits from")
@@ -171,8 +178,8 @@ def main(argv=None):
     args = p.parse_args(argv)
     args.body = pathlib.Path(args.body_file).read_text() if args.body_file else ""
     for k in ("base", "head"):
-        if not re.fullmatch(r"[0-9a-f]{40}", getattr(args, k)):
-            raise SystemExit(f"--{k} must be a full 40-character SHA")
+        if not re.fullmatch(r"[0-9a-f]{40}", getattr(args, k)) and not (k == "base" and args.base == "auto"):
+            raise SystemExit(f"--{k} must be a full 40-character SHA" + (" (or auto)" if k == "base" else ""))
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", args.repo):
         raise SystemExit("--repo must look like owner/name")
 
