@@ -103,6 +103,29 @@ class ContextEdgeCases(unittest.TestCase):
             self.assertEqual(files["i.tsx"]["additions"], 2)
             self.assertIn("�", files["latin.txt"]["patch"])
 
+    def test_file_replaced_by_a_directory_keeps_each_patch_to_its_own_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            run("init", "-q", cwd=d)
+            run("config", "user.email", "t@example.com", cwd=d)
+            run("config", "user.name", "t", cwd=d)
+            p = pathlib.Path(d)
+            (p / "config").write_text("old\n")
+            run("add", ".", cwd=d)
+            run("commit", "-qm", "base", cwd=d)
+            base = replay.git("rev-parse", "HEAD", cwd=d).strip()
+            (p / "config").unlink()
+            (p / "config").mkdir()
+            (p / "config" / "default.yml").write_text("a: 1\nb: 2\n")
+            run("add", "-A", cwd=d)
+            run("commit", "-qm", "head", cwd=d)
+            head = replay.git("rev-parse", "HEAD", cwd=d).strip()
+            files = {f["filename"]: f for f in replay.file_entries(d, base, head)}
+            self.assertEqual(set(files), {"config", "config/default.yml"})
+            self.assertEqual((files["config"]["status"], files["config"]["additions"], files["config"]["deletions"]), ("removed", 0, 1))
+            self.assertNotIn("a: 1", files["config"]["patch"])
+            self.assertEqual((files["config/default.yml"]["status"], files["config/default.yml"]["additions"]), ("added", 2))
+            self.assertNotIn("old", files["config/default.yml"]["patch"])
+
     def test_clone_dir_that_is_not_a_clone_is_refused(self):
         with tempfile.TemporaryDirectory() as d:
             work = pathlib.Path(d) / "w"

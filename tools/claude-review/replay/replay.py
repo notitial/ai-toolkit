@@ -38,8 +38,8 @@ def workflow_settings(workflow_text):
     return {"allowed": tools, "disallowed": deny, "schema": schema}
 
 
-# Plain git, whatever the user's config says: literal paths, GitHub's a/ b/ prefixes, no external diff, no colour.
-GIT = ["git", "--literal-pathspecs", "-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false",
+# Plain git, whatever the user's config says: GitHub's a/ b/ prefixes, no external diff, no colour.
+GIT = ["git", "-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false",
        "-c", "color.ui=false", "-c", "core.quotepath=false"]
 DIFF = ["--no-ext-diff", "--no-textconv", "--no-color"]
 GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
@@ -62,37 +62,47 @@ def git_ok(*args, cwd):
     return run_git(args, cwd).returncode == 0
 
 
-def file_entries(clone, merge_base, head):
-    """pr-files.json: what the pulls/files API returns for each changed file (renames detected, binary files without a patch)."""
-    out = git("diff", *DIFF, "-M", "--name-status", "-z", merge_base, head, cwd=clone)
-    parts = out.split("\0")
-    entries, i = [], 0
+def entries_from(diff, name_status):
+    """pr-files.json: what the pulls/files API returns for each changed file (renames detected, binary files without a patch).
+    `diff` is one `git diff -M` and `name_status` the same diff's `--name-status -z`: git lists the files in the same
+    order in both, so the Nth `diff --git` block belongs to the Nth entry. No path ever goes to git as a pathspec."""
+    parts = name_status.split("\0")
+    names, i = [], 0
     while i < len(parts) and parts[i]:
-        code = parts[i][0]
-        if code in "RC":
-            old, new, i = parts[i + 1], parts[i + 2], i + 3
+        if parts[i][0] in "RC":
+            names.append((parts[i][0], parts[i + 1], parts[i + 2]))
+            i += 3
         else:
-            old, new, i = None, parts[i + 1], i + 2
-        paths = [old, new] if old else [new]
-        numstat = git("diff", *DIFF, "-M", "--numstat", merge_base, head, "--", *paths, cwd=clone).split("\t")
-        binary = numstat[0] == "-"
-        diff = git("diff", *DIFF, "-M", merge_base, head, "--", *paths, cwd=clone)
-        hunks = re.search(r"^@@ ", diff, re.M)
-        patch = None if binary or not hunks else diff[hunks.start():]
+            names.append((parts[i][0], None, parts[i + 1]))
+            i += 2
+    blocks = [b for b in re.split(r"^(?=diff --git )", diff, flags=re.M) if b]
+    if len(blocks) != len(names):
+        raise SystemExit(f"the diff has {len(blocks)} files but name-status lists {len(names)}")
+    entries = []
+    for (code, old, new), block in zip(names, blocks):
+        hunks = re.search(r"^@@ ", block, re.M)
+        patch = block[hunks.start():] if hunks else None
+        lines = patch.split("\n") if patch else []
         entries.append({
             "filename": new,
             "status": {"A": "added", "D": "removed", "R": "renamed", "C": "copied"}.get(code, "modified"),
-            "additions": 0 if binary else int(numstat[0]),
-            "deletions": 0 if binary else int(numstat[1]),
+            "additions": sum(1 for line in lines if line.startswith("+")),
+            "deletions": sum(1 for line in lines if line.startswith("-")),
             "previous_filename": old,
             "patch": patch,
         })
     return entries
 
 
+def file_entries(clone, merge_base, head):
+    return entries_from(git("diff", *DIFF, "-M", merge_base, head, cwd=clone),
+                        git("diff", *DIFF, "-M", "--name-status", "-z", merge_base, head, cwd=clone))
+
+
 def build_context(clone, ctx, args, merge_base):
     ctx.mkdir(parents=True, exist_ok=True)
-    files = file_entries(clone, merge_base, args.head)
+    diff = git("diff", *DIFF, "-M", merge_base, args.head, cwd=clone)
+    files = entries_from(diff, git("diff", *DIFF, "-M", "--name-status", "-z", merge_base, args.head, cwd=clone))
     pr = {
         "number": args.pr, "title": args.title or f"Pull request {args.pr}", "body": args.body or "",
         "state": "OPEN", "isDraft": False, "author": {"login": "replay"},
@@ -102,7 +112,7 @@ def build_context(clone, ctx, args, merge_base):
     }
     (ctx / "pr.json").write_text(json.dumps(pr), encoding="utf-8")
     (ctx / "pr-files.json").write_text(json.dumps(files), encoding="utf-8")
-    (ctx / "pr.diff").write_text(git("diff", *DIFF, "-M", merge_base, args.head, cwd=clone), encoding="utf-8", newline="")
+    (ctx / "pr.diff").write_text(diff, encoding="utf-8", newline="")
     return files
 
 
