@@ -58,7 +58,7 @@ The agent examines the repo and produces a structured project profile. This is t
 3. **Development workflow** — Branching strategy, CI/CD pipeline, deployment targets, release process.
 4. **Existing AI artifacts** — Any `.claude/`, `.cursor/`, rules, skills, or agent instructions already present. Classify current maturity level (A/B/C) if artifacts exist.
 5. **Code conventions already in use** — Naming patterns, error handling style, import organization, formatting tools.
-6. **Architectural zone classification** — Categorize codebase areas using the zone model (see below).
+6. **Architectural zone classification** — Categorize codebase areas using the zone model (see below). List zone 4 as concrete files or globs, for the human to confirm.
 
 **Output:** A written project profile document that informs the strategy in Phase 1. Do not skip this phase or produce it mentally — write it out for human review.
 
@@ -73,7 +73,27 @@ Four zones classify codebase areas by risk and behavioral expectations. Use this
 | 3 | Integration | Glue code connecting domain to infrastructure, API boundaries | Controllers, adapters, serialization |
 | 4 | Critical | Security, payments, data migrations, auth flows | Auth middleware, payment processing, schema migrations |
 
-Higher zones require stricter rules, more thorough review, and tighter tool restrictions. Zone 4 code should always require human approval before agent modifications. See [02-rules.md](02-rules.md) for rule authoring patterns that can be scoped per zone.
+Higher zones require stricter rules and more thorough review. Zones 1–3 are context: they calibrate the rules written in Phase 1. Only zone 4 is gated, and the gate is a list of declared paths, not a generated map or a classification the agent makes at run time. See [02-rules.md](02-rules.md) for rule authoring patterns that can be scoped per zone.
+
+#### Guarding zone 4
+
+- **Propose, then declare.** The agent proposes the zone 4 files or globs in the Phase 0 profile; a human confirms and commits the list. Name the specific file, not its directory: a sign-in gate is one file among ordinary code.
+- **Gate the paths.** Put the list in the project's `.claude/settings.json` under `permissions.ask`, as `Edit(...)` and `Write(...)` entries. Why: per the docs, an explicit ask rule still prompts in `bypassPermissions` and auto mode, so the approval does not rest on the agent following an instruction. In `dontAsk` mode the rule denies the call instead. Re-check this against the permission-modes page when upgrading Claude Code.
+
+  ```json
+  {
+    "permissions": {
+      "ask": ["Edit(/src/auth/login.ts)", "Write(/src/auth/login.ts)", "Edit(/db/migrations/**)", "Write(/db/migrations/**)"]
+    }
+  }
+  ```
+
+- **Explain the paths.** A path-scoped rule in `.claude/rules/<area>.md`, with `paths:` set to the same globs, holds a short note: why the area is risky and what must not break. It loads when the agent works with a matching file. It is context only; the ask rule is the gate.
+- **Review both in git.** The globs and the note are small, human-written files; a PR that moves or adds zone 4 code updates them.
+- **Know the limit.** Ask rules cover Claude Code's built-in file-editing tools, not a write through Bash (`sed -i`, a script); check that your other writers (notebook edits, MCP file tools) are covered before relying on them. Add the sandbox or a PreToolUse hook on Bash ([05-permissions-and-safety.md](05-permissions-and-safety.md)) only when a repo needs it; each is code to maintain.
+- **Do not generate zones.** A pre-built semantic map that has an LLM assign a zone per directory was evaluated and dropped. In that unpublished evaluation it judged a directory from its entry file, so it rated a passphrase sign-in gate as ordinary feature code; it cost tens of thousands of tokens per run, went stale on a branch switch, and enforced nothing, since the approval was an instruction in CLAUDE.md. Navigation is covered in [09-structural-context.md](09-structural-context.md).
+
+Source: Claude Code docs, [permission modes](https://code.claude.com/docs/en/permission-modes.md) (explicit ask rules, read 2026-11-09) and [memory](https://code.claude.com/docs/en/memory.md) (`paths:` rules, "CLAUDE.md ... context, not enforced configuration").
 
 ### Phase R — Research
 
