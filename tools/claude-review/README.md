@@ -12,7 +12,7 @@ copies equal to these (`tests/test_install.py` checks).
 
 | File | Install path in the target repo | SHA-256 |
 |---|---|---|
-| [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` | `6a1a5d3cf8f647b97b4abd4c1fd8766c44e33799a885f6b1a93bd1672ff0cf6c` |
+| [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` | `11c526b5d9d347ee96141b76523ce6e9bf530acb1114389f35b64968433d2cb2` |
 | [claude-pr-review.md](claude-pr-review.md) | `.claude/commands/claude-pr-review.md` | `7b96973af49215e0ab073d305df5651d996ca7ba90ccbb0c9533e40a4d5b8137` |
 
 **Version:** v3.1 (2026-11-05): a sixth review pass flags private data (credentials, people, clients, private ticket
@@ -363,7 +363,7 @@ Don't loosen any of this when adapting the files.
 - **Fork PRs never get the secrets:** a `pull_request` run from a fork is skipped, and a comment run needs write
   access and runs the default branch's workflow.
 - **Pinned actions** (full commit SHAs): `actions/checkout` v7.0.1, `anthropics/claude-code-action` v1.0.252,
-  `actions/upload-artifact` v7.0.2, `actions/download-artifact` v8.0.2, `actions/create-github-app-token` v3.2.0.
+  `actions/upload-artifact` v7.0.2, `actions/download-artifact` v8.0.2, `actions/create-github-app-token` v3.3.0.
   Bump deliberately, in every repo.
 - **Residual risk (accepted under a sole-pusher assumption):** a same-repo PR can edit the workflow and so read the
   App key (one App per owner: the key reaches every repo it is installed on; one key per repo limits rotation, not
