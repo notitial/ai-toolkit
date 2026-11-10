@@ -12,11 +12,14 @@ copies equal to these (`tests/test_install.py` checks).
 
 | File | Install path in the target repo | SHA-256 |
 |---|---|---|
-| [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` | `66fa83fd3720a054d571abf3d01bef77e100f88e28884883a3c588938fb4da8e` |
+| [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` | `50a7e7cb63e974daab3a5cd243e797a158e460426577e834ca7b327c3e9cf677` |
 | [claude-pr-review.md](claude-pr-review.md) | `.claude/commands/claude-pr-review.md` | `bc2a803832478c6fc811e94ca419c5b424bd162e402d84dce5acd5309c193f01` |
 
-**Version:** v3.2 (2026-11-09): a cheaper model mix. The defects pass and its verifiers, and the judges of a
-`--comments` follow-up, run on `sonnet` instead of `opus`; interaction, security and failure-path passes and
+**Version:** v3.3 (2026-11-10): the two jobs that hold the App key, `appcheck` and `publish`, may run on a dedicated
+self-hosted pool instead of GitHub-hosted runners, chosen by the optional repo variable `CLAUDE_REVIEW_KEY_RUNS_ON`
+(unset: `ubuntu-latest`, as before), so those two jobs need no file edit; the review command, findings
+format and modes are unchanged. The key pool has had no live run yet. v3.2 (2026-11-09): a cheaper model mix. The
+defects pass and its verifiers, and the judges of a `--comments` follow-up, run on `sonnet` instead of `opus`; interaction, security and failure-path passes and
 verifiers, and the judges of a full `@claude review`, stay on `opus`. Findings format and modes are unchanged.
 v3.1 (2026-11-05): a sixth review pass flags private data (credentials, people, clients, private ticket
 keys, hosts and home paths, ignored folders) in the lines a PR adds and in its title and description, and the review
@@ -35,18 +38,19 @@ Four jobs:
 - **`preflight`** (`ubuntu-latest`, or your own runner): skips fork PRs with a notice, checks the App variables are
   set, checks the commenter has write access, applies the once-per-PR gate. Its `GITHUB_TOKEN` is read-only. Only if
   it passes does the rest run.
-- **`appcheck`** (`ubuntu-latest`): mints an App token and throws it away, so a bad key, a missing install or a wrong
+- **`appcheck`** (the key runner: `ubuntu-latest`, or a dedicated pool, see [Prerequisites](#prerequisites)): mints an App token and throws it away, so a bad key, a missing install or a wrong
   `CLAUDE_REVIEW_APP_LOGIN` fails before Claude costs anything. On a comment request it reacts 🚀 as the App (since
   v2.5; a 👀 from claude[bot] means the Claude GitHub App is still installed on the repo, which nothing here needs).
 - **`review`** (`ubuntu-latest`, or your own runner): fetches the PR, runs Claude read-only (its `GITHUB_TOKEN` is
   read-only), uploads the result as an artifact. One at a time per PR, never cancelled.
-- **`publish`** (`ubuntu-latest`, no checkout, no Claude): posts as the App, in this order: thread replies, resolve,
+- **`publish`** (the key runner, no checkout, no Claude): posts as the App, in this order: thread replies, resolve,
   the overview comment, the review. On a push to a same-repo PR it also dismisses the App's approval of an older
   commit. Re-running it never posts a second review (every review body has a run marker).
 
-On a private repo, `appcheck` and `publish` are about two billed Actions minutes per review (more when `preflight`
-and `review` run on GitHub-hosted runners too), and `publish` runs (one minute) on every push to a reviewed PR for the
-dismissal check. Public repos don't pay for GitHub-hosted minutes.
+On a private repo, with `appcheck` and `publish` on GitHub-hosted runners, they are about two billed Actions minutes
+per review (more when `preflight` and `review` run on GitHub-hosted runners too), and `publish` runs (one minute) on
+every push to a reviewed PR for the dismissal check. A key pool removes those two jobs' minutes. Public repos don't
+pay for GitHub-hosted minutes.
 
 Three modes:
 
@@ -194,8 +198,30 @@ The `/add-claude-review` skill (installed by `/setup-claude`) does the steps bel
      reaches it.
    - On a **public repo**, keep `ubuntu-latest`. GitHub recommends self-hosted runners for private repos only,
      since a pull request from a fork of a public repo can run its own code on them.
-2. **GitHub-hosted runners allowed** for the repo: `appcheck` and `publish` always run on `ubuntu-latest` (they hold
-   the App key and tokens).
+2. **Runner for `appcheck` and `publish`** (they hold the App key and tokens): `ubuntu-latest` by default, which needs
+   GitHub-hosted runners allowed for the repo. Or, **for a private repo only**, a dedicated self-hosted pool, chosen by
+   the repo variable `CLAUDE_REVIEW_KEY_RUNS_ON`: a JSON array of labels such as `["self-hosted","key-pool"]`. Set it
+   at repository scope, never organisation scope (an org variable could reach a public repo). It must be a non-empty
+   JSON array of strings: anything else fails those jobs when they are queued, and a pool that is offline leaves the
+   review waiting with nothing on the PR. Unset (or deleted) means `ubuntu-latest`. The pool must meet this rule:
+   - It runs only `appcheck` and `publish`: no PR code, no checkout, no CI or deploy jobs.
+   - It holds no deploy key and no other long-lived secret on the host. Its own runner-registration credential (for
+     example a PAT or a registration App) is a different thing from the reviewer App's key, which arrives per job as
+     the repo secret. The registration credential is read only by the runner's start-up and never reaches a job's
+     environment or a path the job's user can read.
+   - It is not shared with the runners of `preflight`/`review` or of CI. Recommended: no route to internal networks or
+     services beyond what the jobs need, since a PR that edits the workflow can send its own code to it.
+   - A pool that serves several repos carries over between them (see the residual risk under Security model): do that
+     only while every repo that reaches it is private with the same single writer.
+   - Only private repos can reach it. Never use a self-hosted runner for these jobs on a public repo.
+   - A runner that is restarted and re-registered for each job, with its work and temp directories wiped, is
+     recommended. That is not a clean machine (the runner's install directory stays writable by the job's user), so
+     the controls that matter are that only private repos reach the pool and that only `appcheck` and `publish` run
+     there.
+   - What the jobs need: `bash`, `gh` and `python3` ≥ 3.8 on `PATH`; the runner's bundled Node runs the two JavaScript
+     actions (the token minter and the artifact download); outbound HTTPS to github.com, api.github.com and the
+     Actions and artifact service hosts; a little memory is enough. No `jq`, `git` or Claude is needed. These hosts
+     are what the jobs need, not a control: self-hosted egress allow-lists are often not enforced.
 3. **(user) A reviewer GitHub App**, one per owner (a personal account, or an org), shared by its repos:
    - Create it in the owner's settings → Developer settings → GitHub Apps → New GitHub App. Name it (its slug becomes
      the bot login, e.g. `acme-review` → `acme-review[bot]`); no webhook; repository permission **Pull requests: Read
@@ -209,6 +235,11 @@ The `/add-claude-review` skill (installed by `/setup-claude`) does the steps bel
    gh secret set CLAUDE_REVIEW_APP_KEY -R <owner/repo> < <path to the .pem>
    gh secret set <CLAUDE SECRET NAME> -R <owner/repo>
    ```
+   Optional, only with a key pool (prerequisite 2): set the variable `CLAUDE_REVIEW_KEY_RUNS_ON` to your pool's labels:
+   ```
+   gh variable set CLAUDE_REVIEW_KEY_RUNS_ON -R <owner/repo> --body '["self-hosted","key-pool"]'
+   ```
+   Deleting that variable (`gh variable delete`) goes back to GitHub-hosted runners.
    Then delete the downloaded `.pem`, or keep it only in a password manager. The workflow must reference no other
    secret. Pick a Claude secret name nothing else uses (a repo with a production `ANTHROPIC_API_KEY` uses e.g.
    `CLAUDE_REVIEW_API_KEY`).
@@ -223,7 +254,10 @@ The `/add-claude-review` skill (installed by `/setup-claude`) does the steps bel
 6. **Required reviews:** the App's review must never satisfy one. Scope required reviews to people or teams, or set
    `CHANGES_EVENT` and `APPROVE_EVENT` in `publish` to `COMMENT` (a replacement point, below).
 7. **Org repos:** an org owner may have blocked GitHub-hosted runners or restricted workflow permissions; then
-   `appcheck` or `publish` never starts, and no review is posted.
+   `appcheck` or `publish` never starts (`appcheck` and `publish` use the key pool when it is set, `preflight` and
+   `review` still use theirs), and no review is posted. Do not restrict the
+   pool to one workflow ref: on `pull_request` the ref is the merge ref, so such a restriction never matches and the
+   jobs queue.
 8. **Recommended:** a "Review" section in the root `CLAUDE.md` listing quotable rules. The CLAUDE.md agents flag only
    clear breaks of quotable rules.
 
@@ -233,14 +267,15 @@ Change only these lines of `claude-review.yml`. Everything else, `claude-pr-revi
 
 | Line | Canonical | Replace with |
 |---|---|---|
-| 48 | `#   secret    ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN   Claude credential (...)` (2 lines) | the Claude secret names and what they are |
-| 106 (`preflight`) | `    runs-on: ubuntu-latest` | the repo's runner labels, if not GitHub-hosted |
-| 236 (`review`) | `    runs-on: ubuntu-latest` | the same labels |
-| 497 (+1) | `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}` and the `claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}` line under it | the one line for the chosen credential, with its secret name (what `/add-claude-review` does), or both lines with the repo's names |
+| 53 | `#   secret    ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN   Claude credential (...)` (2 lines) | the Claude secret names and what they are |
+| 111 (`preflight`) | `    runs-on: ubuntu-latest` | the repo's runner labels, if not GitHub-hosted |
+| 242 (`review`) | `    runs-on: ubuntu-latest` | the same labels |
+| 503 (+1) | `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}` and the `claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}` line under it | the one line for the chosen credential, with its secret name (what `/add-claude-review` does), or both lines with the repo's names |
 
-Optional, only for a repo whose required reviews could count the App: lines 644–645 (`CHANGES_EVENT`,
-`APPROVE_EVENT`) → `COMMENT`. Never change `appcheck`'s and `publish`'s `runs-on: ubuntu-latest` (lines 194, 636). A
-diff against the canonical file must show only these lines; check it and both SHAs before merging.
+Optional, only for a repo whose required reviews could count the App: lines 650–651 (`CHANGES_EVENT`,
+`APPROVE_EVENT`) → `COMMENT`. Don't edit `appcheck`'s and `publish`'s `runs-on` lines (200, 642): they read the
+variable `CLAUDE_REVIEW_KEY_RUNS_ON`, so set that instead, and only to a pool that meets prerequisite 2. A diff against
+the canonical file must show only the lines above; check it and both SHAs before merging.
 
 **Auth options:** the default passes both inputs, so the credential is whichever org or repo secret exists; switch
 between them by changing which secret is set, with no workflow edit.
@@ -388,8 +423,9 @@ Don't loosen any of this when adapting the files.
 - **`publish` treats Claude's result as untrusted:** it checks the shape, posts findings only on lines of the PR's
   own files, strips HTML comments and markers, escapes links, images, HTML, mentions and bare URLs, breaks
   cross-repo references, and keeps code spans and fences. The overview paragraph and thread replies are plain text.
-- **The App key and tokens live only in `appcheck` and `publish`** (GitHub-hosted). No expression in `preflight` or
-  `review`, which may run self-hosted, names the key. The App has Pull requests: write only; `publish`'s
+- **The App key and tokens live only in `appcheck` and `publish`** (GitHub-hosted by default, or the key pool of
+  prerequisite 2). No expression in `preflight` or `review`, which may run self-hosted, names the key, and neither
+  reads `CLAUDE_REVIEW_KEY_RUNS_ON`. The App has Pull requests: write only; `publish`'s
   `GITHUB_TOKEN` has `contents: write` for resolving and reopening threads only. `publish` resolves a thread only if
   the review started it, it is on this PR and open, and its last comment is this workflow's `verdict=resolved` marker
   for the reviewed commit. It reopens a thread only in a rereview, only one the review started on this repository's
@@ -403,7 +439,12 @@ Don't loosen any of this when adapting the files.
   Bump deliberately, in every repo.
 - **Residual risk (accepted under a sole-pusher assumption):** a same-repo PR can edit the workflow and so read the
   App key (one App per owner: the key reaches every repo it is installed on; one key per repo limits rotation, not
-  reach); a self-hosted runner shared with CI jobs that run PR code can carry planted files into a review; a
+  reach, and the same PR can target any runner, a key pool included; the pool rule limits who can reach the pool, not
+  what the workflow runs there; and a pool shared by several repos carries over between them, because code a PR runs
+  there can leave something in the runner's install directory for a later job of another repo, accepted only while
+  every repo that reaches the pool is private with the same single writer: give a repo with a second writer its own
+  pool, or unset the variable); a self-hosted runner shared with CI jobs that run PR code can carry planted files
+  into a review; a
   `CLAUDE.md` the PR adds or edits in a subdirectory is not used as rules, but Claude Code itself loads it into an
   agent's context when the agent reads files there, so its text can still steer like any other injection; a prompt
   injection in the PR can steer misleading findings, a wrong "resolved", a "no issues" (which becomes an APPROVE),
@@ -430,7 +471,7 @@ Don't loosen any of this when adapting the files.
 
 - Keep `RESULT_SCHEMA` in the workflow byte-identical with the schema in the command's "The result" section (a test
   checks).
-- Keep the cost record's `reviewer` string (`claude-pr-review@v3.2`) equal to the version above (a test checks).
+- Keep the cost record's `reviewer` string (`claude-pr-review@v3.3`) equal to the version above (a test checks).
 - Run `tests/` after any change to the inline scripts.
 - `REVIEW.md` (repo root) is the repo's own file, not part of the kit: edit it freely.
 - A new version updates both files here first, with new SHAs in the table above, then this repo's installed copies in
