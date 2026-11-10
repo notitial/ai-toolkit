@@ -165,6 +165,18 @@ class Summarize(unittest.TestCase):
         self.assertEqual(s["model_cost_usd"], {"claude-opus-5-5": 1.0})
         self.assertEqual(s["total_cost_usd"], 1.5)
 
+    def test_messages_with_a_string_message_or_non_object_lines(self):
+        lines = [
+            json.dumps({"type": "system", "message": "a plain string notice"}),
+            json.dumps(["not", "an", "object"]),
+            json.dumps({"type": "assistant", "message": {"content": "just text"}}),
+            json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Agent", "input": {"model": "opus"}}]}}),
+            json.dumps({"type": "result", "is_error": False, "structured_output": {"findings": []}}),
+        ]
+        s = replay.summarize(lines)
+        self.assertEqual(s["agent_models"], {"opus": 1})
+        self.assertEqual(s["structured_output"], {"findings": []})
+
     def test_no_result_message(self):
         self.assertIsNone(replay.summarize(["{}"]))
 
