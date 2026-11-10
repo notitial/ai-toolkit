@@ -45,8 +45,8 @@ separate job. Three problems followed:
     example a PAT or a registration App) is a different thing from the reviewer App's key, which arrives per job as
     the repo secret; it is read only by the runner's start-up and never reaches a job's environment or a path the
     job's user can read;
-  - it is not shared with the runners that run `preflight`/`review` or CI, and it has no route to internal networks
-    or services beyond what the jobs need;
+  - it is not shared with the runners that run `preflight`/`review` or CI. Recommended: no route to internal
+    networks or services beyond what the jobs need;
   - only private repos can reach it, never a public repo (the variable is set at repository scope, never
     organisation scope);
   - a runner that is restarted and re-registered for each job, with its work and temp directories wiped, is

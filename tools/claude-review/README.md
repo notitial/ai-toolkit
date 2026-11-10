@@ -209,8 +209,8 @@ The `/add-claude-review` skill (installed by `/setup-claude`) does the steps bel
      example a PAT or a registration App) is a different thing from the reviewer App's key, which arrives per job as
      the repo secret. The registration credential is read only by the runner's start-up and never reaches a job's
      environment or a path the job's user can read.
-   - It is not shared with the runners of `preflight`/`review` or of CI, and it has no route to internal networks or
-     services beyond what the jobs need: a PR that edits the workflow can send its own code to it.
+   - It is not shared with the runners of `preflight`/`review` or of CI. Recommended: no route to internal networks or
+     services beyond what the jobs need, since a PR that edits the workflow can send its own code to it.
    - A pool that serves several repos carries over between them (see the residual risk under Security model): do that
      only while every repo that reaches it is private with the same single writer.
    - Only private repos can reach it. Never use a self-hosted runner for these jobs on a public repo.
