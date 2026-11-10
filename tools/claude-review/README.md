@@ -18,7 +18,8 @@ copies equal to these (`tests/test_install.py` checks).
 **Version:** v3.3 (2026-11-10): the two jobs that hold the App key, `appcheck` and `publish`, may run on a dedicated
 self-hosted pool instead of GitHub-hosted runners, chosen by the optional repo variable `CLAUDE_REVIEW_KEY_RUNS_ON`
 (unset: `ubuntu-latest`, as before), so those two jobs need no file edit; the review command, findings
-format and modes are unchanged. The key pool has had no live run yet. v3.2 (2026-11-09): a cheaper model mix. The
+format and modes are unchanged. The key pool first ran live on 2026-11-10, on a private repo: `appcheck` and
+`publish` both ran on a pool runner that re-registered and wiped itself between jobs. v3.2 (2026-11-09): a cheaper model mix. The
 defects pass and its verifiers, and the judges of a `--comments` follow-up, run on `sonnet` instead of `opus`; interaction, security and failure-path passes and
 verifiers, and the judges of a full `@claude review`, stay on `opus`. Findings format and modes are unchanged.
 v3.1 (2026-11-05): a sixth review pass flags private data (credentials, people, clients, private ticket
@@ -27,8 +28,8 @@ is told never to repeat the value. v3.0 (2026-11-04): a new review command, writ
 format and modes, and an incomplete review now posts no verdict instead of approving. v2.5 (2026-10-24): a full
 `@claude review` reopens the thread of a fixed finding whose issue is back, instead of dropping it and approving.
 v2.4 (2026-10-23) made the review App-owned. v2.4 and v2.5 were tested end to end on a throwaway repo with
-`ubuntu-latest` runners; the v3.x command has had no live run yet (run the [Test protocol](#test-protocol) before
-relying on it). The [tests/](tests/) folder runs the workflow's inline scripts against a fake
+`ubuntu-latest` runners. The v3.x command has run in live reviews since 2026-11-04 but has not been through the
+[Test protocol](#test-protocol) on a throwaway repo; run it before relying on a mode no live review has used. The [tests/](tests/) folder runs the workflow's inline scripts against a fake
 GitHub: `python3 -I -B -m unittest discover -s tools/claude-review/tests` from the repo root (`bash tools/test-all.sh
 claude-review` runs the same).
 
