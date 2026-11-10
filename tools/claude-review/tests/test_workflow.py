@@ -1,5 +1,5 @@
 """Static checks on the workflow and the command: YAML parses, inline Python compiles, the schema is in sync, and the
-security rules hold (no posting tool, no `${{ }}` in a `run:`, the App key only in GitHub-hosted jobs, pinned actions)."""
+security rules hold (no posting tool, no `${{ }}` in a `run:`, the App key only in `appcheck` and `publish`, whose runner is the optional key pool, pinned actions)."""
 import json, re, unittest
 
 from workflow import COMMAND, WORKFLOW, command_schema, heredocs, parse_yaml
@@ -74,17 +74,23 @@ class Workflow(unittest.TestCase):
         self.assertIn("If the PR touches it, the PR would be writing its own review rules", text)
         self.assertIn("A `CLAUDE.md` that this PR adds, edits, renames or deletes is not a rule source for this run", text)
 
-    def test_app_key_only_in_github_hosted_jobs(self):
+    def test_app_key_only_in_the_key_jobs(self):
+        # v3.3: appcheck and publish run on ubuntu-latest unless the repo variable holds a label array (a dedicated
+        # pool); no other job may use that variable or the key.
         self.need_yaml()
+        key_runs_on = ("${{ vars.CLAUDE_REVIEW_KEY_RUNS_ON != '' && fromJSON(vars.CLAUDE_REVIEW_KEY_RUNS_ON)"
+                       " || 'ubuntu-latest' }}")
         for job, spec in self.wf["jobs"].items():
             dumped = json.dumps(spec)
             uses_key = "secrets.CLAUDE_REVIEW_APP_KEY" in dumped
             with self.subTest(job=job):
                 if job in ("appcheck", "publish"):
-                    self.assertEqual(spec["runs-on"], "ubuntu-latest")
+                    self.assertEqual(spec["runs-on"], key_runs_on)
                     self.assertTrue(uses_key)
                 else:   # a self-hosted job: the runner would receive the key just to evaluate an expression
+                    self.assertEqual(spec["runs-on"], "ubuntu-latest")
                     self.assertFalse(uses_key)
+                    self.assertNotIn("CLAUDE_REVIEW_KEY_RUNS_ON", dumped)
         steps = self.wf["jobs"]["appcheck"]["steps"]
         self.assertEqual(steps[0]["env"], {"HAS_KEY": "${{ secrets.CLAUDE_REVIEW_APP_KEY != '' }}"})
 
