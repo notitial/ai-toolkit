@@ -5,7 +5,7 @@
 #   bash tools/test-all.sh NAME [NAME…]   run only the named suites (names are the first column)
 # A suite whose tool or install is missing (zsh, node_modules) shows as skip, never as pass. Exit 1 if any suite fails,
 # 2 on an unknown option or suite name (checked before anything runs).
-# Adding a suite: add one `suite` line below and the same name to the Build / Test list in CLAUDE.md.
+# Adding a suite: add one `suite` line below and the same name to the Test suites list in tools/README.md.
 
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P) || exit 2
