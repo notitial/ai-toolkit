@@ -30,11 +30,13 @@ Optional: the user may specify a focus area (e.g., "just check my CLAUDE.md", "f
 ## Tools and shell
 
 - Glob and Grep may be missing from the session. Fall back to `find`, `ls` and `grep -r --exclude='*.env*'` through Bash. Read still reads a file.
+- zsh expands an unquoted `*` and `(`: quote every glob (`--include='*.md'`, `-name '*.md'`) and escape `find` groups (`\( -o \)`), or the command fails with "no matches found".
 - The audit is read-only and needs no workspace lock. A lock guard may still refuse some read-only shell forms, so prefer single plain commands with absolute paths: no pipes, no `cd … &&`, no `awk`. Forms that pass, and the ones they replace:
   - `which <binary>`, not `command -v`.
   - `ls -ld <symlink>` (the target follows `->`), not `readlink -f`.
   - `find <dir> -type f -not -path '*/.git/*' -not -path '*/node_modules/*'` (one `-not -path` per excluded folder, no `-o` groups), not `git ls-files`.
-  - The one-command file count and tally in Step 1, not a `find … | sort | uniq` chain.
+  - The one-command file count and tally in Step 1, not a `find … | sort | uniq` chain. A lock guard may refuse that `python3` form (it reads only `find`, `wc` and similar): then count with one `find <root> -type f` (one `-not -path` per skipped folder, one `-not -name` per asset extension) piped to `wc -l` if the guard accepts the pipe. If that is refused too, report the file count and language shares as "not verified" and decide the size gates in 10.2 from the folders you listed.
+- A hook may redirect Bash `git status`, `git log` and `git diff` to the git MCP tool. Use `mcp__git-mcp__git_status`, `git_log` and `git_diff`, each with `path` set to the audited repo. Read-only plumbing such as `git ls-files` passes as Bash, but the find form above stays preferred.
 - When a command is refused, do not work around the guard (no wrapping the same call in another tool): record that check as "not verified" with the reason.
 
 ## Steps
@@ -66,24 +68,29 @@ Record what exists and what does not. If nothing exists, skip to Step 4 (classif
 
 Then collect the structural-context facts that Category 10 and check 1.12 need:
 
-- **File count and main languages:** one command gives both, over one file set. It walks the repo without the VCS, dependency, build and archive folders and tallies by extension:
+- **File count and main languages:** one command gives both, over one file set. It walks the repo without the VCS, dependency, build and archive folders, drops the asset files and tallies the rest by extension (by name when a file has none):
 
   ```
   python3 -I -c 'import os,sys,collections
   skip={".git",".archive",".venv","node_modules","dist","build","target","vendor"}
-  c=collections.Counter()
+  asset=set(".png .jpg .jpeg .gif .svg .ico .webp .ttf .otf .woff .woff2 .mp3 .mp4 .mov .pdf .lock .log .pyc".split())
+  named={"package-lock.json","pnpm-lock.yaml",".DS_Store"}
+  c=collections.Counter();t=0
   for r,d,f in os.walk(sys.argv[1]):
       d[:]=[x for x in d if x not in skip]
-      c.update(os.path.splitext(n)[1].lower() or n for n in f)
-  print(sum(c.values()),c.most_common(25))' <repo root>
+      for n in f:
+          t+=1;e=os.path.splitext(n)[1].lower()
+          if n not in named and e not in asset: c[e or n]+=1
+  s=sum(c.values())
+  print(t,t-s,s,c.most_common(25))' <repo root>
   ```
 
-  Subtract the asset extensions the tally shows (images, SVG included; fonts; media; lockfiles; other generated or binary files) from the total: the rest is the source file count that decides the ~50 and ~500 gates in the checklist and the maturity criteria. Markdown and other text files count, in the count and in the tally alike, so a docs-first repo reads as large as it is. Add a folder to `skip` when the repo ignores it (read `.gitignore`). The figure is approximate because it walks the disk, not `git ls-files`; say so. The tally gives each language's share.
+  It prints the files walked, the amount dropped (images, SVG included; fonts; media; PDFs; lockfiles; logs; `.DS_Store`), the source file count and the tally. Report all three numbers. The source file count decides the ~50 and ~500 gates in the checklist and the maturity criteria. Markdown and other text files count, in the count and in the tally alike, so a docs-first repo reads as large as it is. Add a folder to `skip` or a name to `named` when the repo ignores it (read `.gitignore`); a stray generated file the lists do not name stays counted. The figure is approximate because it walks the disk, not `git ls-files`; say so. The tally gives each language's share.
 - **Code-intelligence plugins:** extract `enabledPlugins` from `.claude/settings.json`, `.claude/settings.local.json` and `~/.claude/settings.json`, noting which file enables each plugin. For each main language, look up the official plugin and binary in `references/code-intelligence.md` and record one of: `enabled` (then check the binary and the install record as that file says), `disabled`, or `available: <plugin>` when it is not enabled. A plugin that is not enabled is information, never a finding.
 - **Named paths:** list every path in the CLAUDE.md key paths table or map, and every golden file (a path CLAUDE.md or a rule presents as a pattern to copy), for checks 1.12 and 10.2.
 - **Global layer:** list `~/.claude/rules/*`, `~/.claude/agents/*`, `~/.claude/skills/*` and `~/.claude/hooks/*`, one `ls -ld` command each (use `ls -ld ~/.claude/rules` when the folder itself is a link). Each line shows a link's target. An entry whose target is inside the audited repo is **owned by this repo** and installed globally (the repo keeps root `rules/`, `agents/`, `skills/` or `hooks/` and links them into `~/.claude`); every other entry is **inherited**. Count both; read no inherited file and no hook body. Owned files are project files: read them, and count them for Categories 2, 3, 4 and 8 and the classification, as if they sat under `.claude/` (the checklist says how). Step 6 reports both counts.
 
-**Settings privacy:** never Read `~/.claude/settings.json`, `~/.claude.json` or a project settings file whole just to get one key. `~/.claude.json` also holds private data (account details, per-project history, tokens): say so in the report if it comes up, and report nothing from it but server names. Extract the one key with one command: `jq .enabledPlugins <file>` when `which jq` finds it, otherwise `python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("enabledPlugins"))' <file>`. For user-scope MCP servers (checks 5.7, 5.8, 10.3) extract only the key names: `jq '.mcpServers | keys' ~/.claude.json`, or the same python with `list(json.load(open(sys.argv[1])).get("mcpServers", {}))`. For user-level permissions or hooks (the "global by design" and 6.2 evidence) extract only key names too: `.permissions | keys`, `.hooks | keys`. The rest of the file is not read and not reported. (`.claude/settings.json` is read in full only for the Category 5 checks, which need its permissions.)
+**Settings privacy:** never Read `~/.claude/settings.json`, `~/.claude.json` or a project settings file whole just to get one key. `~/.claude.json` also holds private data (account details, per-project history, tokens): say so in the report if it comes up, and report nothing from it but server names. Extract the one key with one command: `jq .enabledPlugins <file>` when `which jq` finds it, otherwise `python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("enabledPlugins"))' <file>`. For user-scope MCP servers (checks 5.7, 5.8, 10.3) extract only the key names: `jq '.mcpServers | keys' ~/.claude.json`, or the same python with `list(json.load(open(sys.argv[1])).get("mcpServers", {}))`. For user-level permissions or hooks (the "global by design" and 6.2 evidence) extract only key names too: `.permissions | keys`, `.hooks | keys`. One exception, for check 5.7: a count of the git MCP entries in the allowlist, `jq --arg n <server name> '[(.permissions.allow // [])[] | select(. == "mcp__" + $n or startswith("mcp__" + $n + "__"))] | length' ~/.claude/settings.json`, with the git MCP server name that discovery found (or the same in python with `.get("permissions", {}).get("allow", [])`). It counts a whole-server entry and per-tool entries; no allowlist gives 0, reported as no matching entries for that server. Report the number, never the entries. The rest of the file is not read and not reported. (`.claude/settings.json` is read in full only for the Category 5 checks, which need its permissions.)
 
 If the user specified a focus area, still discover everything but only evaluate the relevant categories in Step 3.
 
@@ -103,6 +110,8 @@ For each applicable category in the checklist, evaluate every check against the 
 - **PARTIAL** — the check is partially satisfied (explain what's missing)
 - **MISSING** — the check is not satisfied at all
 - **N/A** — the check does not apply at this maturity level or project type
+
+The Score totals count each check once, not each table row: a check that Detail covers in several rows is one entry, so two runs compare.
 
 Be specific in the Detail column. Quote actual content when relevant ("CLAUDE.md is 247 lines — 47 over the 200-line target"). Name the specific file and line when flagging an issue.
 

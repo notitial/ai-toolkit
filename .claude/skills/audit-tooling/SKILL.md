@@ -44,7 +44,7 @@ Read each discovered file. Record what exists and what is missing.
 
 ## Step 2: Evaluate each category
 
-Apply the checks below. Record findings as PASS, FLAG, or INFO.
+Apply the checks below. Record findings as PASS, FLAG, N/A (the check does not apply to this artifact: say why) or INFO (an observation, no change recommended).
 
 ### Category 1: Agent Templates
 
@@ -53,7 +53,7 @@ For each agent in `agents/`:
 | # | Check | How to verify |
 |---|-------|---------------|
 | 1.1 | Valid YAML frontmatter | Has `name`, `description`, `model`, `tools` fields |
-| 1.2 | Four-section structure | Has Identity & Scope, Key Context, Execution Policy, Report Format sections (or equivalent H2s) |
+| 1.2 | Four-section structure | Has Identity & Scope, Key Context, Execution Policy, Report Format sections (or equivalent H2s). An authoring agent that returns text in a defined shape passes with equivalents: its inputs for Key Context, a "Hard no" list or output format for Report Format |
 | 1.3 | Tool scoping matches role | Reviewers/auditors: no Write, Edit, or Bash. Implementers: may have write tools. Cross-check `tools` frontmatter against role described in Identity section |
 | 1.4 | Model selection appropriate | Opus for security/architecture review. Sonnet for balanced tasks. Haiku for lightweight. Check `model` field against role |
 | 1.5 | No Bash tool for read-only agents | Agents with read-only roles must not have Bash in tools list |
@@ -66,10 +66,10 @@ For each hook in `hooks/`:
 
 | # | Check | How to verify |
 |---|-------|---------------|
-| 2.1 | Executable flag | File has `#!/bin/bash` shebang and would be installed with +x |
+| 2.1 | Executable flag | File has a bash shebang and the working-tree mode is executable (`ls -l`). The index mode is not readable from the tree: CI `Install Checks` is the real check, so say "index mode not verified" in Detail |
 | 2.2 | Reads JSON from stdin | Script uses `cat` or similar to capture stdin, then parses with `jq` |
-| 2.3 | Uses structured JSON output | Deny decisions use `hookSpecificOutput.permissionDecision: "deny"` format |
-| 2.4 | Exit 0 always | Script never exits non-zero — uses JSON output for decisions, not exit codes |
+| 2.3 | Uses structured JSON output | Deny decisions use `hookSpecificOutput.permissionDecision: "deny"` format. N/A for a hook that never denies (it only logs, redacts, restores or notifies) |
+| 2.4 | Exit 0 always | Script never exits non-zero — uses JSON output for decisions, not exit codes. This audits `hooks/*.sh` only: the github guard's `|| exit 2` sits in a settings hook command, covered by 5.5, not here |
 | 2.5 | Pattern coverage reasonable | Secret detector: covers AWS, GitHub, OpenAI/Stripe, PEM keys, JWT, Slack, .env files, Keychain secret reads (`security find-*-password -w/-g`, `dump-keychain -d`). Destructive blocker: covers rm -rf, DROP/DELETE/TRUNCATE, git force push/reset/clean, dd, mkfs |
 | 2.6 | No false positives on safe input | Run a mental walkthrough: would `echo "hello world"` or `git status` trigger a deny? |
 | 2.7 | Grep handles special patterns | Patterns starting with dashes use `--` end-of-options marker |
@@ -81,12 +81,12 @@ For each SKILL.md in `.claude/skills/` and `skills/`:
 | # | Check | How to verify |
 |---|-------|---------------|
 | 3.1 | Has description frontmatter | `description` field present and specific enough for auto-triggering |
-| 3.2 | Has `disable-model-invocation: true` | Prevents token cost when idle |
+| 3.2 | `disable-model-invocation` fits the skill | `true` on a skill with side effects or one only the user should start. `false` or absent is fine where auto-triggering is the point (doc 04, "Low context cost when idle"): FLAG only a side-effect skill without it |
 | 3.3 | Steps are concrete | Steps reference specific file paths, glob patterns, or tool names — not abstract instructions |
-| 3.4 | Output format defined | Has explicit report template or format specification |
+| 3.4 | Output format defined | A skill that produces a report has an explicit template or format specification. N/A for a skill whose output is the steps it performed or a reference |
 | 3.5 | Stop conditions defined | For skills that iterate: has max passes, convergence criteria, or "when to stop" |
 | 3.6 | Self-contained | Happy path is fully specified without needing to read external docs |
-| 3.7 | References resolve | Any file paths or glob patterns mentioned in the skill actually exist in the repo |
+| 3.7 | References resolve | Any file path or glob the skill points at in this repo exists. Paths in a target repo (files the skill writes into or audits there, such as `docs/adr/NNNN-short-title.md`) are exempt |
 
 ### Category 4: Project Rules
 
@@ -109,7 +109,7 @@ For each rule in repo-root `rules/` (global always-on, installed to `~/.claude/r
 |---|-------|---------------|
 | 4b.1 | NO frontmatter | Global rules are always-on by design — FLAG if `paths`/`globs` frontmatter is present |
 | 4b.2 | Under 300 lines | Count lines (these load in every session — smaller is better) |
-| 4b.3 | One concern per rule | Does not cover multiple unrelated topics |
+| 4b.3 | One concern per rule | Does not cover multiple unrelated topics. Several sections that are stages of one named concern (a workflow rule that other files cite as the canonical home) pass: FLAG only topics with no shared concern |
 | 4b.4 | Uses imperative voice | Same as 4.4 |
 | 4b.5 | No hardcoded absolute paths | Same as 4.5 |
 | 4b.6 | Canonical ownership | Content does not duplicate the global CLAUDE.md starter template (`templates/global-claude-md.md`) — each concern has exactly one home |
@@ -127,7 +127,7 @@ Check `templates/safe-permissions.json`:
 | 5.4 | No Bash git in allow list | Bash git permissions only appear in `_migration.removeBashGit`, not in `permissions.allow` |
 | 5.5 | Hooks reference existing scripts | Each hook `command` path (e.g., `$HOME/.claude/hooks/secret-detector.sh`) corresponds to a script in `hooks/`. One intended exception: the github guard, `/bin/bash -p '<live checkout>/tools/github-mcp/guard.sh' || exit 2` (check that the file exists at the path the hook names; never repoint it at `hooks/`) |
 | 5.6 | Migration list consistent | Every Bash pattern in `removeBashGit` has a corresponding MCP permission in `allow` (or is intentionally prompt-only like `git branch`) |
-| 5.7 | Plugins are current | `enabledPlugins` list does not include plugins that are in `_migration.removePlugins` |
+| 5.7 | Plugins are current | `enabledPlugins` list does not include plugins that are in `_migration.removePlugins`. N/A when `removePlugins` is empty (nothing to test). `_migration` as a whole is a one-machine upgrade path: note it in Detail, do not remove it here |
 
 ### Category 6: Project CLAUDE.md
 
@@ -141,12 +141,13 @@ Check the root `CLAUDE.md` against doc 01 criteria:
 | 6.4 | Uses imperative voice | Spot-check for directives vs passive descriptions |
 | 6.5 | No stale references | Skill names, doc numbers, and file paths mentioned are current |
 | 6.6 | Skills list current | Skills mentioned in Document Structure match what actually exists in `skills/` |
+| 6.7 | Project settings match CLAUDE.md | `.claude/settings.json` parses, holds what the Key Paths table says it holds (an allowlist, no hooks), and every allow is specific and read-only |
 
 ### Cross-Cutting: Setup Skill & Roster Consistency
 
 | # | Check | How to verify |
 |---|-------|---------------|
-| 7.1 | setup-claude discovery covers all artifact dirs | Steps 2–5 discovery globs cover `agents/`, `hooks/`, `skills/`, `rules/` — no artifact directory is missed |
+| 7.1 | setup-claude discovery covers all artifact dirs | Its discovery steps (the `bash tools/install-copies.sh roster` lines) cover `agents/`, `hooks/`, `skills/` and `rules/` — no artifact directory is missed. Judge on those lines alone |
 | 7.2 | README install table matches filesystem | Compare the README "What Gets Installed" rows against `ls agents/ hooks/ skills/ rules/` (ignore `skills/README.md`) — the table is the repo's only enumerated roster (CLAUDE.md convention); FLAG any drift in either direction |
 | 7.3 | Report step stays discovery-based | setup-claude's Report step (Step 11) contains no hardcoded artifact rosters — one row per discovered artifact |
 
@@ -185,6 +186,7 @@ Output the report in this format:
 |--------|-------|
 | PASS | N |
 | FLAG | N |
+| N/A | N |
 | INFO | N |
 
 ## Recommendations

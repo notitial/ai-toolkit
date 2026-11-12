@@ -16,4 +16,4 @@ Which model a session or subagent runs on. Context carried per turn is the main 
 ## Subagents
 
 - Always pass `model` when spawning Explore or general-purpose agents: `sonnet` by default, `haiku` for mechanical reads. Without it they inherit the parent's model.
-- An agent with a pinned `model:` keeps it: `code-reviewer` and `plan-reviewer` are Sonnet; `security-auditor` is Opus.
+- An agent with a pinned `model:` keeps it: `code-reviewer`, `plan-reviewer` and `adr-advisor` are Sonnet; `security-auditor` and `payments-reviewer` are Opus; `plan-author` is Fable.
