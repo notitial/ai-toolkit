@@ -22,13 +22,21 @@ If the symlink is missing or broken, fall back to searching for the ai-toolkit r
 
 ## Input
 
-Optional: the user may specify a focus area (e.g., "just check my CLAUDE.md", "focus on rules", "am I ready for orchestration?"). If no focus is specified, run the full audit.
+Optional: the user may specify a focus area (e.g., "just check my CLAUDE.md", "focus on rules", "am I ready for orchestration?"). If no focus is specified, run the full audit. The user may also name a path for the report (Step 6).
+
+**Invocation:** this skill is user-invoked only (`disable-model-invocation`). An agent or a dispatched session cannot start it with the Skill tool; the person types `/audit-claude` in the session. A brief that wants an audit must say so, and must not tell the agent to run the skill itself.
+
+## Tools and shell
+
+- Glob and Grep may be missing from the session. Fall back to `find`, `ls` and `grep -r --exclude='*.env*'` through Bash. Read still reads a file.
+- Check that a binary exists with `which <binary>`, not `command -v`.
+- The audit is read-only and needs no workspace lock. A lock guard may still refuse some read-only shell forms, so prefer single plain commands: no pipes, no `cd … &&`, no `awk`. When a command is refused, do not work around the guard: record that check as "not verified" with the reason.
 
 ## Steps
 
 ### Step 1: Discover AI artifacts
 
-Use Glob and Read to find and catalog everything in the current project:
+Use Glob and Read (or the fallbacks above) to find and catalog everything in the current project:
 
 ```
 CLAUDE.md                           # Root and any nested (monorepo tiers)
@@ -44,17 +52,20 @@ CLAUDE.md                           # Root and any nested (monorepo tiers)
 .cursor/agents/*.md                 # Cursor agents
 .cursor/commands/*.md               # Cursor commands
 .gitignore                          # For secret/settings exclusion checks
-~/.claude/settings.json             # User settings: read only the enabledPlugins key, report nothing else from it
+~/.claude/settings.json             # User settings: extract only the enabledPlugins key (below)
 ```
 
 Record what exists and what does not. If nothing exists, skip to Step 4 (classify as Level 0).
 
 Then collect the structural-context facts that Category 10 and check 1.12 need:
 
-- **File count:** Glob `**/*`, ignoring dependency, build and VCS folders (`node_modules`, `vendor`, `dist`, `build`, `.git`). The figure decides the ~50 and ~500 gates in the checklist.
-- **Main languages:** tally source files by extension.
-- **Code-intelligence plugins:** read `enabledPlugins` from `.claude/settings.json`, `.claude/settings.local.json` and `~/.claude/settings.json`. For each main language, look up the official plugin and binary in `references/code-intelligence.md` and record one of: `enabled` (then run `command -v <binary>` and check the install record), `disabled`, or `available: <plugin>` when it is not enabled. A plugin that is not enabled is information, never a finding.
-- **Named paths:** list every path in the CLAUDE.md key paths table, and every file or glob named as a golden file or pattern example in CLAUDE.md and the rules, for checks 1.12 and 10.2.
+- **File count:** count tracked source files: `git ls-files`, minus images (SVG included), fonts, media, lockfiles and other generated or binary assets. Ignored folders (`.archive/`, `node_modules`, build output) are not tracked, so they do not count. Without git, or when `git ls-files` is refused, count with `find` under the same exclusions (dependency, build and VCS folders too) and say the figure is approximate. This figure decides the ~50 and ~500 gates in the checklist and the maturity criteria.
+- **Main languages:** tally the same source files by extension, keeping each language's share.
+- **Code-intelligence plugins:** extract `enabledPlugins` from `.claude/settings.json`, `.claude/settings.local.json` and `~/.claude/settings.json`, noting which file enables each plugin. For each main language, look up the official plugin and binary in `references/code-intelligence.md` and record one of: `enabled` (then check the binary and the install record as that file says), `disabled`, or `available: <plugin>` when it is not enabled. A plugin that is not enabled is information, never a finding.
+- **Named paths:** list every path in the CLAUDE.md key paths table or map, and every golden file (a path CLAUDE.md or a rule presents as a pattern to copy), for checks 1.12 and 10.2.
+- **Global layer:** count the entries in `~/.claude/rules`, `~/.claude/agents`, `~/.claude/skills` and `~/.claude/hooks` with `ls`. Count only; read none of them. Step 6 reports the counts.
+
+**Settings privacy:** never Read `~/.claude/settings.json`, or a project settings file, whole just to get `enabledPlugins`. Extract that one key with one command: `jq .enabledPlugins <file>` when `which jq` finds it, otherwise `python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("enabledPlugins"))' <file>`. The rest of the file is not read and not reported. (`.claude/settings.json` is read in full only for the Category 5 checks, which need its permissions.)
 
 If the user specified a focus area, still discover everything but only evaluate the relevant categories in Step 3.
 
@@ -79,7 +90,7 @@ Be specific in the Detail column. Quote actual content when relevant ("CLAUDE.md
 
 **Named paths (checks 1.12, 10.2):** Glob each path. For a stale finding, name every missing path in the Detail column. Do not stop at the first miss.
 
-**Context efficiency estimate (Category 7):** Count lines in CLAUDE.md + all always-on rules. Report the total and flag it above 300 lines, the check 7.3 threshold (roughly 4,000 tokens at ~13 tokens per line).
+**Context efficiency estimate (Category 7):** Count lines in CLAUDE.md + all always-on rules, with their bytes (`wc -c`) and a token estimate (bytes / 4). Report the project-only total and flag it above 300 lines, the check 7.3 threshold (roughly 4,000 tokens at ~13 tokens per line). Report separately the total with the global instruction files (`~/.claude/CLAUDE.md`, `~/.claude/rules/*.md`); that second total is information and does not change the status.
 
 **Duplication scan (Category 7):** Grep for common directive phrases ("force push", "no secrets", command names) across CLAUDE.md, rules, and agent definitions. Report any directive that appears in 3+ files.
 
@@ -156,6 +167,10 @@ Prioritized by impact. HIGH = blocking next maturity level or causing active har
 2. **[MEDIUM]** <what to do> — <why> (See `<doc-path>`, "<section name>")
 3. ...
 
+## Global layer
+
+<One or two lines: the counts of user-level rules, agents, skills and hooks the project inherits. Say that the maturity level reflects only the project's own files, and that inherited setup is not credited to it.>
+
 ## Next Maturity Level
 
 To reach Level <next>:
@@ -163,8 +178,10 @@ To reach Level <next>:
 - <specific artifact or change needed>
 ```
 
+If the user named a path for the report, also write the report there. That file is the audit's only write; without a named path, write nothing.
+
 ## Stop Conditions
 
 - If no AI artifacts exist at all (Level 0): produce a short report with bootstrapping recommendations only. Do not run the full checklist.
 - If the user specified a focus area: only produce findings and recommendations for the relevant categories. Still classify maturity level.
-- Do not offer to apply changes unless the user explicitly asks. This is a read-only audit by default.
+- Do not offer to apply changes unless the user explicitly asks. This is a read-only audit by default (the report file the user names is the one exception).
