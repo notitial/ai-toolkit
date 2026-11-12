@@ -104,6 +104,14 @@ Paths are directory-oriented rather than extension-oriented. A single path like 
 
 Do not use overly broad patterns like `**/*.md` that would activate on any Markdown file in the project.
 
+### Rules the PR review must enforce
+
+The claude-review kit's written-rules pass reads only `CLAUDE.md` files: the root one (the default branch's copy) and any nested one in a directory that holds a changed file or is an ancestor of one. It never reads `.claude/rules/` ([`tools/claude-review/claude-pr-review.md`](../tools/claude-review/claude-pr-review.md), section 5, "Guidance files"). A rule binds only files in its own `CLAUDE.md`'s directory and below.
+
+- **A repo that runs the kit** (`.github/workflows/claude-review.yml`): put a rule the review must enforce on code in a nested `CLAUDE.md` in that folder. A rule in `.claude/rules/` guides sessions only; the review never applies it.
+- **A repo without the kit:** `.claude/rules/` is fine; the review is not the enforcer.
+- Do not move a nested `CLAUDE.md`'s content into `.claude/rules/` in a kit repo: the review stops seeing it.
+
 ## Content Structure
 
 Rules are consumed by AI agents, not rendered in a browser. Optimize for machine parsing and human review:

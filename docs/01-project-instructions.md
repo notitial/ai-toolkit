@@ -64,7 +64,7 @@ A practical way to audit: count the imperative statements in your file (lines th
 - Git commit format and safety rules
 - Key paths table
 
-**Push to rule files (`.claude/rules/`):**
+**Push to rule files (`.claude/rules/`).** Exception: in a repo that runs the PR review kit, a rule the review must enforce goes in a nested `CLAUDE.md`, because the review never reads `.claude/rules/` ([02-rules.md](02-rules.md), "Rules the PR review must enforce"):
 - Detailed UI patterns (component structure, accessibility, navigation)
 - Networking and data layer specifics (serialization, error mapping, DI)
 - Testing conventions (framework, naming, mock patterns)

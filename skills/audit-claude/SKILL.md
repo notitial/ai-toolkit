@@ -14,11 +14,12 @@ Knowledge base location — resolve dynamically from this skill's install path:
 ```
 # This SKILL.md lives at <ai-toolkit>/skills/audit-claude/SKILL.md
 # The docs are at <ai-toolkit>/docs/
-# Resolve: follow the symlink at ~/.claude/skills/audit-claude back to the repo, then use ../docs/
-TOOLKIT_DOCS=$(dirname $(dirname $(readlink -f ~/.claude/skills/audit-claude)))/docs
+# Resolve: run `ls -ld ~/.claude/skills/audit-claude`; it prints "... audit-claude -> <target>".
+# Drop the trailing "skills/audit-claude" from <target> and append "docs".
+TOOLKIT_DOCS=<target minus skills/audit-claude>/docs
 ```
 
-If the symlink is missing or broken, fall back to searching for the ai-toolkit repo by checking common locations or asking the user.
+If the symlink is missing or broken, fall back to searching for the ai-toolkit repo by checking common locations or asking the user. Do not guess the docs path from the audited repo's layout.
 
 ## Input
 
@@ -29,8 +30,12 @@ Optional: the user may specify a focus area (e.g., "just check my CLAUDE.md", "f
 ## Tools and shell
 
 - Glob and Grep may be missing from the session. Fall back to `find`, `ls` and `grep -r --exclude='*.env*'` through Bash. Read still reads a file.
-- Check that a binary exists with `which <binary>`, not `command -v`.
-- The audit is read-only and needs no workspace lock. A lock guard may still refuse some read-only shell forms, so prefer single plain commands: no pipes, no `cd … &&`, no `awk`. When a command is refused, do not work around the guard: record that check as "not verified" with the reason.
+- The audit is read-only and needs no workspace lock. A lock guard may still refuse some read-only shell forms, so prefer single plain commands with absolute paths: no pipes, no `cd … &&`, no `awk`. Forms that pass, and the ones they replace:
+  - `which <binary>`, not `command -v`.
+  - `ls -ld <symlink>` (the target follows `->`), not `readlink -f`.
+  - `find <dir> -type f -not -path '*/.git/*' -not -path '*/node_modules/*'` (one `-not -path` per excluded folder, no `-o` groups), not `git ls-files`.
+  - The one-command file count and tally in Step 1, not a `find … | sort | uniq` chain.
+- When a command is refused, do not work around the guard (no wrapping the same call in another tool): record that check as "not verified" with the reason.
 
 ## Steps
 
@@ -53,19 +58,32 @@ CLAUDE.md                           # Root and any nested (monorepo tiers)
 .cursor/commands/*.md               # Cursor commands
 .gitignore                          # For secret/settings exclusion checks
 ~/.claude/settings.json             # User settings: extract only the enabledPlugins key (below)
+~/.claude.json                      # User-scope MCP servers: extract only the mcpServers key names (below)
+rules/ agents/ skills/ hooks/       # Repo root: the global layer's source, when linked into ~/.claude (Global layer, below)
 ```
 
 Record what exists and what does not. If nothing exists, skip to Step 4 (classify as Level 0).
 
 Then collect the structural-context facts that Category 10 and check 1.12 need:
 
-- **File count:** count tracked source files: `git ls-files`, minus images (SVG included), fonts, media, lockfiles and other generated or binary assets. Ignored folders (`.archive/`, `node_modules`, build output) are not tracked, so they do not count. Without git, or when `git ls-files` is refused, count with `find` under the same exclusions (dependency, build and VCS folders too) and say the figure is approximate. This figure decides the ~50 and ~500 gates in the checklist and the maturity criteria.
-- **Main languages:** tally the same source files by extension, keeping each language's share.
+- **File count and main languages:** one command gives both, over one file set. It walks the repo without the VCS, dependency, build and archive folders and tallies by extension:
+
+  ```
+  python3 -I -c 'import os,sys,collections
+  skip={".git",".archive",".venv","node_modules","dist","build","target","vendor"}
+  c=collections.Counter()
+  for r,d,f in os.walk(sys.argv[1]):
+      d[:]=[x for x in d if x not in skip]
+      c.update(os.path.splitext(n)[1].lower() or n for n in f)
+  print(sum(c.values()),c.most_common(25))' <repo root>
+  ```
+
+  Subtract the asset extensions the tally shows (images, SVG included; fonts; media; lockfiles; other generated or binary files) from the total: the rest is the source file count that decides the ~50 and ~500 gates in the checklist and the maturity criteria. Markdown and other text files count, in the count and in the tally alike, so a docs-first repo reads as large as it is. Add a folder to `skip` when the repo ignores it (read `.gitignore`). The figure is approximate because it walks the disk, not `git ls-files`; say so. The tally gives each language's share.
 - **Code-intelligence plugins:** extract `enabledPlugins` from `.claude/settings.json`, `.claude/settings.local.json` and `~/.claude/settings.json`, noting which file enables each plugin. For each main language, look up the official plugin and binary in `references/code-intelligence.md` and record one of: `enabled` (then check the binary and the install record as that file says), `disabled`, or `available: <plugin>` when it is not enabled. A plugin that is not enabled is information, never a finding.
 - **Named paths:** list every path in the CLAUDE.md key paths table or map, and every golden file (a path CLAUDE.md or a rule presents as a pattern to copy), for checks 1.12 and 10.2.
-- **Global layer:** count the entries in `~/.claude/rules`, `~/.claude/agents`, `~/.claude/skills` and `~/.claude/hooks` with `ls`. Count only; read none of them. Step 6 reports the counts.
+- **Global layer:** list `~/.claude/rules/*`, `~/.claude/agents/*`, `~/.claude/skills/*` and `~/.claude/hooks/*`, one `ls -ld` command each (use `ls -ld ~/.claude/rules` when the folder itself is a link). Each line shows a link's target. An entry whose target is inside the audited repo is **owned by this repo** and installed globally (the repo keeps root `rules/`, `agents/`, `skills/` or `hooks/` and links them into `~/.claude`); every other entry is **inherited**. Count both; read no inherited file and no hook body. Owned files are project files: read them, and count them for Categories 2, 3, 4 and 8 and the classification, as if they sat under `.claude/` (the checklist says how). Step 6 reports both counts.
 
-**Settings privacy:** never Read `~/.claude/settings.json`, or a project settings file, whole just to get `enabledPlugins`. Extract that one key with one command: `jq .enabledPlugins <file>` when `which jq` finds it, otherwise `python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("enabledPlugins"))' <file>`. The rest of the file is not read and not reported. (`.claude/settings.json` is read in full only for the Category 5 checks, which need its permissions.)
+**Settings privacy:** never Read `~/.claude/settings.json`, `~/.claude.json` or a project settings file whole just to get one key. `~/.claude.json` also holds private data (account details, per-project history, tokens): say so in the report if it comes up, and report nothing from it but server names. Extract the one key with one command: `jq .enabledPlugins <file>` when `which jq` finds it, otherwise `python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("enabledPlugins"))' <file>`. For user-scope MCP servers (checks 5.7, 5.8, 10.3) extract only the key names: `jq '.mcpServers | keys' ~/.claude.json`, or the same python with `list(json.load(open(sys.argv[1])).get("mcpServers", {}))`. For user-level permissions or hooks (the "global by design" and 6.2 evidence) extract only key names too: `.permissions | keys`, `.hooks | keys`. The rest of the file is not read and not reported. (`.claude/settings.json` is read in full only for the Category 5 checks, which need its permissions.)
 
 If the user specified a focus area, still discover everything but only evaluate the relevant categories in Step 3.
 
@@ -90,7 +108,7 @@ Be specific in the Detail column. Quote actual content when relevant ("CLAUDE.md
 
 **Named paths (checks 1.12, 10.2):** Glob each path. For a stale finding, name every missing path in the Detail column. Do not stop at the first miss.
 
-**Context efficiency estimate (Category 7):** Count lines in CLAUDE.md + all always-on rules, with their bytes (`wc -c`) and a token estimate (bytes / 4). Report the project-only total and flag it above 300 lines, the check 7.3 threshold (roughly 4,000 tokens at ~13 tokens per line). Report separately the total with the global instruction files (`~/.claude/CLAUDE.md`, `~/.claude/rules/*.md`); that second total is information and does not change the status.
+**Context efficiency estimate (Category 7):** Count lines in CLAUDE.md + all always-on rules that really load, with their bytes (`wc -c`) and a token estimate (bytes / 4). Report the project-only total and flag it above about 4,000 tokens, the check 7.3 threshold; tokens decide, and the line count (300 lines is roughly 4,000 tokens) is context. Report separately the total with the inherited global instruction files (`~/.claude/CLAUDE.md`, `~/.claude/rules/*.md` not owned by this repo; owned rules are already in the project total); that second total is information and does not change the status.
 
 **Duplication scan (Category 7):** Grep for common directive phrases ("force push", "no secrets", command names) across CLAUDE.md, rules, and agent definitions. Report any directive that appears in 3+ files.
 
@@ -158,6 +176,7 @@ Output the report in this format:
 | PARTIAL | N |
 | MISSING | N |
 | N/A | N |
+| Not verified | N |
 
 ## Recommendations
 
@@ -169,7 +188,7 @@ Prioritized by impact. HIGH = blocking next maturity level or causing active har
 
 ## Global layer
 
-<One or two lines: the counts of user-level rules, agents, skills and hooks the project inherits. Say that the maturity level reflects only the project's own files, and that inherited setup is not credited to it.>
+<One or two lines: the counts of user-level rules, agents, skills and hooks, split into owned by this repo (installed from its root folders) and inherited. Say that the maturity level counts the project's own files, owned ones included, and that inherited setup is not credited to it. Name each "global by design" gap the checklist recorded and say it still reads as a gap in the level.>
 
 ## Next Maturity Level
 
