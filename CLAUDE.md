@@ -68,6 +68,14 @@ The live checkout is what `/setup-claude` links into `~/.claude` (hooks, rules, 
 - A long-lived session may still run in the live folder, since the tool that tracks it keys it to the folder it started in; it edits in its clone.
 - `/setup-claude` backs this with permission rules: asks on edits of `~/.claude/settings.json` and `settings.local.json`, denies on the live checkout's `.git/`, `hooks/`, `rules/`, `agents/`, `skills/`, `tools/github-mcp/`, `tools/workspace-lock/`, `tools/statusline.sh`, `tools/shell-init.zsh`, `tools/ait.zsh`, `tools/accounts.zsh` and `tools/install-copies.sh`. A shell write (`sed -i`, a redirect, `git checkout` in the live checkout) is not an Edit, so no rule stops it: the clone discipline is the control.
 
+## Patterns
+
+Copy these when adding the same kind of file:
+
+- A hook and its test: `hooks/gh-block.sh` (header says why, what it matches, known gaps and that it fails closed; bash 3.2) with `tools/gh-block/test-gh-block.sh` (runs the hook under `HOOK_SHELL` with a temp `HOME`, one line per deny or pass case).
+- A skill: `skills/archive-index/SKILL.md` (a `description` that says when to run it, `disable-model-invocation`, input, numbered steps, output).
+- A knowledge-base doc: `docs/09-structural-context.md` (scope line, the pattern, choosing between options, anti-patterns, case study, sources).
+
 ## Key Paths
 
 | Path | Purpose |
