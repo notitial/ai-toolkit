@@ -26,3 +26,10 @@ tools/github-mcp/bin/
 # Local environment files (may hold secrets; never committed)
 .env
 .env.*
+
+# Keys and credentials (never committed)
+*.pem
+*.key
+*.p12
+*.jks
+credentials.*
