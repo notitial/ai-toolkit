@@ -4,7 +4,7 @@ Evaluation criteria distilled from the knowledge base in `docs/`. Each check pro
 
 **Owned global files.** Files the repo keeps at its root as the source of the global layer (`rules/`, `agents/`, `skills/`, `hooks/`, linked into `~/.claude`; Step 1) are the project's own. Categories 2, 3, 4 and 8 and the classification evaluate them as if they sat under `.claude/`. Inherited global files are never scored.
 
-**Global by design.** When a project deliberately keeps a thing at user level (permissions in user settings, rules installed globally), checks 2.1, 5.1, 5.2 and 5.7 may put `global by design: <evidence>` at the start of Detail instead of a bare MISSING. Evidence is the project text that states the choice, or the key names Step 1 extracts (`permissions`, a rule link whose target is in this repo). The status does not change: the classification still needs what Level A needs, and the Global layer note explains the gap.
+**Global by design.** When a project deliberately keeps a thing at user level (permissions in user settings, rules installed globally), checks 2.1, 2.3, 5.1, 5.2, 5.7 and 7.3 may put `global by design: <evidence>` at the start of Detail instead of a bare MISSING. Evidence is the project text that states the choice, or the key names Step 1 extracts (`permissions`, a rule link whose target is in this repo). The status does not change: the classification still needs what Level A needs, and the Global layer note explains the gap. For 2.3 and 7.3 in a repo that owns the global layer, the owned always-on rules are the product it installs: score them as written (they count), mark the Detail `global by design`, and name in Detail any rule or section that applies only under a condition (it loads in every session anyway) as a candidate for on-demand loading.
 
 ## Category 1: Project Instructions (docs 01, 08)
 
@@ -22,7 +22,7 @@ Heading words are hints. A section check passes when a section's content covers 
 | 1.8 | Under 200 lines | Count lines. PARTIAL if 200-250, MISSING if >250. Detail also gives bytes (`wc -c`) and a token estimate (bytes / 4): long wrapped lines make a line count understate the weight |
 | 1.9 | Uses imperative voice | Spot-check for "Use", "Do not", "Run" vs passive "It is recommended", "We prefer" |
 | 1.10 | No code examples consuming token budget | Check for fenced code blocks longer than 10 lines — these belong in rules or docs |
-| 1.11 | No content that belongs in rules | Check for domain-specific or path-scoped guidance that should be a rule instead. In a repo that runs the review kit (check 2.10) the target is a nested `CLAUDE.md`, not `.claude/rules/`. When 2.1 is MISSING because no rules directory exists, count that cause once, in 2.1: 1.11 is N/A and its Detail names the content |
+| 1.11 | No content that belongs in rules | Check for domain-specific or path-scoped guidance that should be a rule instead. In a repo that runs the review kit (check 2.10) the target is a nested `CLAUDE.md`, not `.claude/rules/`. When 2.1 is MISSING because no rules directory exists, count that cause once, in 2.1: 1.11 is N/A and its Detail names the content. In a repo that runs the review kit, a rule spanning several folders must stay in the root `CLAUDE.md` (doc 02, "Rules the PR review must enforce"): keeping it there is not a 1.11 gap |
 | 1.12 | Key paths still exist | Glob every path in the 1.7 table or list, in whatever column or position it sits (relative to the file that holds it; strip backticks and a trailing `/`; a wildcard needs at least one match). Skip paths outside the repo (`~`, absolute, URLs), `<name>` placeholders, and paths the file says live in another repo; list the skipped ones in Detail. A path that `.gitignore` lists and that is absent is generated or local: note it, do not count it. PASS when all exist, PARTIAL naming every missing path, MISSING when none exist. N/A when 1.7 found no table or list |
 
 ## Category 2: Rules (docs 02, 08)
@@ -38,7 +38,7 @@ Heading words are hints. A section check passes when a section's content covers 
 | 2.7 | Do/Don't markers present | Check for explicit "Do not", "Never", "Forbidden" vs hedging "try to avoid", "consider" |
 | 2.8 | No hardcoded absolute paths | Grep for `/Users/`, `/home/`, `C:\` in rule files |
 | 2.9 | Canonical ownership clear | Each major concern (logging policy, naming, security) should trace to exactly one file |
-| 2.10 | Review-enforced rules sit where the review reads | N/A without `.github/workflows/claude-review.yml`. With it, the review kit's written-rules pass reads only `CLAUDE.md` files (root, and nested ones in changed directories), never `.claude/rules/` (`tools/claude-review/claude-pr-review.md`, section 5). PARTIAL naming each path-scoped rule in `.claude/rules/` that states code rules (Do/Don't constraints on code) with no nested `CLAUDE.md` in that folder to carry them: the review leaves them unenforced. Recommend a nested `CLAUDE.md` (doc 02, "Rules the PR review must enforce") |
+| 2.10 | Review-enforced rules sit where the review reads | N/A without `.github/workflows/claude-review.yml`. With it, the review kit's written-rules pass reads only `CLAUDE.md` files (root, and nested ones in changed directories), never `.claude/rules/` (`tools/claude-review/claude-pr-review.md`, section 5). PARTIAL naming each path-scoped rule in `.claude/rules/` that states code rules (Do/Don't constraints) with no nested `CLAUDE.md` in that folder to carry them: the review leaves them unenforced. A docs-standards rule in a docs-first repo is in scope: the review checks whatever the diff changes. A rule is judged by its constraints, not its prose: a rule that mixes descriptive paragraphs with Do/Don't lines (for example a paragraph on why headings stay short, then "Do not nest lists deeper than two levels") counts when at least one Do/Don't line is there, and is out of scope when it has none. Recommend a nested `CLAUDE.md` (doc 02, "Rules the PR review must enforce") |
 
 ## Category 3: Agents (doc 03)
 
@@ -49,7 +49,7 @@ Heading words are hints. A section check passes when a section's content covers 
 | 3.3 | Tool scoping per role | Check frontmatter `tools` field (Claude Code) or execution policy prose. Reviewers should not have Write. Coordinators should not have Build |
 | 3.4 | Execution policy inline | Each agent should contain its own allowed/prohibited commands block — not reference an external file |
 | 3.5 | Report format defined | Check for a structured report template (status, commit, files, blockers) |
-| 3.6 | Model selection matches the role's stakes | Check `model` frontmatter. Haiku for lightweight lookups, Sonnet for implementation and routine review, Opus where a miss is costly (security, architecture, payments) |
+| 3.6 | Model selection matches the role's stakes | Check `model` frontmatter. Haiku for lightweight lookups, Sonnet for implementation and routine review, Opus where a miss is costly (security, architecture, payments). An advisory, read-only role is judged by what its miss costs: Sonnet passes when a person or a later reviewer acts on its output, Opus is expected only when its verdict gates a change on its own |
 | 3.7 | No command chaining in execution policy | Grep for `&&`, `||`, `;` in allowed commands sections |
 
 ## Category 4: Skills (doc 04)
@@ -59,9 +59,9 @@ Heading words are hints. A section check passes when a section's content covers 
 | 4.1 | Skills directory exists | Glob for `.claude/skills/*/SKILL.md`, `.claude/commands/*.md` or owned root `skills/*/SKILL.md`. Also glob `.claude/skills/*.md` — flat skill files are not recognized by Claude Code; flag any found and recommend restructuring into `<name>/SKILL.md` directories |
 | 4.2 | Each skill has description field | Read frontmatter for `description` — needed for auto-triggering |
 | 4.3 | Steps are concrete | Check that steps reference specific paths, commands, or tools — not abstract instructions |
-| 4.4 | Output format defined | Check for explicit output template or format specification. A one-shot setup skill that ends in a verify step stating the wanted result needs no template: PASS |
+| 4.4 | Output format defined | Check for explicit output template or format specification. A one-shot check-and-confirm skill (setup, install, audit-and-fix) that ends in a verify step stating the wanted result needs no template: PASS |
 | 4.5 | Stop conditions defined | For iterative skills: check for iteration cap, convergence criteria, or explicit "when to stop" |
-| 4.6 | `disable-model-invocation: true` set on skills with side effects | Check frontmatter. The flag is a behaviour switch (doc 04, "Low context cost when idle"): only the user can start the skill. A skill with side effects (deploy, scaffold, commit) without it is MISSING. A skill or command without side effects is PASS without it: for a trigger-style skill auto-triggering is its point, and a command invoked from CI or by hand has nothing to guard (note the idle context cost in Detail as information). A side-effect skill that is deliberately model-invoked is PASS when its description or CLAUDE.md says so, PARTIAL when that is only implied |
+| 4.6 | `disable-model-invocation: true` set on skills with side effects | Check frontmatter. The flag is a behaviour switch (doc 04, "Low context cost when idle"): only the user can start the skill. A skill with side effects (deploy, scaffold, commit) without it is MISSING. A side effect is a write outside the working notes: a write only under `.archive/` or the tool's own state folder (such as `~/.claude/.eta/`) is not one, so such a skill is PASS with or without the flag. A skill or command without side effects is PASS without it: for a trigger-style skill auto-triggering is its point, and a command invoked from CI or by hand has nothing to guard (note the idle context cost in Detail as information). A side-effect skill that is deliberately model-invoked is PASS when its description or CLAUDE.md says so, PARTIAL when that is only implied |
 
 ## Category 5: Permissions and Safety (doc 05)
 
@@ -73,7 +73,7 @@ Heading words are hints. A section check passes when a section's content covers 
 | 5.4 | Build commands wrapped in aliases | Check if raw build tools (`xcodebuild`, `gradlew`, `cargo`) appear vs project aliases |
 | 5.5 | .gitignore covers settings.local.json | Read .gitignore for `.claude/settings.local.json` |
 | 5.6 | Secret patterns excluded | Check .gitignore for `.env`, `*.jks`, `*.pem`, `*.p12`, `credentials.*` |
-| 5.7 | Git MCP server configured when available | Check `~/.claude/mcp.json`, project `.mcp.json` and the user-scope `mcpServers` key names in `~/.claude.json` (names only: that file holds private data, Step 1) for a git MCP server (e.g., `git-mcp`). A server a plugin provides is in none of these files: if the session has git MCP tools but no file names one, report "not verified". If present, verify MCP git permissions exist in `permissions.allow`. If absent, recommend as improvement — do not penalize |
+| 5.7 | Git MCP server configured when available | Check `~/.claude/mcp.json`, project `.mcp.json` and the user-scope `mcpServers` key names in `~/.claude.json` (names only: that file holds private data, Step 1) for a git MCP server (e.g., `git-mcp`). A server a plugin provides is in none of these files: if the session has git MCP tools but no file names one, report "not verified". If present, verify MCP git permissions exist in `permissions.allow`: the project file is read in full; for the user file take the one filtered count Step 1 allows (never the entries). If absent, recommend as improvement — do not penalize |
 | 5.8 | No Bash git permissions when MCP available | If a git MCP server is configured, flag any remaining `Bash(git *)` entries in `permissions.allow` as migrable to MCP equivalents. N/A if no git MCP is configured |
 
 ## Category 6: Git Safety (docs 01, 05)
@@ -101,9 +101,9 @@ Heading words are hints. A section check passes when a section's content covers 
 | # | Check | How to verify |
 |---|-------|---------------|
 | 8.1 | Checkpoint mechanism defined | Grep for "checkpoint" in agents, skills, or docs. Check for checkpoint file pattern |
-| 8.2 | Thin coordinator principle followed | If orchestrator agent exists: verify it does not have Build/Test tools and instructions say "never read code" |
+| 8.2 | Thin coordinator principle followed | If orchestrator agent exists: verify it does not have Build/Test tools and instructions say "never read code". A skill that acts as the orchestrator has no tool list: judge its instructions (it delegates building, testing and code reading to subagents). N/A only when no orchestrator exists |
 | 8.3 | Convergence patterns have iteration caps | Check convergence/review skills for max pass limits (typically 2-5) |
-| 8.4 | Structured report format defined | Check agent definitions for `---REPORT---` or similar delimited format |
+| 8.4 | Structured report format defined | Check agent definitions for `---REPORT---` or similar delimited format. Any fixed, named-section template a parent can parse (a headed report template) passes; free prose does not |
 | 8.5 | Wave-based execution present | Check orchestrator instructions for wave/batch grouping of tasks |
 | 8.6 | Commit verification step exists | Check for post-completion git verification (git log check after agent reports PASS) |
 | 8.7 | Severity rubric defined | Check for CRITICAL/HIGH/MEDIUM/LOW or equivalent severity scale in review agents or rules |
