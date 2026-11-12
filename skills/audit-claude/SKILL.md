@@ -15,7 +15,7 @@ Knowledge base location — resolve dynamically from this skill's install path:
 # This SKILL.md lives at <ai-toolkit>/skills/audit-claude/SKILL.md
 # The docs are at <ai-toolkit>/docs/
 # Resolve: follow the symlink at ~/.claude/skills/audit-claude back to the repo, then use ../docs/
-AI_TOOLING_DOCS=$(dirname $(dirname $(readlink -f ~/.claude/skills/audit-claude)))/docs
+TOOLKIT_DOCS=$(dirname $(dirname $(readlink -f ~/.claude/skills/audit-claude)))/docs
 ```
 
 If the symlink is missing or broken, fall back to searching for the ai-toolkit repo by checking common locations or asking the user.
@@ -44,9 +44,17 @@ CLAUDE.md                           # Root and any nested (monorepo tiers)
 .cursor/agents/*.md                 # Cursor agents
 .cursor/commands/*.md               # Cursor commands
 .gitignore                          # For secret/settings exclusion checks
+~/.claude/settings.json             # User settings: read only the enabledPlugins key, report nothing else from it
 ```
 
 Record what exists and what does not. If nothing exists, skip to Step 4 (classify as Level 0).
+
+Then collect the structural-context facts that Category 10 and check 1.12 need:
+
+- **File count:** Glob `**/*`, ignoring dependency, build and VCS folders (`node_modules`, `vendor`, `dist`, `build`, `.git`). The figure decides the ~50 and ~500 gates in the checklist.
+- **Main languages:** tally source files by extension.
+- **Code-intelligence plugins:** read `enabledPlugins` from `.claude/settings.json`, `.claude/settings.local.json` and `~/.claude/settings.json`. For each main language, look up the official plugin and binary in `references/code-intelligence.md` and record one of: `enabled` (then run `command -v <binary>` and check the install record), `disabled`, or `available: <plugin>` when it is not enabled. A plugin that is not enabled is information, never a finding.
+- **Named paths:** list every path in the CLAUDE.md key paths table, and every file or glob named as a golden file or pattern example in CLAUDE.md and the rules, for checks 1.12 and 10.2.
 
 If the user specified a focus area, still discover everything but only evaluate the relevant categories in Step 3.
 
@@ -56,6 +64,7 @@ Read the checklist and maturity criteria from the references directory (relative
 
 - `references/checklist.md` — 10 categories of evaluation checks
 - `references/maturity-criteria.md` — A/B/C/0 classification rules
+- `references/code-intelligence.md` — official code-intelligence plugins, their binaries and extensions (for Step 1 and check 10.3)
 
 ### Step 3: Evaluate each category
 
@@ -67,6 +76,8 @@ For each applicable category in the checklist, evaluate every check against the 
 - **N/A** — the check does not apply at this maturity level or project type
 
 Be specific in the Detail column. Quote actual content when relevant ("CLAUDE.md is 247 lines — 47 over the 200-line target"). Name the specific file and line when flagging an issue.
+
+**Named paths (checks 1.12, 10.2):** Glob each path. For a stale finding, name every missing path in the Detail column. Do not stop at the first miss.
 
 **Context efficiency estimate (Category 7):** Count lines in CLAUDE.md + all always-on rules. Report the total and flag it above 300 lines, the check 7.3 threshold (roughly 4,000 tokens at ~13 tokens per line).
 
@@ -82,16 +93,16 @@ For each PARTIAL or MISSING finding, read the relevant document from the knowled
 
 | Category | Doc to read |
 |----------|-------------|
-| 1 (Project Instructions) | `$AI_TOOLING_DOCS/01-project-instructions.md` |
-| 2 (Rules) | `$AI_TOOLING_DOCS/02-rules.md` |
-| 3 (Agents) | `$AI_TOOLING_DOCS/03-agents.md` |
-| 4 (Skills) | `$AI_TOOLING_DOCS/04-skills-and-commands.md` |
-| 5 (Permissions) | `$AI_TOOLING_DOCS/05-permissions-and-safety.md` |
-| 6 (Git Safety) | `$AI_TOOLING_DOCS/01-project-instructions.md`, `$AI_TOOLING_DOCS/05-permissions-and-safety.md` |
-| 7 (Context Efficiency) | `$AI_TOOLING_DOCS/08-context-management.md`, `$AI_TOOLING_DOCS/13-orchestrator-context-discipline.md` |
-| 8 (Orchestration) | `$AI_TOOLING_DOCS/12-orchestrator.md`, `$AI_TOOLING_DOCS/11-convergence.md`, `$AI_TOOLING_DOCS/10-reviews.md`, `$AI_TOOLING_DOCS/13-orchestrator-context-discipline.md` |
-| 9 (Cross-Platform) | `$AI_TOOLING_DOCS/17-cross-platform-parity.md` |
-| 10 (Structural Context) | `$AI_TOOLING_DOCS/09-structural-context.md` |
+| 1 (Project Instructions) | `$TOOLKIT_DOCS/01-project-instructions.md` |
+| 2 (Rules) | `$TOOLKIT_DOCS/02-rules.md` |
+| 3 (Agents) | `$TOOLKIT_DOCS/03-agents.md` |
+| 4 (Skills) | `$TOOLKIT_DOCS/04-skills-and-commands.md` |
+| 5 (Permissions) | `$TOOLKIT_DOCS/05-permissions-and-safety.md` |
+| 6 (Git Safety) | `$TOOLKIT_DOCS/01-project-instructions.md`, `$TOOLKIT_DOCS/05-permissions-and-safety.md` |
+| 7 (Context Efficiency) | `$TOOLKIT_DOCS/08-context-management.md`, `$TOOLKIT_DOCS/13-orchestrator-context-discipline.md` |
+| 8 (Orchestration) | `$TOOLKIT_DOCS/12-orchestrator.md`, `$TOOLKIT_DOCS/11-convergence.md`, `$TOOLKIT_DOCS/10-reviews.md`, `$TOOLKIT_DOCS/13-orchestrator-context-discipline.md` |
+| 9 (Cross-Platform) | `$TOOLKIT_DOCS/17-cross-platform-parity.md` |
+| 10 (Structural Context) | `$TOOLKIT_DOCS/09-structural-context.md` |
 
 Only read the docs needed for actual findings — do not read every doc on every audit.
 

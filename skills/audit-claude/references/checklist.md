@@ -17,6 +17,7 @@ Evaluation criteria distilled from the knowledge base in `docs/`. Each check pro
 | 1.9 | Uses imperative voice | Spot-check for "Use", "Do not", "Run" vs passive "It is recommended", "We prefer" |
 | 1.10 | No code examples consuming token budget | Check for fenced code blocks longer than 10 lines — these belong in rules or docs |
 | 1.11 | No content that belongs in rules | Check for domain-specific or path-scoped guidance that should be a rule instead |
+| 1.12 | Key paths still exist | Glob the first-column path of every row of the 1.7 table (relative to the file that holds the table; strip backticks and a trailing `/`; a wildcard needs at least one match). Skip paths outside the repo (`~`, absolute, URLs). A path that `.gitignore` lists and that is absent is generated or local: note it, do not count it. PASS when all exist, PARTIAL naming every missing path, MISSING when none exist. N/A when 1.7 found no table |
 
 ## Category 2: Rules (docs 02, 08)
 
@@ -119,9 +120,11 @@ Evaluation criteria distilled from the knowledge base in `docs/`. Each check pro
 
 ## Category 10: Structural Context (doc 09) — Level C indicator
 
+Runs at every maturity level, each check on its own gate: 10.1 always, 10.2 from about 50 files, 10.3 whenever a plugin or server is configured. The file count comes from Step 1.
+
 | # | Check | How to verify |
 |---|-------|---------------|
-| 10.1 | Key paths table exists in CLAUDE.md | Already checked in 1.7 — reference that result |
-| 10.2 | Structural context appropriate for repo size | In a large repo (roughly 500+ files), check doc 09 Tiers 1-2: a key paths table, golden files, a CLAUDE.md in major subdirectories. Flag as PARTIAL only if those are thin and nothing else covers navigation. A missing repo map or code graph server is never a finding on file count alone: doc 09 adds them only when its "Choosing the Right Tier" signals show Tiers 1-2 fall short |
-| 10.3 | Heavier structural tooling is justified | If a code-intelligence (LSP) plugin, repo map or code graph MCP server (`.mcp.json`) is configured, check that it is referenced in CLAUDE.md. N/A when none is configured |
+| 10.1 | Key paths table exists and is current | Already checked in 1.7 (table) and 1.12 (paths exist) — reference both results |
+| 10.2 | Structural context appropriate for repo size | **Under about 50 files:** N/A, a key paths table is enough (Tier 1). **From about 50 files (Tier 2):** CLAUDE.md or a rule names golden files or pattern examples. Glob every file or pattern named; a glob must match at least one file. PASS when at least one is named and all exist. PARTIAL naming each stale path when some are gone. MISSING when none is named, or when none of the named paths exist. **Roughly 500+ files:** also look for a CLAUDE.md in major subdirectories; PARTIAL if those and the golden files are thin and nothing else covers navigation. A missing repo map or code graph server is never a finding on file count alone: doc 09 adds them only when its "Choosing the Right Tier" signals show Tiers 1-2 fall short |
+| 10.3 | Heavier structural tooling is justified | If a code-intelligence (LSP) plugin is enabled (Step 1, `references/code-intelligence.md`), a repo map or a code graph MCP server (`.mcp.json`) is configured, check that CLAUDE.md references it. For an enabled plugin also check that its language-server binary is on PATH (`command -v`) and that the install record exists: a plugin without its binary does nothing, so PARTIAL naming the binary. N/A when none is configured. A plugin that is not enabled is not a finding: doc 09 treats the LSP plugin as a Tier 3 step, taken only after Tiers 1-2 fall short and after measuring. Report it in Detail as `available: <plugin>` for each main language, with the status unchanged. The LSP tool works in terminal sessions only |
 | 10.4 | No entire-repo context dumps or LLM-built maps | Check for tools or scripts that flatten entire repos into single files for context injection, or generate a codebase map whose layers an LLM writes. Flag as anti-pattern if found (doc 09, Anti-Patterns) |
