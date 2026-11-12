@@ -143,6 +143,8 @@ Start at the lowest tier that works. Over-indexing a small project wastes setup 
 
 **Stale structural documentation.** Static repo maps and key-paths tables become stale as the codebase evolves. If agents trust outdated documentation, they navigate to code that has moved or been deleted. Dynamic tools (MCP servers with file watchers) solve staleness automatically. Static documentation requires periodic review.
 
+**Keep it current.** Every path in the key paths table and every golden file must still exist: update both in the commit that renames or deletes the file. `/audit-claude` globs each listed path and names the stale ones.
+
 **Ignoring the orientation cost.** If you have never measured how many tokens your agent spends before it starts productive work, you do not know whether your structural context is adequate. Watch the first 5-10 tool calls of a session — if most are exploratory searches rather than targeted reads, your structural context needs improvement.
 
 ## Case Study: Small Project vs Large Monorepo

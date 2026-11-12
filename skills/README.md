@@ -6,7 +6,7 @@ Global skills live in this folder and are symlinked into `~/.claude/skills/` by 
 
 ### [/audit-claude](audit-claude/SKILL.md)
 
-Audits any project's AI setup against the patterns in [docs/](../docs/README.md). Evaluates CLAUDE.md, rules, agents, skills, and settings. Classifies maturity level (A/B/C) and produces prioritized recommendations. Run from the target project.
+Audits any project's AI setup against the patterns in [docs/](../docs/README.md). Evaluates CLAUDE.md, rules, agents, skills, and settings, and checks that the structural context is real: listed key paths and golden files exist, and an enabled code-intelligence plugin has its language server on PATH. Classifies maturity level (A/B/C) and produces prioritized recommendations. Run from the target project.
 
 ### [/adr](adr/SKILL.md)
 

@@ -27,7 +27,7 @@ Classify the project's AI-assisted development maturity based on which artifacts
 - No skills, no agents, no orchestration artifacts
 - Manual workflow — human invokes AI for individual tasks
 
-**What to check at this level:** Categories 1, 2, 5, 6, 7, plus Categories 3 (agents) and 4 (skills) whenever their files exist. Categories 8 and 9 are N/A, and 3 and 4 when there are no agents or skills.
+**What to check at this level:** Categories 1, 2, 5, 6, 7 and 10, plus Categories 3 (agents) and 4 (skills) whenever their files exist. Categories 8 and 9 are N/A, and 3 and 4 when there are no agents or skills. Category 10 runs on its own size gates (see Level C): key paths always, golden files from about 50 files, tooling checks only when a plugin or server is configured.
 
 ## Level B — Rules + Skills
 
@@ -42,7 +42,7 @@ Classify the project's AI-assisted development maturity based on which artifacts
 - Agent definitions if multi-agent work is happening
 - Semi-automated workflow — human triggers skills, AI executes multi-step procedures
 
-**What to check at this level:** Categories 1, 2, 4-7, plus Category 3 whenever agent files exist (N/A otherwise). Categories 8 and 10 are N/A. Category 9 only if multi-platform.
+**What to check at this level:** Categories 1, 2, 4-7 and 10, plus Category 3 whenever agent files exist (N/A otherwise). Category 8 is N/A. Category 9 only if multi-platform. Category 10 runs on its own size gates (see Level C).
 
 ## Level C — Mature Orchestrated
 
@@ -52,7 +52,7 @@ Classify the project's AI-assisted development maturity based on which artifacts
 - Convergence patterns with iteration caps
 - Structured report formats for inter-agent communication
 - Multiple agent roles with role-appropriate tool scoping
-- For repos exceeding 500 files: structural context per doc 09 (key paths, golden files, a CLAUDE.md in major subdirectories), with heavier tooling (the code-intelligence plugin, a repo map, a code graph server) only where doc 09's signals call for it
+- For repos exceeding 500 files: structural context per doc 09 (key paths, golden files that exist, a CLAUDE.md in major subdirectories), with heavier tooling (the code-intelligence plugin, a repo map, a code graph server) only where doc 09's signals call for it
 
 **Typical indicators:**
 - Orchestrator agent or launch prompt that can run unattended
@@ -63,7 +63,9 @@ Classify the project's AI-assisted development maturity based on which artifacts
 - Review layers (self-review, design review, or full review)
 - Per-directory CLAUDE.md files, or the code-intelligence plugin, in large codebases
 
-**What to check at this level:** All 10 categories. Category 9 only if multi-platform. Category 10 only if repo exceeds 500 files.
+**What to check at this level:** All 10 categories. Category 9 only if multi-platform.
+
+**Category 10 gates (all levels):** key paths exist (1.12 and 10.1) in any repo with a key paths table; golden files (10.2) from about 50 files, doc 09's Tier 2; a CLAUDE.md in major subdirectories at roughly 500+ files; plugin and server checks (10.3) whenever one is configured, at any size. The 500-file line is the Level C classification gate: a repo of 50-500 files with stale or missing golden files gets findings and recommendations but is not held below Level C for it.
 
 ## Classification Procedure
 
