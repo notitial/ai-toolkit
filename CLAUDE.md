@@ -8,28 +8,16 @@ Documentation-first: the knowledge base in `docs/` is markdown. Working code (Ty
 
 ## Build / Test / Lint
 
-No repo-wide build or lint — `docs/` is markdown only. `bash tools/test-all.sh` runs every suite below and prints a pass/fail table (`--quick` skips the slow ones, `NAME…` runs only those; keep its suite list in step with this one). Exceptions, all under `tools/`:
+No repo-wide build or lint — `docs/` is markdown only. `bash tools/test-all.sh` runs every suite and prints a pass/fail table (`--quick` skips the slow ones, `NAME…` runs only those; keep its suite list in step with the "Test suites" list in `tools/README.md`, which names the suite to run after changing each hook or tool).
 
-- `tools/gh-block/` — `bash tools/gh-block/test-gh-block.sh` after changing `hooks/gh-block.sh`.
-- `tools/github-mcp/` — `bash tools/github-mcp/test-guard.sh` after changing `guard.sh` or `launch`; `bash tools/github-mcp/test-update-check.sh` after changing `hooks/github-mcp-update-check.sh`.
-- `tools/ait.zsh`, `tools/accounts.zsh`, `tools/shell-init.zsh` — `bash tools/test-ait.sh` after changing any of them (needs zsh). `tools/install-copies.sh` `status` and `accounts` are in that suite too.
-- `tools/install-copies.sh` — `bash tools/test-install-copies.sh` after changing it (its `accounts` parser and account status lines are tested by `bash tools/test-ait.sh`).
-- `tools/statusline.sh` — `bash tools/test-statusline.sh` after changing it; it also checks `rate_color_for` against `tools/pace-vectors.tsv` (regenerate with `bash tools/gen-pace-vectors.sh > tools/pace-vectors.tsv` when the colour maths changes).
-- `tools/session-name/` — `bash tools/session-name/test-restore.sh` after changing `hooks/session-name-restore.sh`.
-- `tools/cleanup-claude/` — `bash tools/cleanup-claude/test-cleanup.sh` after changing `cleanup.sh` or what `/setup-claude` and the installers put on a machine (needs jq).
-- `tools/claude-review/` — `python3 -I -B -m unittest discover -s tools/claude-review/tests` after changing the workflow's inline scripts, the kit's files or this repo's installed copies (`.github/workflows/claude-review.yml`, `.claude/commands/claude-pr-review.md`).
-- `tools/build-kit/` — `python3 -I -B -m unittest discover -s tools/build-kit/tests` after changing the kit (`build.py`, `buildkit/`) or what `/add-build-kit` installs (Python 3.9+, no Xcode or Android SDK needed: fake tools stand in).
-- `tools/audit-logger/`, `tools/build-redirect/`, `tools/destructive-blocker/`, `tools/git-mcp-guard/`, `tools/git-mcp-redirect/`, `tools/secret-detector/`, `tools/secret-redact-output/` — `bash tools/<name>/test-<name>.sh` after changing the matching `hooks/<name>.sh`.
-- `tools/workspace-lock/` — `bash tools/workspace-lock/test-guard.sh` and `bash tools/workspace-lock/test-acquire.sh` (about 1.5 min) after changing the lock script or its guard.
-
-Outside those directories, do not search for `package.json`, `Makefile`, or similar.
+Outside `tools/`, do not search for `package.json`, `Makefile`, or similar.
 
 ## Document Structure
 
 - `docs/` — Numbered knowledge base (01–18, no gaps) in reading order; each stands alone but builds on earlier ones. Organized in six groups: Foundations (01–05), Setting up a repo (06–07), Context (08–09), Quality (10–11), Orchestration (12–16), Specialized (17–18). See `docs/README.md` for the full index.
 - `agents/` — Global agent definitions (symlinked to `~/.claude/agents/` via `/setup-claude`).
 - `hooks/` — Global hook scripts (symlinked to `~/.claude/hooks/` via `/setup-claude`).
-- `rules/` — Global always-on rule files (symlinked to `~/.claude/rules/` via `/setup-claude`; no frontmatter — distinct from project-scoped `.claude/rules/`).
+- `rules/` — Global always-on rule files (symlinked to `~/.claude/rules/` via `/setup-claude`; no frontmatter — distinct from project-scoped `.claude/rules/`; see ADR 0009).
 - `skills/` — Global Claude Code skills, symlinked via `/setup-claude`. The README install table is the roster of global installs.
 - `tools/` — Reusable tooling (scripts and their tests).
 - `.archive/` — Gitignored working area (session artifacts, handovers, audits) plus archived source material. Do not modify archived source subfolders; new work goes in new subfolders.
@@ -80,22 +68,10 @@ Copy these when adding the same kind of file:
 
 | Path | Purpose |
 |------|---------|
-| `docs/README.md` | Document index and reading order |
 | `docs/01-project-instructions.md` | CLAUDE.md design guidance (this repo follows it) |
 | `docs/02-rules.md` | Rule authoring patterns |
 | `docs/06-repo-initialization.md` | Bootstrap prompts and AI maturity model |
-| `agents/` | Global agent definitions (roster: README install table) |
-| `hooks/` | Global hook scripts (roster: README install table) |
-| `rules/` | Global always-on rules installed to `~/.claude/rules/` (see ADR 0009) |
-| `skills/` | Global skills (roster: README install table) |
-| `tools/` | Reusable tooling (statusline, scripts) |
-| `tools/workspace-lock/` | Advisory lock serializing independent unattended orchestrators (used by the `unattended-run` skill) |
-| `tools/claude-review/` | The Claude PR review kit: the canonical workflow and review command other repos copy (this repo runs the same copies), its setup guide, tests and reviewer cases; `/add-claude-review` installs it |
-| `tools/build-kit/` | Opt-in per-project iOS and Android build, test and lint tools (a Python CLI with an MCP mode); `/add-build-kit` copies it into a project, and `hooks/build-redirect.sh` sends direct builds there |
-| `tools/github-mcp/` | Optional guarded GitHub MCP setup: a launcher plus a hook limiting which GitHub writes agents may make, run from the live checkout, which they require to be reviewed code (clean main, HEAD on origin/main, binary hash pinned); its README covers install and token rotation |
-| `tools/shell-init.zsh` | The one line `~/.zshrc` sources (`source ~/.claude/tools/shell-init.zsh`): loads `tools/ait.zsh` |
-| `tools/ait.zsh` | zsh helpers: `ait`, `ait-status`, `ghm-status` (the GitHub MCP wiring check), `ghm-test` |
-| `tools/accounts.zsh` | macOS account launchers: `claude-<name>` and `code-<name>` for each line of `~/.claude/accounts.conf` (a Keychain secret in one variable of one process); `/add-account` and `/remove-account` manage them |
+| `tools/README.md` | Every tool: what it does, its README, and the test suite to run after a change |
 | `.claude/settings.json` | Project-level permissions allowlist (no hooks) |
 | `.claude/rules/` | Path-scoped rules (loaded on demand) |
 | `.claude/commands/` | Project command claude-pr-review (a fork of the code-review command from Anthropic's Claude Code plugins) |

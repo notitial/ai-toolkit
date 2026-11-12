@@ -20,6 +20,10 @@ Audits a named repo against the repo-setup checklist ([docs/07](../docs/07-new-r
 
 Adds the automatic Claude PR review to the current repo from the kit in [tools/claude-review/](../tools/claude-review/README.md). Asks for the runner labels, the auth mode, the secret name and the reviewer GitHub App, applies only the documented replacement points, checks the SHAs and opens the PR; the user creates or installs the App, sets the variables and secrets, and merges. Also upgrades an existing copy. Run from the target repo.
 
+### [/claude-review-loop](claude-review-loop/SKILL.md)
+
+Answers the automatic Claude review on a PR in a repo that runs the kit (`.github/workflows/claude-review.yml`): wait for the checks, read the findings, fix each or reply in its thread, then ask for one `@claude review --comments` run. Loaded on demand so the always-on `workflow` rule keeps only the trigger; an agent loads it before opening a PR there, marking one ready or pushing review fixes.
+
 ### [/add-build-kit](add-build-kit/SKILL.md)
 
 Adds the opt-in iOS and Android build, test and lint tools from [tools/build-kit/](../tools/build-kit/README.md) to the current repo. Copies the kit into `tools/build-kit/` with a VERSION stamp, writes `.build-kit.json` (the allow-lists) from what it detects and what the user answers, adds the `ios` and `android` entries to `.mcp.json` and the named-tool permissions to `.claude/settings.json` (never a wildcard), and opens the PR; the exact diffs of the two files are shown first and wait for the user's go. Also upgrades an existing copy by diff. Run from the target repo.
