@@ -69,7 +69,7 @@ For each hook in `hooks/`:
 | 2.1 | Executable flag | File has a bash shebang and the working-tree mode is executable (`ls -l`). The index mode is not readable from the tree: CI `Install Checks` is the real check, so say "index mode not verified" in Detail |
 | 2.2 | Reads JSON from stdin | Script uses `cat` or similar to capture stdin, then parses with `jq` |
 | 2.3 | Uses structured JSON output | Deny decisions use `hookSpecificOutput.permissionDecision: "deny"` format. N/A for a hook that never denies (it only logs, redacts, restores or notifies) |
-| 2.4 | Exit 0 always | Script never exits non-zero — uses JSON output for decisions, not exit codes. One exception: a guard whose header says it fails closed may exit 2 (the github guard's `|| exit 2`, see 5.5). |
+| 2.4 | Exit 0 always | Script never exits non-zero — uses JSON output for decisions, not exit codes. This audits `hooks/*.sh` only: the github guard's `|| exit 2` sits in a settings hook command, covered by 5.5, not here |
 | 2.5 | Pattern coverage reasonable | Secret detector: covers AWS, GitHub, OpenAI/Stripe, PEM keys, JWT, Slack, .env files, Keychain secret reads (`security find-*-password -w/-g`, `dump-keychain -d`). Destructive blocker: covers rm -rf, DROP/DELETE/TRUNCATE, git force push/reset/clean, dd, mkfs |
 | 2.6 | No false positives on safe input | Run a mental walkthrough: would `echo "hello world"` or `git status` trigger a deny? |
 | 2.7 | Grep handles special patterns | Patterns starting with dashes use `--` end-of-options marker |
@@ -147,7 +147,7 @@ Check the root `CLAUDE.md` against doc 01 criteria:
 
 | # | Check | How to verify |
 |---|-------|---------------|
-| 7.1 | setup-claude discovery covers all artifact dirs | Its discovery steps (the `bash tools/install-copies.sh roster` lines) and its Step 1 read list cover `agents/`, `hooks/`, `skills/` (`skills/*/SKILL.md`) and `rules/` — no artifact directory is missed |
+| 7.1 | setup-claude discovery covers all artifact dirs | Its discovery steps (the `bash tools/install-copies.sh roster` lines) cover `agents/`, `hooks/`, `skills/` and `rules/` — no artifact directory is missed. Judge on those lines alone |
 | 7.2 | README install table matches filesystem | Compare the README "What Gets Installed" rows against `ls agents/ hooks/ skills/ rules/` (ignore `skills/README.md`) — the table is the repo's only enumerated roster (CLAUDE.md convention); FLAG any drift in either direction |
 | 7.3 | Report step stays discovery-based | setup-claude's Report step (Step 11) contains no hardcoded artifact rosters — one row per discovered artifact |
 
