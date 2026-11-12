@@ -1,23 +1,25 @@
 # Audit Checklist
 
-Evaluation criteria distilled from the knowledge base in `docs/`. Each check produces PASS, PARTIAL, MISSING, or N/A.
+Evaluation criteria distilled from the knowledge base in `docs/`. Each check produces PASS, PARTIAL, MISSING, or N/A. A check the shell refused or could not run is reported as "not verified", with the reason, instead of a status.
 
 ## Category 1: Project Instructions (docs 01, 08)
+
+Heading words are hints. A section check passes when a section's content covers the topic, whatever its heading.
 
 | # | Check | How to verify |
 |---|-------|---------------|
 | 1.1 | CLAUDE.md exists at repo root | Glob for `CLAUDE.md` in root |
 | 1.2 | Has Project Overview section | Scan for H2 containing "overview" or "what this is" |
 | 1.3 | Has Build/Test/Lint section | Scan for H2 containing "build", "test", or "lint". If no build system, section should say so explicitly |
-| 1.4 | Has Architecture or Structure section | Scan for H2 containing "architecture", "structure", or "stack" |
+| 1.4 | Has Architecture or Structure section | Scan for H2 containing "architecture", "structure", "stack" or "layout", or any section whose content covers it |
 | 1.5 | Has Conventions section | Scan for H2 containing "conventions", "patterns", or "style" |
-| 1.6 | Has Git Conventions section | Scan for H2 containing "git" — commit format, branch naming |
-| 1.7 | Has Key Paths table | Scan for a markdown table with "path" or "file" column header |
-| 1.8 | Under 200 lines | Count lines. PARTIAL if 200-250, MISSING if >250 |
+| 1.6 | Has Git Conventions section | Scan for H2 containing "git", or git rules (commit format, branch naming) under another section such as Conventions |
+| 1.7 | Has Key Paths table | Scan for a markdown table or path list that the file treats as its map of the repo (a Key Paths, Layout or ownership table). Any column header counts |
+| 1.8 | Under 200 lines | Count lines. PARTIAL if 200-250, MISSING if >250. Detail also gives bytes (`wc -c`) and a token estimate (bytes / 4): long wrapped lines make a line count understate the weight |
 | 1.9 | Uses imperative voice | Spot-check for "Use", "Do not", "Run" vs passive "It is recommended", "We prefer" |
 | 1.10 | No code examples consuming token budget | Check for fenced code blocks longer than 10 lines — these belong in rules or docs |
 | 1.11 | No content that belongs in rules | Check for domain-specific or path-scoped guidance that should be a rule instead |
-| 1.12 | Key paths still exist | Glob the first-column path of every row of the 1.7 table (relative to the file that holds the table; strip backticks and a trailing `/`; a wildcard needs at least one match). Skip paths outside the repo (`~`, absolute, URLs). A path that `.gitignore` lists and that is absent is generated or local: note it, do not count it. PASS when all exist, PARTIAL naming every missing path, MISSING when none exist. N/A when 1.7 found no table |
+| 1.12 | Key paths still exist | Glob every path in the 1.7 table or list, in whatever column or position it sits (relative to the file that holds it; strip backticks and a trailing `/`; a wildcard needs at least one match). Skip paths outside the repo (`~`, absolute, URLs). A path that `.gitignore` lists and that is absent is generated or local: note it, do not count it. PASS when all exist, PARTIAL naming every missing path, MISSING when none exist. N/A when 1.7 found no table or list |
 
 ## Category 2: Rules (docs 02, 08)
 
@@ -54,7 +56,7 @@ Evaluation criteria distilled from the knowledge base in `docs/`. Each check pro
 | 4.3 | Steps are concrete | Check that steps reference specific paths, commands, or tools — not abstract instructions |
 | 4.4 | Output format defined | Check for explicit output template or format specification |
 | 4.5 | Stop conditions defined | For iterative skills: check for iteration cap, convergence criteria, or explicit "when to stop" |
-| 4.6 | `disable-model-invocation: true` set (or exception documented) | Check frontmatter — prevents token cost when a user-only skill is idle. `false` is acceptable only when the workflow requires model invocation and the exception is documented in the skill description or CLAUDE.md |
+| 4.6 | `disable-model-invocation: true` set (or exception documented) | Check frontmatter — prevents token cost when a user-only skill is idle. A skill that is deliberately model-invoked is PASS when its description or CLAUDE.md says so (a description that only implies it is PARTIAL). The flag absent with no sign of intent is MISSING |
 
 ## Category 5: Permissions and Safety (doc 05)
 
@@ -84,7 +86,7 @@ Evaluation criteria distilled from the knowledge base in `docs/`. Each check pro
 |---|-------|---------------|
 | 7.1 | CLAUDE.md under 200 lines | Already checked in 1.8 — reference that result |
 | 7.2 | Rules under 300 lines each | Already checked in 2.4 — reference that result |
-| 7.3 | Total always-loaded token estimate reasonable | Estimate: CLAUDE.md lines + sum of always-on rule lines. Flag if >300 total lines always-loaded |
+| 7.3 | Total always-loaded token estimate reasonable | Estimate: CLAUDE.md lines + sum of always-on rule lines, with bytes and a token estimate (bytes / 4). Status comes from the project-only total: flag if >300 lines. Also report the total with the global instruction files (`~/.claude/CLAUDE.md`, `~/.claude/rules/*.md`) in Detail, as information |
 | 7.4 | No directive duplication across files | Grep for common repeated phrases across CLAUDE.md, rules, agent definitions |
 | 7.5 | No verbose content in always-loaded positions | Check for long code examples, full API specs, or reference tables in CLAUDE.md or always-on rules |
 | 7.6 | Orchestrator context discipline present | If the project runs orchestrators: check for guidance that treats extended thinking as garbage-collectable (compact on task/state boundaries), delegates heavy self-contained legwork to subagents that return evidence not a verdict, and guards resume specs against wholesale re-reads. This is usually **inherited from the global install** (`~/.claude/skills/{prep-compact,handover}` + the global CLAUDE.md "Subagents & Delegation" line), which project-local discovery does not glob — check there before concluding it is absent, and report MISSING only if the project defines its OWN orchestrator/resume machinery that lacks it. Grep for a `13-orchestrator-context-discipline` reference or the phrase "re-read only specific ranges, never wholesale". N/A for non-orchestrator projects. See docs/13 |
@@ -120,11 +122,11 @@ Evaluation criteria distilled from the knowledge base in `docs/`. Each check pro
 
 ## Category 10: Structural Context (doc 09) — Level C indicator
 
-Runs at every maturity level, each check on its own gate: 10.1 always, 10.2 from about 50 files, 10.3 whenever a plugin or server is configured. The file count comes from Step 1.
+Runs at every maturity level, each check on its own gate: 10.1 always, 10.2 from about 50 files, 10.3 whenever a plugin or server is configured. The file count is the tracked source file count from Step 1 (images, fonts, media, lockfiles and other assets excluded).
 
 | # | Check | How to verify |
 |---|-------|---------------|
 | 10.1 | Key paths table exists and is current | Already checked in 1.7 (table) and 1.12 (paths exist) — reference both results |
-| 10.2 | Structural context appropriate for repo size | **Under about 50 files:** N/A, a key paths table is enough (Tier 1). **From about 50 files (Tier 2):** CLAUDE.md or a rule names golden files or pattern examples. Glob every file or pattern named; a glob must match at least one file. PASS when at least one is named and all exist. PARTIAL naming each stale path when some are gone. MISSING when none is named, or when none of the named paths exist. **Roughly 500+ files:** also look for a CLAUDE.md in major subdirectories; PARTIAL if those and the golden files are thin and nothing else covers navigation. A missing repo map or code graph server is never a finding on file count alone: doc 09 adds them only when its "Choosing the Right Tier" signals show Tiers 1-2 fall short |
-| 10.3 | Heavier structural tooling is justified | If a code-intelligence (LSP) plugin is enabled (Step 1, `references/code-intelligence.md`), a repo map or a code graph MCP server (`.mcp.json`) is configured, check that CLAUDE.md references it. For an enabled plugin also check that its language-server binary is on PATH (`command -v`) and that the install record exists: a plugin without its binary does nothing, so PARTIAL naming the binary. N/A when none is configured. A plugin that is not enabled is not a finding: doc 09 treats the LSP plugin as a Tier 3 step, taken only after Tiers 1-2 fall short and after measuring. Report it in Detail as `available: <plugin>` for each main language, with the status unchanged. The LSP tool works in terminal sessions only |
+| 10.2 | Structural context appropriate for repo size | **Under about 50 files:** N/A, a key paths table is enough (Tier 1). **From about 50 files (Tier 2):** CLAUDE.md or a rule names golden files. A golden file is a path the file presents as a pattern or example to copy; other path mentions (ownership, review rules, key paths) do not count. Glob every golden file or pattern named; a glob must match at least one file. PASS when at least one is named and all exist. PARTIAL naming each stale path when some are gone. MISSING when none is named, or when none of the named paths exist. **Roughly 500+ files:** also look for a CLAUDE.md in major subdirectories; PARTIAL if those and the golden files are thin and nothing else covers navigation. A missing repo map or code graph server is never a finding on file count alone: doc 09 adds them only when its "Choosing the Right Tier" signals show Tiers 1-2 fall short |
+| 10.3 | Heavier structural tooling is justified | If a code-intelligence (LSP) plugin is enabled (Step 1), or a repo map or code graph MCP server (`.mcp.json`) is configured, check that CLAUDE.md or an always-on rule mentions it. For an enabled plugin also check its binary (`which`) and an install record that applies to this repo: a plugin without its binary or install does nothing, so PARTIAL naming what is missing. Details in `references/code-intelligence.md` (what counts as a mention and as an install record). Information in Detail, status unchanged: whether the plugin is enabled in a committed file or only a local one; a plugin whose language has a trivial share of the source files; the TypeScript root-config warning. N/A when nothing is configured. A plugin that is not enabled is not a finding: doc 09 treats the LSP plugin as a Tier 3 step, taken only after Tiers 1-2 fall short and after measuring. Report it in Detail as `available: <plugin>` for each main language. The LSP tool works in terminal sessions only |
 | 10.4 | No entire-repo context dumps or LLM-built maps | Check for tools or scripts that flatten entire repos into single files for context injection, or generate a codebase map whose layers an LLM writes. Flag as anti-pattern if found (doc 09, Anti-Patterns) |

@@ -52,7 +52,7 @@ Classify the project's AI-assisted development maturity based on which artifacts
 - Convergence patterns with iteration caps
 - Structured report formats for inter-agent communication
 - Multiple agent roles with role-appropriate tool scoping
-- For repos exceeding 500 files: structural context per doc 09 (key paths, golden files that exist, a CLAUDE.md in major subdirectories), with heavier tooling (the code-intelligence plugin, a repo map, a code graph server) only where doc 09's signals call for it
+- For repos exceeding 500 tracked source files (images, fonts, lockfiles and other assets excluded; Step 1): structural context per doc 09 (key paths, golden files that exist, a CLAUDE.md in major subdirectories), with heavier tooling (the code-intelligence plugin, a repo map, a code graph server) only where doc 09's signals call for it
 
 **Typical indicators:**
 - Orchestrator agent or launch prompt that can run unattended
@@ -65,7 +65,7 @@ Classify the project's AI-assisted development maturity based on which artifacts
 
 **What to check at this level:** All 10 categories. Category 9 only if multi-platform.
 
-**Category 10 gates (all levels):** key paths exist (1.12 and 10.1) in any repo with a key paths table; golden files (10.2) from about 50 files, doc 09's Tier 2; a CLAUDE.md in major subdirectories at roughly 500+ files; plugin and server checks (10.3) whenever one is configured, at any size. The 500-file line is the Level C classification gate: a repo of 50-500 files with stale or missing golden files gets findings and recommendations but is not held below Level C for it.
+**Category 10 gates (all levels):** key paths exist (1.12 and 10.1) in any repo with a key paths table; golden files (10.2) from about 50 files, doc 09's Tier 2; a CLAUDE.md in major subdirectories at roughly 500+ files; plugin and server checks (10.3) whenever one is configured, at any size. The 500-file line counts tracked source files, as Step 1 defines, and is the Level C classification gate: a repo of 50-500 files with stale or missing golden files gets findings and recommendations but is not held below Level C for it.
 
 ## Classification Procedure
 
@@ -77,6 +77,8 @@ Classify the project's AI-assisted development maturity based on which artifacts
    structured reports), multiple agent roles with role-appropriate tool scoping and, in a repo over 500 files,
    structural context per doc 09. If any is missing → Level B, and list the missing ones as the gap to Level C.
 5. If all are present → Level C.
+
+Classify on the project's own files. Setup inherited from the global install (user-level rules, agents, skills, hooks) and gitignored local setup is reported in the report's "Global layer" note, not credited to the level, so a project that leans on it can read lower than its working setup. Checks 7.6 and 8.15 already look at the global skills and stay as they are.
 
 When a project is between levels (e.g., has CLAUDE.md and skills but no rules), classify it at the lower level (here
 Level A, incomplete) and note what's needed to reach the next.
