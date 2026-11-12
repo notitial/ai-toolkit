@@ -78,7 +78,7 @@ Classify the project's AI-assisted development maturity based on which artifacts
    structural context per doc 09. If any is missing → Level B, and list the missing ones as the gap to Level C.
 5. If all are present → Level C.
 
-Classify on the project's own files. Setup inherited from the global install (user-level rules, agents, skills, hooks) is reported in the report's "Global layer" note, not credited to the level, so a project that leans on it can read lower than its working setup. Checks 7.6 and 8.15 already look at the global skills and stay as they are.
+Classify on the project's own files. Files the repo owns count even when it installs them into `~/.claude` by symlink (root `rules/`, `agents/`, `skills/`, `hooks/`; Step 1): they are the project's rules, agents and skills. Setup inherited from the global install (user-level rules, agents, skills, hooks that the repo does not own) is reported in the report's "Global layer" note, not credited to the level, so a project that leans on it can read lower than its working setup. A check recorded as "global by design" does not meet a criterion either: the level stays where the criteria put it and the note explains the gap. Checks 7.6 and 8.15 already look at the global skills and stay as they are.
 
 When a project is between levels (e.g., has CLAUDE.md and skills but no rules), classify it at the lower level (here
 Level A, incomplete) and note what's needed to reach the next.
