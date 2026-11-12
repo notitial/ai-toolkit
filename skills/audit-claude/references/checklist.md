@@ -56,7 +56,7 @@ Heading words are hints. A section check passes when a section's content covers 
 | 4.3 | Steps are concrete | Check that steps reference specific paths, commands, or tools — not abstract instructions |
 | 4.4 | Output format defined | Check for explicit output template or format specification |
 | 4.5 | Stop conditions defined | For iterative skills: check for iteration cap, convergence criteria, or explicit "when to stop" |
-| 4.6 | `disable-model-invocation: true` set (or exception documented) | Check frontmatter — prevents token cost when a user-only skill is idle. A skill that is deliberately model-invoked is PASS when its description or CLAUDE.md says so (a description that only implies it is PARTIAL). The flag absent with no sign of intent is MISSING |
+| 4.6 | `disable-model-invocation: true` set on skills with side effects | Check frontmatter. The flag is a behaviour switch (doc 04, "Low context cost when idle"): only the user can start the skill. A skill with side effects (deploy, scaffold, commit) without it is MISSING. A trigger-style skill without side effects is PASS without it: auto-triggering is its point. A side-effect skill that is deliberately model-invoked is PASS when its description or CLAUDE.md says so, PARTIAL when that is only implied |
 
 ## Category 5: Permissions and Safety (doc 05)
 
