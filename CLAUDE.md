@@ -10,7 +10,7 @@ Documentation-first: the knowledge base in `docs/` is markdown. Working code (Ty
 
 No repo-wide build or lint — `docs/` is markdown only. `bash tools/test-all.sh` runs every suite and prints a pass/fail table (`--quick` skips the slow ones, `NAME…` runs only those; keep its suite list in step with the "Test suites" list in `tools/README.md`, which names the suite to run after changing each hook or tool).
 
-Outside `tools/`, do not search for `package.json`, `Makefile`, or similar.
+Outside the directories in that list, do not search for `package.json`, `Makefile`, or similar.
 
 ## Document Structure
 

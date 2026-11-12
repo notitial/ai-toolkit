@@ -1,6 +1,6 @@
 ---
 name: claude-review-loop
-description: Answer the automatic Claude review on a PR in a repo with `.github/workflows/claude-review.yml` (the toolkit's Claude review kit) — wait for the checks, read the findings, fix or reply, then ask for the follow-up run. Load before you open a PR there, mark one ready for review, or push review fixes. Not needed in a repo without that workflow.
+description: Answer the automatic Claude review on a PR in a repo with `.github/workflows/claude-review.yml` (the toolkit's Claude review kit) — wait for the checks, read the findings, fix or reply, then ask for the follow-up run. Load before you open a PR there, mark one ready for review, push review fixes, or are asked to handle its review. Not needed in a repo without that workflow.
 ---
 
 # Claude review loop

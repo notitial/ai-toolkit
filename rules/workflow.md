@@ -50,7 +50,7 @@ Write each question and option in plain language: what the thing does, what you 
 Validate changes. Run the most relevant checks available (build/typecheck, unit/integration tests, lint/format). If automated checks are not available, do a manual sanity check: code paths compile/run, key scenarios are covered, and errors are handled.
 
 ## Automatic PR Review (conditional)
-In a repo with `.github/workflows/claude-review.yml` (the toolkit's Claude review kit), a PR you open is not ready for the user until its Claude review has finished and been answered: load the `claude-review-loop` skill before you open a PR there, mark one ready for review, or push review fixes, and follow it. Elsewhere this is a no-op.
+In a repo with `.github/workflows/claude-review.yml` (the toolkit's Claude review kit), a PR you open is not ready for the user until its Claude review has finished and been answered: load the `claude-review-loop` skill before you open a PR there, mark one ready for review, push review fixes, or are asked to handle its review, and follow it. Elsewhere this is a no-op.
 
 ## Stale PR Branches
 When a PR branch falls behind `main`, update it by merging `main` into the branch. Never rebase and force-push. If your PRs are squash-merged, the branch's history is discarded and the merge commit costs nothing; the git guard denies agents a force push (`hooks/git-mcp-guard.sh`), so a rebase strands the work until the user pushes it by hand.
