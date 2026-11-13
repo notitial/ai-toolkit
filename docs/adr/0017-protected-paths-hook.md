@@ -20,7 +20,7 @@ base install.
 
 - **More permission rules.** They match tool arguments, not shell text, so they cannot see a redirect or a
   `git -C`. Rejected: this is the gap.
-- **A sandbox.** The only complete answer, and out of scope for this install (ADR 0011).
+- **A sandbox.** The only complete answer, and out of scope for this install: the threat model is the one in ADR 0014.
 - **A hook that hard-denies, driven by a marker file: chosen.** A hook sees the tool's input and, for Bash, the
   command text, before any prompt exists.
 - **Roots named in settings or an environment variable.** A hook is not handed settings. A project-local setting
@@ -35,7 +35,8 @@ base install.
   auto mode that decides for them. A deny cannot. It fails closed without jq, as `git-mcp-guard.sh` does.
 - **A folder opts in with a marker.** A folder holding a file named `.protected-checkout`, and everything under it,
   is protected. The marker is untracked and listed in `.gitignore`; the person makes it with `touch`, and the hook
-  denies every write to it, so an agent cannot add, remove or move one. The hook finds a root by walking up from the
+  denies every write to an existing one, so an agent cannot remove or move one. An agent can create one, which only
+  widens the protection (a copy of a protected folder carries its marker; the person removes it there). The hook finds a root by walking up from the
   target's real path, so a clone elsewhere has no marker and stays editable, and a folder that is no repository (a
   state folder) is protected the same way. The hook is generic: it names no repository, tool or project, and nothing
   that depends on this repository may be named in it.
@@ -62,15 +63,15 @@ base install.
   calls), and a person's `!` line in a session is theirs.
 - **It is a guard against mistakes, not a sandbox.** Interpreters (`python -c`, `node -e`, a script file), `make` and
   package installers, `eval` and `bash -c` strings that are built at run time, paths built at run time, a `cd` to a
-  variable, file names fed to `xargs` on stdin, hard links, and a git MCP call with no `path` when the server's own
+  variable, file names fed to `xargs` on stdin, hard links, the target of a `find -exec`, programs that write on their own (archive creators, compressors, formatters with an in-place flag), and a git MCP call with no `path` when the server's own
   folder differs from the session's all get past it. The clone rule and auto mode's classifier stay as the second line.
-  The same threat model as ADR 0011 and 0014: accidents and a forgetful session, not a hijacked agent working around
+  The same threat model as ADR 0014: accidents and a forgetful session, not a hijacked agent working around
   the control.
 - A recursive delete or move of a folder that contains a protected root is caught only for the session's own root and
   for `~/.claude`. `destructive-blocker.sh` already hard-denies the `rm -rf` forms.
 - The marker is the switch: removing it (the person's act) turns the protection off for that folder, and a folder with
   no marker is unprotected. The setup reports a missing marker for this checkout as a warning.
-- The cost is one process and a few path lookups per Bash call and per file or git call; the test suite takes a few
-  seconds for over three hundred cases.
+- The cost is a handful of small processes per call (about 0.03 s for an ordinary command on a laptop, under 2 s for
+  a command with hundreds of operands); the test suite runs several hundred cases in about 15 s.
 - Settings changes through `/setup-claude` take one extra step from the user. That is deliberate: the file holds the
   hooks and permissions that this hook and every other control run under.

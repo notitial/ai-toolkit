@@ -90,7 +90,7 @@ Verify each symlink resolves and the target script is executable. Hooks run by t
 
 ### Protected checkout
 
-`hooks/protected-paths-guard.sh` (wired in Step 10) denies every write to a folder that holds a `.protected-checkout` file, and to `~/.claude/settings*.json` whether or not any marker exists. This checkout is one such folder: its tracked files go live on the next tool call (CLAUDE.md, Where agents edit). The marker is untracked (git-ignored) and the hook denies the agent every write to it, so only the user can make it. Check, then report; never try to create it:
+`hooks/protected-paths-guard.sh` (wired in Step 10) denies every write to a folder that holds a `.protected-checkout` file, and to `~/.claude/settings*.json` whether or not any marker exists. This checkout is one such folder: its tracked files go live on the next tool call (CLAUDE.md, Where agents edit). The marker is untracked (git-ignored) and the hook denies the agent every write to an existing one, so it cannot be removed or moved; the user makes it. Check, then report; do not create it for the user:
 
 ```bash
 ls <this checkout>/.protected-checkout
@@ -102,7 +102,7 @@ When it is missing, give the user this command to run themselves (a `!` line in 
 touch <this checkout>/.protected-checkout
 ```
 
-Other folders can be protected the same way, one `touch` each. Without the marker the settings-file protection still stands and nothing else here is guarded: report `Protected checkout: marker MISSING` in Step 11, as a warning, not a failure.
+Other folders can be protected the same way, one `touch` each (a repository's own `.gitignore` should list the marker, as this one does; a state folder that is no repository needs nothing). `/setup-claude check` does not report the marker; a full run does. Without the marker the settings-file protection still stands and nothing else here is guarded: report `Protected checkout: marker MISSING` in Step 11, as a warning, not a failure.
 
 ## Step 4: Install global skills
 
@@ -504,7 +504,7 @@ change to live settings by **explicit diff**: replace the live entry's matcher w
 full matcher string for that script (never duplicate the entry), show the user the before/after,
 and re-run the assertion.
 
-**Drift assertion (run every time, after the merge; fail loud):** for **every** hook script
+**Drift assertion (run every time, after the merge; fail loud; against the staged file until the user has run the copy, then against the live one):** for **every** hook script
 listed in Step 3 (the `hooks/<name>.sh` lines of `bash tools/install-copies.sh roster`: the committed scripts are the roster), assert BOTH:
 
 1. **Symlinked** — `~/.claude/hooks/<name>.sh` exists, resolves to the repo copy, and is executable.
@@ -606,7 +606,7 @@ own, and written list by list, never as a copy of the template object. Template 
 
 **Drift assertion (run every time; fail loud):** for each list in the rendered `autoMode`, the live list exists,
 contains `"$defaults"` and holds every rendered entry (an install.conf-valued entry the user declined in this run
-excepted). After writing, run `claude auto-mode config` and check that
+excepted). After the user has run the copy, run `claude auto-mode config` and check that
 the effective lists hold the rendered entries. Then run `claude auto-mode critique` (a model call: if it fails or
 returns nothing, retry once with `--model`, then report the failure without blocking) and include its output in the
 Step 11 summary.
@@ -646,7 +646,7 @@ The status line command references `$HOME/.claude/statusline.sh` — this is the
 5. `autoMode`, then `skillOverrides`, then `syncClaudeAiSkills` and `syncClaudeAiPlugins`, after the status line when they are new; an existing key keeps its position
 6. Other fields last
 
-**Stage, do not write.** Write the merged result to `~/.claude/settings.json.new-<YYYYMMDD-HHMMSS>` (the same date and time as the backup; mode 600; the name does not end in `.json`, so the hook lets the agent write it), then check it parses and show the user the diff against the live file:
+**Stage, do not write.** Write the merged result to `~/.claude/settings.json.new-<YYYYMMDD-HHMMSS>` (the same date and time as the backup; the name does not end in `.json`, so the hook lets the agent write it), run `chmod 600` on it (the Write tool creates it with the default mode, and the file holds MCP server and env key names), then check it parses and show the user the diff against the live file:
 
 ```bash
 jq empty ~/.claude/settings.json.new-<stamp> && diff <(jq -S . ~/.claude/settings.json) <(jq -S . ~/.claude/settings.json.new-<stamp>)
