@@ -17,6 +17,9 @@
 # Archived source material (research, old prompts, chat artifacts)
 .archive/
 
+# Marker that arms hooks/protected-paths-guard.sh for this checkout (a person makes it with touch; never committed)
+.protected-checkout
+
 # Orchestrator lock runtime state (created on acquire; never committed)
 .workspace-lock/
 
