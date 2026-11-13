@@ -574,8 +574,9 @@ cmd_release() {
   # Mirror first, then token: if a racer wins lock.d the instant the rm lands, it immediately
   # re-stamps the mirror locked — this order can never leave a held lock displayed as free.
   write_status "$(status_free_json)" || true
-  remove_dir "$TOKEN_DIR"                           # authoritative release (rename, then delete)
-  [ ! -d "$TOKEN_DIR" ] || die "release: failed to remove $TOKEN_DIR"
+  # Authoritative release (rename, then delete). Judge by remove_dir's status, never by whether a
+  # lock.d exists afterwards: a waiter may already have taken a new one.
+  remove_dir "$TOKEN_DIR" || die "release: failed to remove $TOKEN_DIR"
   rm -f "$CLEARED_DIR/$WORKSPACE_LOCK_ID" 2>/dev/null   # a normal end closes an earlier --after-clear
   echo "RELEASED $WORKSPACE_LOCK_ID"
 }
@@ -696,11 +697,13 @@ clear_refusal() {
     echo "holder is alive (heartbeat $(( _cn - _cb ))s ago, under the ${WEDGE_GRACE}s grace)"; return
   fi
   # An owned lock's ETA does not gate its members, so a silent owner says nothing about a member
-  # mid-turn: never clear the lock under a turn that beat within the grace.
+  # mid-turn: never clear the lock under a turn the owner could not force either (the same rule:
+  # alive until both its ETA and its heartbeat are past the grace; an ended or sid-less turn is not).
   if is_owned && [ -d "$TURN_DIR" ]; then
-    _ctb="$(num_or_empty "$(turn_meta heartbeat_epoch)")"
-    if [ -n "$_ctb" ] && [ "$_cn" -le $(( _ctb + WEDGE_GRACE )) ]; then
-      echo "a member's turn is alive (turn heartbeat $(( _cn - _ctb ))s ago, under the ${WEDGE_GRACE}s grace)"
+    _ct="$(turn_sid)"
+    if [ -n "$_ct" ]; then
+      _cf="$(force_class "$_ct")"
+      [ "${_cf%% *}" != "no" ] || echo "a member's turn is alive: ${_cf#* }"
     fi
   fi
 }
@@ -751,8 +754,7 @@ cmd_clear() {
     not_clearable "$_why (changed during clear)"
   fi
   write_status "$(status_free_json)" || true
-  remove_dir "$TOKEN_DIR"
-  [ ! -d "$TOKEN_DIR" ] || die "clear: failed to remove $TOKEN_DIR"
+  remove_dir "$TOKEN_DIR" || die "clear: failed to remove $TOKEN_DIR"
   log_line "CLEARED $_want (eta $_eta_iso, heartbeat $_hb_txt) by $WORKSPACE_LOCK_ID"
   echo "CLEARED $_want"
 }

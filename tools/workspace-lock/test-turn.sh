@@ -330,6 +330,8 @@ printf '%s other\n' "$(now)" > "$D/lock.d/ended/$M2"; wl "$D" member add --id t 
 D="$(team n)"; wl "$D" turn take --id t --sid "$M1" --eta +5m >/dev/null 2>&1
 _now="$(now)"; printf '%s\n' $(( _now - 4000 )) > "$D/lock.d/eta_epoch"; printf '%s\n' $(( _now - 4000 )) > "$D/lock.d/heartbeat_epoch"
 fails "clear is refused while a member's turn beats within the grace" "turn is alive" wl "$D" clear --check --id c --holder t
+turn_age "$D" -3600 4000
+fails "clear is refused inside the turn's ETA even with no recent beat" "turn is alive" wl "$D" clear --check --id c --holder t
 turn_age "$D" 4000 4000
 wl "$D" clear --check --id c --holder t 2>&1 | grep -q '^CLEARABLE '; check "clear is allowed once the turn is stale too" $?
 wl "$D" clear --id c --holder t >/dev/null 2>&1 && [ ! -d "$D/lock.d" ]; check "clear removes the lock with its turn and members" $?
