@@ -169,6 +169,79 @@ done
 has_reason "use the Read/Grep tools" "a Bash deny points at the read tools"
 run deny  "a read over 8 KB goes to the lock"     "$(bashjson "$W" "echo '$(head -c 9000 /dev/zero | tr '\0' a)'")"
 
+# --- Wider git reads: each writing form of the same command is refused
+for c in "git fetch" "git fetch origin" "git fetch --all --prune" "git fetch -p -t origin" "git fetch origin main" \
+  "git fetch origin refs/heads/main" "git -C sub fetch --dry-run" "git fetch \"origin\"" \
+  "git branch" "git branch --show-current" "git branch --list" "git branch --list feat/x" "git ls-files *.sh" "git rev-parse HEAD~1" "git branch -a" "git branch -r" "git branch -v" \
+  "git branch -a -v" "git branch -v --list main" "git -C sub branch --show-current" \
+  "git rev-parse HEAD" "git rev-parse --show-toplevel" "git ls-files" "git ls-files --others" "git merge-base main HEAD" \
+  "git remote -v" "git remote get-url origin" "git worktree list" "git worktree list --porcelain" "git config --get remote.origin.url"; do
+  run allow "git read: $c" "$(bashjson "$W" "$c")"
+done
+for c in "git fetch origin x:main" "git fetch origin +main" "git fetch origin +x:y" "git fetch origin refs/heads/*:refs/heads/*" \
+  "git fetch origin \"x:main\"" "git fetch -u origin" "git fetch --update-head-ok" "git fetch --upload-pack=x origin" \
+  "git fetch --upload-pack x origin" "git fetch --upload x origin" "git fetch --update-h origin" "git fetch --refmap= origin" \
+  "git fetch --recurse-submodules" "git fetch -o x" "git fetch --config x=y" "git fetch --prune-tags" "git fetch --set-upstream origin" \
+  "git fetch --depth=1" "git fetch -- origin" "git fetch ext::sh" "git fetch https://example.com/r.git" "git fetch ../other" \
+  "git branch foo" "git branch -v foo" "git branch -D foo" "git branch -d foo" "git branch -m a b" "git branch -c a b" \
+  "git branch --list -D foo" "git branch --show-current foo" "git branch -vv" "git branch --set-upstream-to=origin/x" \
+  "git branch --unset-upstream" "git branch --edit-description" "git branch -f foo HEAD" "git branch --delete foo" \
+  "git remote" "git remote add x y" "git remote remove x" "git remote get-url" "git remote get-url -v origin" "git remote get-url a b" \
+  "git remote set-url origin x" "git remote -v add x y" "git worktree add ../w" "git worktree list --lock" "git worktree remove w" \
+  "git config --list" "git config --get" "git config --get a b" "git config --global user.name x" "git config user.name x" \
+  "git config --unset a" "git config --get --add a b" "git fetch . \$'--upload-pack=x'" "git fetch origin \$'main\\x3amain'" "git fetch origin *" "git fetch origin x?main" "git fetch origin [a]" "git fetch origin 'refs/heads/*'" "git branch --list *" "git branch --list 'feat/*'" "git config --get *" "git config --get [a]" "git fetch origin {,-}-upload-pack=x" "git branch --list {,-D}" "git fetch origin \$BR" "git fetch origin \`id\`" "git rev-parse --output=f HEAD" "git ls-files --output=f"; do
+  run deny "git write form: $c" "$(bashjson "$W" "$c")"
+done
+
+# --- Heredoc into the workspace's own .archive/
+mkdir -p "$W/.archive/NOTES" "$SANDBOX/elsewhere/.archive"
+hd() {  # hd <first line> [body lines...]: the command text, no trailing newline
+  local first=$1; shift
+  printf '%s' "$first"; local l; for l in "$@"; do printf '\n%s' "$l"; done
+}
+HA="cat >> $W/.archive/NOTES/log.md <<'EOF'"
+run allow "heredoc: append to .archive/"            "$(bashjson "$W" "$(hd "$HA" '# note' 'cd /x && rm -rf y' 'EOF')")"
+run allow "heredoc: a trailing newline (the hook input never has one)" "$(bashjson "$W" "$(hd "$HA" 'text' 'EOF')"$'\n')"
+run allow "heredoc: overwrite with >"               "$(bashjson "$W" "$(hd "cat > $W/.archive/NOTES/new.md <<'END_1'" 'a' 'END_1')")"
+run allow "heredoc: relative path from the root"    "$(bashjson "$W" "$(hd "cat >> .archive/NOTES/log.md <<'EOF'" 'a' 'EOF')")"
+run allow "heredoc: body with a backslash-newline, \$(..) and a lock call" "$(bashjson "$W" "$(hd "$HA" 'a \' 'b $(id) `id`' "$LS clear --id a --holder b" 'EOF')")"
+run allow "heredoc: empty body"                     "$(bashjson "$W" "$(hd "$HA" 'EOF')")"
+run deny  "heredoc: early terminator, then a command" "$(bashjson "$W" "$(hd "$HA" 'a' 'EOF' 'rm -rf src')")"
+run allow "heredoc: trailing blank lines never reach the guard" "$(bashjson "$W" "$(hd "$HA" 'a' 'EOF')"$'\n\n')"
+run deny  "heredoc: a command after the terminator" "$(bashjson "$W" "$(hd "$HA" 'a' 'EOF' 'touch src/x')")"
+run deny  "heredoc: no terminator"                  "$(bashjson "$W" "$(hd "$HA" 'a' 'b')")"
+run deny  "heredoc: terminator with trailing space" "$(bashjson "$W" "$(hd "$HA" 'a' 'EOF ')")"
+run allow "heredoc: a bare first line is the old scratch-redirect rule" "$(bashjson "$W" "$HA")"
+run deny  "heredoc: unquoted delimiter"             "$(bashjson "$W" "$(hd "cat >> $W/.archive/NOTES/log.md <<EOF" 'a' 'EOF')")"
+run deny  "heredoc: unquoted delimiter with \$(..)" "$(bashjson "$W" "$(hd "cat >> $W/.archive/NOTES/log.md <<EOF" '$(touch src/x)' 'EOF')")"
+run deny  "heredoc: double-quoted delimiter"        "$(bashjson "$W" "$(hd "cat >> $W/.archive/NOTES/log.md <<\"EOF\"" 'a' 'EOF')")"
+run deny  "heredoc: <<-"                            "$(bashjson "$W" "$(hd "cat >> $W/.archive/NOTES/log.md <<-'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: here-string"                    "$(bashjson "$W" "$(hd "cat >> $W/.archive/NOTES/log.md <<<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: backslash-newline on the first line" "$(bashjson "$W" "$(hd "cat >> $W/.archive/NOTES/log.md \\" "<<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: a trailing backslash after the delimiter" "$(bashjson "$W" "$(hd "$HA \\" 'a' 'EOF')")"
+run deny  "heredoc: a second redirect"              "$(bashjson "$W" "$(hd "cat >> $W/.archive/NOTES/log.md > $W/src/x <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: a redirect to src"              "$(bashjson "$W" "$(hd "cat >> $W/src/x.md <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: && on the first line"           "$(bashjson "$W" "$(hd "$HA && touch src/x" 'a' 'EOF')")"
+run deny  "heredoc: ; on the first line"            "$(bashjson "$W" "$(hd "$HA; touch src/x" 'a' 'EOF')")"
+run deny  "heredoc: | on the first line"            "$(bashjson "$W" "$(hd "$HA | sh" 'a' 'EOF')")"
+run deny  "heredoc: a command in front"             "$(bashjson "$W" "$(hd "cd src && cat >> $W/.archive/NOTES/log.md <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: a command after the redirect"   "$(bashjson "$W" "$(hd "cat >> $W/.archive/NOTES/log.md <<'EOF' x" 'a' 'EOF')")"
+run deny  "heredoc: tee"                            "$(bashjson "$W" "$(hd "tee -a $W/.archive/NOTES/log.md <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: a blank line before the cat"    "$(bashjson "$W" $'\n'"$(hd "$HA" 'a' 'EOF')")"
+run deny  "heredoc: target in /tmp"                 "$(bashjson "$W" "$(hd "cat >> /tmp/log.md <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: another repo's .archive/"       "$(bashjson "$W" "$(hd "cat >> $SANDBOX/elsewhere/.archive/log.md <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: a src file inside the workspace" "$(bashjson "$W" "$(hd "cat >> $W/src/.archive/log.md <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: .. out of .archive/"            "$(bashjson "$W" "$(hd "cat >> $W/.archive/../src/x <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: .. in the middle"               "$(bashjson "$W" "$(hd "cat >> $W/.archive/NOTES/../../src/x <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: expansion in the path"          "$(bashjson "$W" "$(hd "cat >> $W/.archive/\$X <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: a backtick in the path"         "$(bashjson "$W" "$(hd "cat >> $W/.archive/\`id\` <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: a glob in the path"             "$(bashjson "$W" "$(hd "cat >> $W/.archive/*.md <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: ~ in the path"                  "$(bashjson "$W" "$(hd "cat >> ~/.archive/x <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: .archive/ itself"               "$(bashjson "$W" "$(hd "cat >> $W/.archive/ <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: a relative path from a subfolder" "$(bashjson "$W/src" "$(hd "cat >> .archive/log.md <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: a sibling named .archive-x"     "$(bashjson "$W" "$(hd "cat >> $W/.archive-x/log.md <<'EOF'" 'a' 'EOF')")"
+run allow "heredoc: a plain cat redirect into .archive/ (old scratch rule)" "$(bashjson "$W" "cat f >> $W/.archive/NOTES/log.md")"
+
 # --- Scratch writes a non-holder may run
 mkdir -p "$SANDBOX/elsewhere"
 run allow "scratch: touch in a temp dir outside the workspace" "$(bashjson "$W" "touch $SANDBOX/elsewhere/f.txt")"
@@ -259,6 +332,15 @@ run allow "git_reflog is a read"                 "$(gmcpjson mcp__git-mcp__git_r
 run deny  "git_commit is guarded"                "$(gmcpjson mcp__git-mcp__git_commit "$W")"
 run allow "git_branch list"                      "$(gmcpjson mcp__git-mcp__git_branch "$W" list)"
 run deny  "git_branch delete"                    "$(gmcpjson mcp__git-mcp__git_branch "$W" delete)"
+run allow "git_branch show-current"              "$(gmcpjson mcp__git-mcp__git_branch "$W" show-current)"
+run deny  "git_branch create"                    "$(gmcpjson mcp__git-mcp__git_branch "$W" create)"
+run deny  "git_branch with an empty mode is guarded" "$(gmcpjson mcp__git-mcp__git_branch "$W")"
+run allow "git_fetch"                            "$(gmcpjson mcp__git-mcp__git_fetch "$W")"
+run allow "git_fetch with a remote, prune and tags" "$(jq -nc --arg p "$W" '{tool_name:"mcp__git-mcp__git_fetch",cwd:$p,session_id:"s",tool_input:{path:$p,remote:"origin",prune:true,tags:true}}')"
+run deny  "git_fetch with a depth shallows the repo" "$(jq -nc --arg p "$W" '{tool_name:"mcp__git-mcp__git_fetch",cwd:$p,session_id:"s",tool_input:{path:$p,depth:1}}')"
+run deny  "git_fetch with a refspec key" "$(jq -nc --arg p "$W" '{tool_name:"mcp__git-mcp__git_fetch",cwd:$p,session_id:"s",tool_input:{path:$p,refspec:"x:main"}}')"
+run deny  "git_fetch from a URL" "$(jq -nc --arg p "$W" '{tool_name:"mcp__git-mcp__git_fetch",cwd:$p,session_id:"s",tool_input:{path:$p,remote:"git@host"}}')"
+run deny  "git_fetch with a remote that is an option" "$(jq -nc --arg p "$W" '{tool_name:"mcp__git-mcp__git_fetch",cwd:$p,session_id:"s",tool_input:{path:$p,remote:"-u"}}')"
 run allow "git_tag verify"                       "$(gmcpjson mcp__git-mcp__git_tag "$W" verify)"
 run deny  "git_tag delete"                       "$(gmcpjson mcp__git-mcp__git_tag "$W" delete)"
 run allow "git_remote get-url"                   "$(gmcpjson mcp__git-mcp__git_remote "$W" get-url)"

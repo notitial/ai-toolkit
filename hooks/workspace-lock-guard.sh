@@ -17,8 +17,9 @@
 # lock.d/holder.
 #
 # What a non-holder may still do: read (a short allowlist of read commands, below), write under
-# .archive/ or a temp dir, and run the lock script (but not acquire below the workspace root while
-# WORKSPACE_LOCK_DIR is unset: the script would create a second lock there). A holder past its
+# .archive/ or a temp dir (a quoted-heredoc `cat >` / `cat >>` into the workspace's own .archive/
+# included), and run the lock script (but not acquire below the workspace root while WORKSPACE_LOCK_DIR
+# is unset: the script would create a second lock there). A holder past its
 # ETA is re-armed: its own mutations are denied until it runs `heartbeat --eta <new>`. Freeing someone else's long-dead lock
 # goes through `clear`, which this guard turns into a permission prompt. Only the plain call is
 # gated (a compound, redirected or cd-prefixed one is denied); a wrapped spelling (an env prefix,
@@ -236,6 +237,54 @@ has_write_flag() {
   return 1
 }
 
+# git_shaped_read <subcommand> [args]: the git subcommands that read in one form and write in another.
+# Each form is an allowlist of exact words, so an abbreviated long option (--upload for --upload-pack)
+# is refused, not matched by a deny list.
+git_shaped_read() {
+  _gs="$1"; shift
+  # all_reads strips quotes but not the $ of $'...', which the shell decodes into another word ($'--upload-pack=x',
+  # $'a\x3ab'), a brace list expands to several ({,-}-upload-pack=x) and this hook runs with set -f, so it sees a glob
+  # as text while the shell expands it to file names (a planted `--upload-pack=x` or `a:b` in .archive/): no word of
+  # these forms may carry any of them. A quoted pattern is refused too, as the guard cannot tell it from a bare one.
+  for _w in "$@"; do case "$_w" in *'$'*|*'`'*|*'{'*|*'*'*|*'?'*|*'['*) return 1 ;; esac; done
+  case "$_gs" in
+    fetch)  # writes .git (FETCH_HEAD, remote-tracking refs, tags, objects, maybe auto-gc): never the index or the tree
+      _pos=0
+      for _w in "$@"; do
+        case "$_w" in
+          -q|--quiet|-v|--verbose|--all|-p|--prune|-t|--tags|-n|--no-tags|--dry-run) ;;
+          -*) return 1 ;;
+          *) _pos=$((_pos + 1))
+             if [ "$_pos" = 1 ]; then case "$_w" in *[!A-Za-z0-9._-]*) return 1 ;; esac  # a remote name (or local path), not a URL
+             else case "$_w" in *:*|*+*) return 1 ;; esac; fi ;;  # a refspec with a destination or a force
+        esac
+      done ;;
+    branch)  # listing only; a name outside --list is a create
+      _list=0
+      for _w in "$@"; do
+        case "$_w" in
+          --list) _list=1 ;;
+          --show-current|-a|-r|-v) ;;
+          -*) return 1 ;;
+          *) [ "$_list" = 1 ] || return 1 ;;
+        esac
+      done ;;  # no words at all lists too
+    remote)
+      case "$*" in
+        -v) ;;
+        'get-url '*) [ $# = 2 ] && case "$2" in ''|-*|*[!A-Za-z0-9._-]*) return 1 ;; esac || return 1 ;;
+        *) return 1 ;;
+      esac ;;
+    worktree)
+      [ "${1:-}" = list ] || return 1; shift
+      for _w in "$@"; do case "$_w" in --porcelain|-v|-z) ;; *) return 1 ;; esac; done ;;
+    config)  # one key only: --list, --add, --unset and the rest write or dump every key
+      [ $# = 2 ] && [ "$1" = --get ] && case "$2" in ''|-*) return 1 ;; esac || return 1 ;;
+    *) return 1 ;;
+  esac
+  return 0
+}
+
 # Reads of tools that also have a writing form, each with one plain rule.
 is_shaped_read() {
   _t="$1"; shift
@@ -244,7 +293,11 @@ is_shaped_read() {
       while [ $# -gt 0 ]; do
         case "$1" in --no-pager) shift ;; -C) [ $# -ge 2 ] || return 1; shift 2 ;; *) break ;; esac
       done
-      case "${1:-}" in status|log|diff|show) ;; *) return 1 ;; esac
+      case "${1:-}" in
+        status|log|diff|show|rev-parse|ls-files|merge-base) ;;
+        fetch|branch|remote|worktree|config) git_shaped_read "$@" || return 1 ;;
+        *) return 1 ;;
+      esac
       has_write_flag "$@" && return 1 ;;
     sed)  # -n, option letters from nEr only, and one script (a single -e or the first operand) that only
           # prints: p, q, = with line, $ or /regex/ addresses. So never -i, -I, -f, w or s.
@@ -519,6 +572,32 @@ EOF
 }
 redact() { case "$1" in [A-Za-z_]*=*) printf '%s=<redacted>' "${1%%=*}" ;; *) printf '%s' "$1" ;; esac; }
 
+# archive_heredoc: the whole command is one heredoc written into the workspace's own .archive/, and nothing
+# else. Accepted: a first line `cat >> <path> <<'TAG'` (or `cat >`) with a single-quoted delimiter, a body, the
+# first line equal to TAG, and nothing after it. Everything the first line may hold is one plain word per slot,
+# so no second redirect, `&&`, `;`, `|`, expansion or backslash-newline fits. An unquoted delimiter, `<<-` and
+# `<<<` never match (the body would expand or the tabs would change). A body line `\` is literal under a quoted
+# delimiter, so the body is free text. Symlinks inside .archive/ are not followed: the ADR 0012 residual.
+archive_heredoc() {
+  _c=$CMD   # command substitution already dropped any trailing newlines
+  case "$_c" in *$'\n'*) ;; *) return 1 ;; esac
+  _re="^cat (>>|>) ([A-Za-z0-9/._+,@%-]+) <<'([A-Za-z0-9_]+)'\$"
+  [[ "${_c%%$'\n'*}" =~ $_re ]] || return 1
+  _hd_path=${BASH_REMATCH[2]}; _hd_tag=${BASH_REMATCH[3]}
+  case "$_hd_path" in *..*|*/) return 1 ;; esac
+  _hd_path=$(abspath "$_hd_path")
+  case "$_hd_path" in "$(dirname "$LOCK_DIR")"/.archive/?*) ;; *) return 1 ;; esac
+  _hd_body=${_c#*$'\n'}
+  _hd_end=0
+  while IFS= read -r _hd_line; do
+    [ "$_hd_end" = 0 ] || return 1   # a line after the terminator, blank or not
+    [ "$_hd_line" = "$_hd_tag" ] && _hd_end=1
+  done <<EOT
+$_hd_body
+EOT
+  [ "$_hd_end" = 1 ]
+}
+
 handle_bash() {
   CMD=$(jqin '.tool_input.command // empty')
   CMD_WORDS=$(printf '%s' "$CMD" | tr '\n\t' '  ')
@@ -533,6 +612,11 @@ handle_bash() {
     # Only a single plain call: no second command, substitution or redirect into the workspace.
     _segs=$(split_command "$(strip_redirects "$CMD")")
     [ "$(printf '%s\n' "$_segs" | grep -c .)" = 1 ] && lock_call
+  fi
+  # A heredoc into this workspace's own .archive/ is judged on its text before anything lexes the body.
+  if [ "$FIRST" = cat ]; then
+    LOCK_DIR=$(resolve_lock_dir "$CWD")
+    [ -z "$LOCK_DIR" ] || ! archive_heredoc || exit 0
   fi
   # Any other call of the lock script's clear verb (compound, redirected, behind cd) would skip the prompt.
   case "$CMD" in
@@ -583,7 +667,11 @@ case "$TOOL" in
     guard_mutation "$TOOL" ;;
   mcp__git-mcp__git_status|mcp__git-mcp__git_log|mcp__git-mcp__git_diff|mcp__git-mcp__git_show|mcp__git-mcp__git_blame|mcp__git-mcp__git_reflog) ;;
   mcp__git-mcp__git_remote) case "$MODE" in ''|list|get-url) ;; *) guard_git_mcp ;; esac ;;
-  mcp__git-mcp__git_branch) case "$MODE" in ''|list|show-current) ;; *) guard_git_mcp ;; esac ;;
+  mcp__git-mcp__git_branch) case "$MODE" in list|show-current) ;; *) guard_git_mcp ;; esac ;;  # an empty mode may carry a name: create
+  mcp__git-mcp__git_fetch)  # no refspec in its schema; only these keys pass, so a new option is guarded until reviewed (depth can shallow the repo)
+    [ "$(jqin '(.tool_input // {}) | keys - ["path","remote","prune","tags"] | length')" = 0 ] || guard_git_mcp
+    _r=$(jqin '.tool_input.remote // empty')  # a remote name, as on the Bash path: not an option, a URL or a path with a colon
+    case "$_r" in -*|*[!A-Za-z0-9._-]*) guard_git_mcp ;; esac ;;
   mcp__git-mcp__git_tag)    case "$MODE" in ''|list|verify) ;; *) guard_git_mcp ;; esac ;;
   mcp__git-mcp__git_stash)  case "$MODE" in list) ;; *) guard_git_mcp ;; esac ;;  # the default mode pushes
   mcp__git-mcp__*) guard_git_mcp ;;
