@@ -1,7 +1,7 @@
 # 12. Workspace Lock
 
 **Status:** accepted
-**Date:** 2026-07-03 · **Amended:** 2026-10-26 (expiry, retake and the prompted `clear`)
+**Date:** 2026-07-03 · **Amended:** 2026-10-26 (expiry, retake and the prompted `clear`), 2026-11-13 (arm step moved out)
 
 ## Context
 
@@ -44,8 +44,10 @@ works around it on purpose, the same stance as the hooks in [ADR 0011](0011-shel
   (`WORKSPACE_LOCK_DIR` set, or a held lock at or above the cwd). Where it applies, agents acquire before their first
   mutation, heartbeat with a revised ETA during long work, and release when done. A team run shares one slug that only
   the arming session releases; a solo session uses `solo-<first 8 characters of its session id>`.
-- **Arming.** `/unattended-run` is user-triggered only (`disable-model-invocation: true`), so an agent never arms
-  itself. It arms the non-risk tasks and holds every risk-topic task for the user's live turn.
+- **Arming.** Arming is user-triggered only, so an agent never arms itself. An arm step arms only the non-risk tasks and
+  holds every risk-topic task for the user's live turn. (Amended 2026-11-13: no arm step ships in this repo any
+  more. The lock, the guard and the `STATE.md` Authorizations ledger stay here; any arm step supplied elsewhere
+  must meet the risk-topic exception in [rules/workflow.md](../../rules/workflow.md).)
 - **Expiry and retake (amended 2026-10-26).** No lock stays held for good. Once its ETA passes, the guard denies the
   holder's own mutations and the script refuses a bare `heartbeat`, until the holder retakes the lock with
   `heartbeat --id <slug> --eta <new>`.

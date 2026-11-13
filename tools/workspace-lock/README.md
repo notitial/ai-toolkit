@@ -8,8 +8,8 @@ tests, and e2e runs are serialized.
 It is a **pure lock mechanism**: it does **no git** and **no network**. All git work is done by
 the calling skill through MCP git tools (see [ADR 0010](../../docs/adr/0010-mcp-git-over-bash-git.md)).
 For the full pattern and rationale see
-[ADR 0012](../../docs/adr/0012-overnight-orchestrator-lock.md). The `unattended-run` skill wraps
-this script into the per-run flow.
+[ADR 0012](../../docs/adr/0012-overnight-orchestrator-lock.md). An unattended run wraps
+this script into its per-run flow.
 
 ## Install
 
@@ -183,7 +183,7 @@ protocol in a fresh interactive session.
   never free.)
 - **Won-after-parent-death.** If `acquire` runs in the background and the parent session dies *after*
   it wins the lock, nobody runs the work or releases. Mitigation: the lock always carries an ETA
-  (`--eta`, or the short `INIT_LEASE` when none is given), and the `unattended-run` skill heartbeats
+  (`--eta`, or the short `INIT_LEASE` when none is given), and the run's orchestrator heartbeats
   each task in with that task's ETA, so a dead parent leaves a lock whose ETA expires and is visibly stale.
 - **Repo paths must not contain commas** — the `--repos` list is comma-separated. Quotes/control
   chars in field values are escaped/stripped; `WORKSPACE_LOCK_ID` is restricted to `[A-Za-z0-9._-]`.

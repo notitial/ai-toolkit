@@ -45,8 +45,8 @@ ignores it too.
 
 - *Authority* (may I act on this lock?) comes from your spawn prompt and the arm-time ledger row, which name the
   lock path. An env var's presence grants nothing.
-- *Resolution* (which lock do the tools use?) comes from `WORKSPACE_LOCK_DIR`, which the arm ceremony sets in a
-  cross-repo worker's launch environment ([unattended-run](../unattended-run/SKILL.md) Steps 1.9 and 2.4). Act on
+- *Resolution* (which lock do the tools use?) comes from `WORKSPACE_LOCK_DIR`, which the run's orchestrator sets in a
+  cross-repo worker's launch environment. Act on
   it only when it matches the path your spawn prompt names.
 - Acquire with the team slug. The guard counts you as a member only when your cwd is under one of the lock's
   `--repos` paths.

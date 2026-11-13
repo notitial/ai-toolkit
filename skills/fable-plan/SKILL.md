@@ -24,7 +24,7 @@ from the drafting agent's model: `plan-author` runs on Fable.
 1. **The workspace must exist.** If there is none (watch for slug drift: `proj-142` vs `PROJ-142-payments`), say
    so and point at `/feature-kickoff`; this skill doesn't scaffold.
 2. **An armed run in flight → don't touch the plan.** If STATE.md's Authorizations ledger has a dated row from
-   `/unattended-run` arming the run, or tasks are in progress under the lock, report it and stop: swapping the plan
+   the user's own arm step, or tasks are in progress under the lock, report it and stop: swapping the plan
    mid-run corrupts its checkpoint.
 3. **A re-draft of a reviewed plan is fine**, but it continues the same per-ticket cap. Read `**Plan re-reviews:**`
    from STATE.md (0 when the field is missing) and count on from it. If the cap is already reached, don't re-draft:
@@ -60,7 +60,7 @@ to Step 2, counting cycles on from the Step 0 count against the cap in [rules/wo
 ```
 
 `INCONCLUSIVE` is for a review that couldn't verify what the plan rests on; report what it couldn't verify. This
-line is the plan's only verdict; `/unattended-run`'s arm gate reads it from plan.md.
+line is the plan's only verdict; the arm step's gate reads it from plan.md.
 
 ## Step 4: Report
 

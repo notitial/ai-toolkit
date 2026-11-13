@@ -1,5 +1,5 @@
 ---
-description: "Generate a handover document to continue work in a fresh conversation or hand it back to an orchestrator. Two modes: orchestration-bus (fixed schema → .archive/<ticket>/handoff/ when a feature workspace exists) and general (freeform doc → .archive/<slug>-handover.md otherwise). Invoke ONLY on explicit handover intent: the user (or an orchestration doc such as unattended-run Step 4) says 'handover', 'hand this off', 'status for the orchestrator', 'handover doc', or /handover. Not for ordinary summaries or session recaps."
+description: "Generate a handover document to continue work in a fresh conversation or hand it back to an orchestrator. Two modes: orchestration-bus (fixed schema → .archive/<ticket>/handoff/ when a feature workspace exists) and general (freeform doc → .archive/<slug>-handover.md otherwise). Invoke ONLY on explicit handover intent: the user (or an orchestration doc) says 'handover', 'hand this off', 'status for the orchestrator', 'handover doc', or /handover. Not for ordinary summaries or session recaps."
 disable-model-invocation: false
 ---
 

@@ -17,7 +17,7 @@ Context management is not an optimization — it is a correctness concern. An or
 
 The checkpoint is a persistent file that survives context compaction and session restarts. It is the **single source of truth** for workflow state — authoritative over the agent's memory.
 
-In the `feature-kickoff` / `unattended-run` workflow the ticket workspace's `STATE.md` is this checkpoint: a row is written after each task, while the [workspace lock](adr/0012-overnight-orchestrator-lock.md) is still held. When artifacts disagree, the last durable `STATE.md` write wins, over chat memory and over any earlier handoff.
+In the `feature-kickoff` workflow the ticket workspace's `STATE.md` is this checkpoint: a row is written after each task, while the [workspace lock](adr/0012-overnight-orchestrator-lock.md) is still held. When artifacts disagree, the last durable `STATE.md` write wins, over chat memory and over any earlier handoff.
 
 **Contents:**
 - Current wave/phase and backlog pointer
