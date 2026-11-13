@@ -55,11 +55,12 @@ still asks for permission, the entry did not match: add the literal absolute pat
     workspace-lock.log       # durable give-up/refuse/wedge/clear log
   ```
 - **Atomic acquire** via an exclusive create of `lock.d/claim` (bash noclobber, which opens the file
-  `O_EXCL`): exactly one racer wins. `lock.d` itself is made with `mkdir -p`, and mkdir's exit status
+  `O_EXCL`): exactly one racer wins. `lock.d` itself is made with a plain `mkdir` whose exit status
   decides nothing: some mkdir builds (uutils coreutils 0.10, the default on Ubuntu 26.04) exit 0 when
   another process created the directory first. A `lock.d` that already has a holder is never claimed.
-  A turn works the same way: the exclusive create of `turn.d/sid` decides it. The holder id is written to `lock.d/holder` *before* the mirror; `release`/`heartbeat`
-  authenticate against it (refuse on unknown/mismatch), never against `status.json`.
+  The holder id is written to `lock.d/holder` *before* the mirror; `release`/`heartbeat`
+  authenticate against it (refuse on unknown/mismatch), never against `status.json`. A turn works the
+  same way: the exclusive create of `turn.d/sid` decides it.
 - **`status.json` is a display MIRROR, not the lock.** Created on first `acquire`, it **persists**
   across free↔locked (does not vanish on release). Every acquire gates on `lock.d`, never on the
   flag, so it can never cause a double-acquire. **Crash-drift rule:** `lock.d` is authoritative; the
@@ -178,9 +179,10 @@ protocol in a fresh interactive session.
 - **No automatic break of a stale lock.** A waiter that sees a wedged or empty-holder lock
   **WARNs and logs, but never removes `lock.d`**; a long-silent holder is freed only by a
   prompted `clear` (above), and an empty-holder corpse only by hand (`status` to inspect, then
-  remove `lock.d`). A `lock.d` with neither a claim nor a holder (killed between its `mkdir -p` and
-  the claim) is not a corpse: the next acquire claims it. Likewise a `turn.d` with no `sid` file: the
-  next `turn take` claims it, and the owner's `turn give --force` still frees one with an empty `sid`. Softeners: `release` runs on
+  remove `lock.d`). A `lock.d` with neither a claim nor a holder (killed between its `mkdir` and the
+  claim) is different: the next `acquire` claims it, though until then the guard still denies
+  mutations there as orphaned. Likewise a `turn.d` with no `sid` file: the next `turn take` claims it,
+  and the owner's `turn give --force` still frees one with an empty `sid`. Softeners: `release` runs on
   ordinary failures; a bounded `MAX_WAIT` makes waiters log-and-exit instead of hanging all night;
   waiter-side wedge WARN + the durable `WEDGED` log line let the morning handover spot a dead
   holder fast. (A hard signal in the one-statement gap between winning the claim and writing

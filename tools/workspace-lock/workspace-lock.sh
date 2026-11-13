@@ -345,7 +345,7 @@ say_wait() {
 # The same for a turn this process won but has not finished writing.
 WE_OWN_UNWRITTEN=0; WE_OWN_TURN=0
 cleanup_partial() {
-  [ "$WE_OWN_UNWRITTEN" = "1" ] && rm -rf "$TOKEN_DIR"
+  [ "$WE_OWN_UNWRITTEN" = "1" ] && remove_dir "$TOKEN_DIR"
   # Only while it is still ours: a member remove may have freed it and another member taken it.
   if [ "$WE_OWN_TURN" = "1" ]; then
     [ "$(turn_sid)" != "${O_SID:-}" ] || remove_dir "$TURN_DIR"
@@ -420,8 +420,9 @@ cmd_acquire() {
     # The winner is whoever creates lock.d/claim (noclobber opens it O_EXCL): exactly one racer.
     # mkdir's status decides nothing (some builds exit 0 after losing the create race). A lock.d
     # that already has a holder is never claimed, so a lock taken before the claim file existed is
-    # not taken over; that check only reads.
-    mkdir -p "$TOKEN_DIR" 2>/dev/null
+    # not taken over; that check only reads. Plain mkdir (LOCK_DIR was made above): a waiter whose
+    # lock folder was removed fails its claim and stops, instead of rebuilding the folder.
+    mkdir "$TOKEN_DIR" 2>/dev/null
     if [ ! -e "$TOKEN_DIR/holder" ] && ( set -C; : > "$TOKEN_DIR/claim" ) 2>/dev/null; then
       WE_OWN_UNWRITTEN=1
       # An owned lock writes kind and owner BEFORE holder, so no reader that sees the holder ever
@@ -430,21 +431,21 @@ cmd_acquire() {
       if [ "$_owned" = "1" ]; then
         if ! { printf 'owned\n' > "$TOKEN_DIR/kind" && printf '%s\n' "$_sid" > "$TOKEN_DIR/owner" \
                && mkdir "$TOKEN_DIR/members" "$TOKEN_DIR/ended"; } 2>/dev/null; then
-          rm -rf "$TOKEN_DIR"; WE_OWN_UNWRITTEN=0
+          remove_dir "$TOKEN_DIR"; WE_OWN_UNWRITTEN=0
           die "acquired lock but failed to write the owned-lock files; released it"
         fi
       fi
       # Write the AUTHORITATIVE holder id inside the token FIRST — before the mirror — so a
       # concurrent release/heartbeat authenticates against real ownership, never a stale mirror.
       if ! printf '%s\n' "$WORKSPACE_LOCK_ID" > "$TOKEN_DIR/holder" 2>/dev/null; then
-        rm -rf "$TOKEN_DIR"; WE_OWN_UNWRITTEN=0
+        remove_dir "$TOKEN_DIR"; WE_OWN_UNWRITTEN=0
         die "acquired lock but failed to write holder token; released it"
       fi
       H_ETA_EPOCH=$(( $(now_epoch) + _eta_secs ))
       H_ACQUIRED_AT="$(now_iso)"
       H_REPOS_JSON="$(repos_json "$H_REPOS")"
       if ! token_write_meta 2>/dev/null; then
-        rm -rf "$TOKEN_DIR"; WE_OWN_UNWRITTEN=0
+        remove_dir "$TOKEN_DIR"; WE_OWN_UNWRITTEN=0
         die "acquired lock but failed to write token metadata; released it"
       fi
       if write_status "$(status_locked_json)"; then
@@ -457,7 +458,7 @@ cmd_acquire() {
         fi
         return 0
       fi
-      rm -rf "$TOKEN_DIR"; WE_OWN_UNWRITTEN=0        # partial-failure cleanup (the only "trap")
+      remove_dir "$TOKEN_DIR"; WE_OWN_UNWRITTEN=0        # partial-failure cleanup (the only "trap")
       die "acquired lock but failed to write status.json; released it"
     fi
     # Neither a claim nor a holder after a failed claim: not contention (a release removed lock.d in
@@ -922,6 +923,11 @@ turn_take() {
         # Only if it is still ours: a member remove may already have freed it, and another taken it.
         [ "$(turn_sid)" != "$O_SID" ] || remove_dir "$TURN_DIR"; WE_OWN_TURN=0
         die "turn take: won the turn, but the lock changed, '$(short "$O_SID")' was removed or its session ended; gave it back"
+      fi
+      # A force or member remove that freed this turn meanwhile: never report a turn held by another.
+      if [ "$(turn_sid)" != "$O_SID" ]; then
+        WE_OWN_TURN=0
+        die "turn take: won the turn, but it was freed before the take finished; run turn take again"
       fi
       WE_OWN_TURN=0
       log_line "TURN-TAKEN $(short "$O_SID")"

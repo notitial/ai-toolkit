@@ -206,13 +206,13 @@ wait
 FAKEBIN="$TMP/fakebin"; mkdir -p "$FAKEBIN"
 cat > "$FAKEBIN/mkdir" <<EOF
 #!/bin/bash
-for a in "\$@"; do [ "\$a" != -p ] || exec "$(command -v mkdir)" "\$@"; done
+p=""; for a in "\$@"; do [ "\$a" != -p ] || p=-p; done
 rc=0
 for a in "\$@"; do
   case \$a in -*) continue ;; esac
-  if [ -e "\$a" ]; then echo "mkdir: \$a: File exists" >&2; rc=1; continue; fi
+  if [ -e "\$a" ]; then [ -n "\$p" ] || { echo "mkdir: \$a: File exists" >&2; rc=1; }; continue; fi
   sleep 0.5
-  "$(command -v mkdir)" "\$a" 2>/dev/null || [ -d "\$a" ] || rc=1
+  "$(command -v mkdir)" -p "\$a" 2>/dev/null || rc=1
 done
 exit \$rc
 EOF
@@ -298,6 +298,11 @@ wl "$D" member add --id t --sid "$M2" --by "$O" >/dev/null 2>&1
 env $UNSET WORKSPACE_LOCK_DIR="$D" WORKSPACE_LOCK_TEST_WIN_PAUSE=3 "$WL" turn take --id t --sid "$M2" --eta +5m >/dev/null 2>&1 & _p=$!
 until_turn "$D" "$M2"; [ -d "$D/lock.d/turn.d" ]; _held=$?; kill -TERM "$_p"; wait "$_p"
 [ "$_held" = 0 ] && [ ! -d "$D/lock.d/turn.d" ]; check "a take killed before it finished leaves no turn behind" $?
+env $UNSET WORKSPACE_LOCK_DIR="$D" WORKSPACE_LOCK_TEST_WIN_PAUSE=3 "$WL" turn take --id t --sid "$M1" --eta +5m >"$TMP/g3.out" 2>&1 & _p=$!
+until_turn "$D" "$M1"; mv "$D/lock.d/turn.d" "$D/lock.d/turn.d.forced"; mkdir "$D/lock.d/turn.d"; printf '%s\n' "$M2" > "$D/lock.d/turn.d/sid"
+wait "$_p"; _rc=$?
+[ "$_rc" = 1 ] && grep -qF "freed before the take finished" "$TMP/g3.out" && ! grep -q "^TURN " "$TMP/g3.out" && [ "$(cat "$D/lock.d/turn.d/sid")" = "$M2" ]
+check "a turn freed and taken by another between the win and the re-check is not reported as ours" $?
 
 # --- member remove frees the holder's turn -------------------------------------------------------
 D="$(team h)"; wl "$D" turn take --id t --sid "$M1" --eta +5m >/dev/null 2>&1
