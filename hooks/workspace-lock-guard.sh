@@ -243,8 +243,10 @@ has_write_flag() {
 git_shaped_read() {
   _gs="$1"; shift
   # all_reads strips quotes but not the $ of $'...', which the shell decodes into another word ($'--upload-pack=x',
-  # $'a\x3ab'), and a brace list expands to several ({,-}-upload-pack=x): no word of these forms may carry either.
-  for _w in "$@"; do case "$_w" in *'$'*|*'`'*|*'{'*) return 1 ;; esac; done
+  # $'a\x3ab'), a brace list expands to several ({,-}-upload-pack=x) and this hook runs with set -f, so it sees a glob
+  # as text while the shell expands it to file names (a planted `--upload-pack=x` or `a:b` in .archive/): no word of
+  # these forms may carry any of them. A quoted pattern is refused too, as the guard cannot tell it from a bare one.
+  for _w in "$@"; do case "$_w" in *'$'*|*'`'*|*'{'*|*'*'*|*'?'*|*'['*) return 1 ;; esac; done
   case "$_gs" in
     fetch)  # writes .git (FETCH_HEAD, remote-tracking refs, tags, objects, maybe auto-gc): never the index or the tree
       _pos=0

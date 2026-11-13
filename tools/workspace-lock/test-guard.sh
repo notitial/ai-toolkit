@@ -172,7 +172,7 @@ run deny  "a read over 8 KB goes to the lock"     "$(bashjson "$W" "echo '$(head
 # --- Wider git reads: each writing form of the same command is refused
 for c in "git fetch" "git fetch origin" "git fetch --all --prune" "git fetch -p -t origin" "git fetch origin main" \
   "git fetch origin refs/heads/main" "git -C sub fetch --dry-run" "git fetch \"origin\"" \
-  "git branch" "git branch --show-current" "git branch --list" "git branch --list 'feat/*'" "git branch -a" "git branch -r" "git branch -v" \
+  "git branch" "git branch --show-current" "git branch --list" "git branch --list feat/x" "git ls-files *.sh" "git rev-parse HEAD~1" "git branch -a" "git branch -r" "git branch -v" \
   "git branch -a -v" "git branch -v --list main" "git -C sub branch --show-current" \
   "git rev-parse HEAD" "git rev-parse --show-toplevel" "git ls-files" "git ls-files --others" "git merge-base main HEAD" \
   "git remote -v" "git remote get-url origin" "git worktree list" "git worktree list --porcelain" "git config --get remote.origin.url"; do
@@ -189,7 +189,7 @@ for c in "git fetch origin x:main" "git fetch origin +main" "git fetch origin +x
   "git remote" "git remote add x y" "git remote remove x" "git remote get-url" "git remote get-url -v origin" "git remote get-url a b" \
   "git remote set-url origin x" "git remote -v add x y" "git worktree add ../w" "git worktree list --lock" "git worktree remove w" \
   "git config --list" "git config --get" "git config --get a b" "git config --global user.name x" "git config user.name x" \
-  "git config --unset a" "git config --get --add a b" "git fetch . \$'--upload-pack=x'" "git fetch origin \$'main\\x3amain'" "git fetch origin {,-}-upload-pack=x" "git branch --list {,-D}" "git fetch origin \$BR" "git fetch origin \`id\`" "git rev-parse --output=f HEAD" "git ls-files --output=f"; do
+  "git config --unset a" "git config --get --add a b" "git fetch . \$'--upload-pack=x'" "git fetch origin \$'main\\x3amain'" "git fetch origin *" "git fetch origin x?main" "git fetch origin [a]" "git fetch origin 'refs/heads/*'" "git branch --list *" "git branch --list 'feat/*'" "git config --get *" "git config --get [a]" "git fetch origin {,-}-upload-pack=x" "git branch --list {,-D}" "git fetch origin \$BR" "git fetch origin \`id\`" "git rev-parse --output=f HEAD" "git ls-files --output=f"; do
   run deny "git write form: $c" "$(bashjson "$W" "$c")"
 done
 
