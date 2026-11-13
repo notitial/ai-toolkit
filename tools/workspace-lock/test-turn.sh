@@ -184,12 +184,16 @@ D="$(team e)"
 wl "$D" turn take --id t --sid "$O" --eta +5m >/dev/null 2>&1
 for _s in "$M1" "$M2"; do wlw "$D" turn take --id t --sid "$_s" --eta +5m >"$TMP/e.$_s.out" 2>&1 & done
 wait_for "$TMP/e.$M1.out" "BUSY" 15 && wait_for "$TMP/e.$M2.out" "BUSY" 15; check "two waiters both wait (BUSY) before the give" $?
-wl "$D" turn give --id t --sid "$O" --tree clean >/dev/null 2>&1
+wl "$D" turn give --id t --sid "$O" --tree clean >"$TMP/e.give.out" 2>&1
 # poll (bounded, 15 s) until one waiter wins, then give the other a full poll to (wrongly) win too
 _n=0; while [ "$_n" -lt 150 ] && ! grep -qF "TURN " "$TMP/e.$M1.out" "$TMP/e.$M2.out" 2>/dev/null; do sleep 0.1; _n=$((_n + 1)); done
 sleep 1.5
 _n=0; _won=""; for _s in "$M1" "$M2"; do grep -qF "TURN $_s" "$TMP/e.$_s.out" && { _n=$((_n + 1)); _won="$_s"; }; done
 [ "$_n" = 1 ] && [ "$(cat "$D/lock.d/turn.d/sid")" = "$_won" ]; check "two waiters, one give: exactly one takes the turn ($_n)" $?
+if [ "$_n" != 1 ]; then   # indented detail lines under the FAIL, which test-all prints with it
+  for _f in "e.$M1.out" "e.$M2.out" e.give.out; do sed "s|^|      $_f: |" "$TMP/$_f"; done
+  sed 's/^/      log: /' "$D/workspace-lock.log"; ls -la "$D/lock.d" | sed 's/^/      lock.d: /'
+fi
 _lose="$M1"; [ "$_won" = "$M1" ] && _lose="$M2"
 wl "$D" turn give --id t --sid "$_won" --tree clean >/dev/null 2>&1
 wait_for "$TMP/e.$_lose.out" "TURN $_lose" 15; check "  ... the other takes it after the next give" $?
