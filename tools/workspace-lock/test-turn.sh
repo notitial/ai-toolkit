@@ -105,6 +105,7 @@ _o="$(wl "$D" release --id t --sid "$O" --force 2>&1)"; [ $? = 0 ] && printf '%s
 check "release --force releases with a turn held (lock.d gone)" $?
 ls "$D" | grep -q 'gone'; [ $? -ne 0 ]; check "  ... and leaves no renamed debris" $?
 D="$(newdir b2)"; wl "$D" acquire --id open >/dev/null 2>&1
+fails "release --force on an open lock is refused" "--force goes with an owned lock" wl "$D" release --id open --force
 wl "$D" heartbeat --id open --sid "$O" >/dev/null 2>&1 && wl "$D" release --id open --sid "$O" >/dev/null 2>&1
 check "an open lock accepts and ignores --sid on heartbeat and release" $?
 
@@ -169,6 +170,12 @@ wait
 wl "$D" turn give --id t --sid "$O" --tree clean >/dev/null 2>&1
 _o="$(wl "$D" turn take --id t --sid "$M2" --eta +5m 2>&1)"
 printf '%s' "$_o" | grep -qF "tree clean" && ! printf '%s' "$_o" | grep -qF "WARN"; check "a clean hand-over shows no WARN" $?
+if [ "$(id -u)" != 0 ]; then   # root ignores the mode bits this case relies on
+  chmod 500 "$D/lock.d"
+  fails "a give whose record cannot be written is refused" "the turn is kept" wl "$D" turn give --id t --sid "$M2" --tree dirty
+  chmod 700 "$D/lock.d"
+  [ "$(cat "$D/lock.d/turn.d/sid")" = "$M2" ] && grep -q " clean$" "$D/lock.d/last_give"; check "  ... the turn and the old record stay" $?
+fi
 wl "$D" turn give --id t --sid "$M2" --tree clean >/dev/null 2>&1
 fails "turn give with no turn held is refused" "no turn is held" wl "$D" turn give --id t --sid "$M2" --tree clean
 
@@ -205,20 +212,22 @@ check "a waiter exits 1 when the lock is released, and recreates nothing" $?
 D="$(team g)"; wl "$D" turn take --id t --sid "$O" --eta +5m >/dev/null 2>&1; wl "$D" turn give --id t --sid "$O" --tree clean >/dev/null 2>&1
 # (env, not the wenv function, so $! is the script itself and the kill reaches it)
 UNSET="-u WORKSPACE_LOCK_ID -u WORKSPACE_LOCK_LOG -u WORKSPACE_LOCK_MAX_WAIT -u WORKSPACE_LOCK_INIT_LEASE -u WORKSPACE_LOCK_WEDGE_GRACE -u WORKSPACE_LOCK_TEST_POLL"
+# until_turn <lockdir> <sid>: wait (bounded, 5 s) until that sid's take has won and written turn.d
+until_turn() { _n=0; while [ "$(cat "$1/lock.d/turn.d/sid" 2>/dev/null)" != "$2" ] && [ "$_n" -lt 50 ]; do sleep 0.1; _n=$((_n + 1)); done; }
 _lg0="$(cat "$D/lock.d/last_give")"
-env $UNSET WORKSPACE_LOCK_DIR="$D" WORKSPACE_LOCK_TEST_WIN_PAUSE=2 "$WL" turn take --id t --sid "$M1" --eta +5m >"$TMP/g.out" 2>&1 & _p=$!
-sleep 0.7; printf '%s other\n' "$(now)" > "$D/lock.d/ended/$M1"
+env $UNSET WORKSPACE_LOCK_DIR="$D" WORKSPACE_LOCK_TEST_WIN_PAUSE=3 "$WL" turn take --id t --sid "$M1" --eta +5m >"$TMP/g.out" 2>&1 & _p=$!
+until_turn "$D" "$M1"; printf '%s other\n' "$(now)" > "$D/lock.d/ended/$M1"
 wait "$_p"; _rc=$?
 [ "$_rc" = 1 ] && grep -qF "gave it back" "$TMP/g.out" && [ ! -d "$D/lock.d/turn.d" ] && [ "$(cat "$D/lock.d/last_give")" = "$_lg0" ]
 check "a session that ended between its win and the re-check gives the turn back, last_give untouched" $?
-env $UNSET WORKSPACE_LOCK_DIR="$D" WORKSPACE_LOCK_TEST_WIN_PAUSE=2 "$WL" turn take --id t --sid "$M2" --eta +5m >"$TMP/g2.out" 2>&1 & _p=$!
-sleep 0.7; wl "$D" member remove --id t --sid "$M2" --by "$O" >/dev/null 2>&1
+env $UNSET WORKSPACE_LOCK_DIR="$D" WORKSPACE_LOCK_TEST_WIN_PAUSE=3 "$WL" turn take --id t --sid "$M2" --eta +5m >"$TMP/g2.out" 2>&1 & _p=$!
+until_turn "$D" "$M2"; wl "$D" member remove --id t --sid "$M2" --by "$O" >/dev/null 2>&1
 wait "$_p"; _rc=$?
 [ "$_rc" = 1 ] && grep -qF "gave it back" "$TMP/g2.out" && [ ! -d "$D/lock.d/turn.d" ]
 check "a member removed between its win and the re-check ends with no turn held" $?
 wl "$D" member add --id t --sid "$M2" --by "$O" >/dev/null 2>&1
-env $UNSET WORKSPACE_LOCK_DIR="$D" WORKSPACE_LOCK_TEST_WIN_PAUSE=2 "$WL" turn take --id t --sid "$M2" --eta +5m >/dev/null 2>&1 & _p=$!
-sleep 0.7; [ -d "$D/lock.d/turn.d" ]; _held=$?; kill -TERM "$_p"; wait "$_p"
+env $UNSET WORKSPACE_LOCK_DIR="$D" WORKSPACE_LOCK_TEST_WIN_PAUSE=3 "$WL" turn take --id t --sid "$M2" --eta +5m >/dev/null 2>&1 & _p=$!
+until_turn "$D" "$M2"; [ -d "$D/lock.d/turn.d" ]; _held=$?; kill -TERM "$_p"; wait "$_p"
 [ "$_held" = 0 ] && [ ! -d "$D/lock.d/turn.d" ]; check "a take killed before it finished leaves no turn behind" $?
 
 # --- member remove frees the holder's turn -------------------------------------------------------
@@ -324,6 +333,7 @@ fails "clear is refused while a member's turn beats within the grace" "turn is a
 turn_age "$D" 4000 4000
 wl "$D" clear --check --id c --holder t 2>&1 | grep -q '^CLEARABLE '; check "clear is allowed once the turn is stale too" $?
 wl "$D" clear --id c --holder t >/dev/null 2>&1 && [ ! -d "$D/lock.d" ]; check "clear removes the lock with its turn and members" $?
+fails "after a clear, the member's next turn verb says the lock was cleared" "was cleared by 'c'" wl "$D" turn give --id t --sid "$M1" --tree clean
 
 # --- a release racing turn takes leaves lock.d whole or gone, never half-removed --------------------
 _orph=0

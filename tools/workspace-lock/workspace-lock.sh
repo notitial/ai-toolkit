@@ -224,7 +224,7 @@ num_or_empty() { case "$1" in ''|*[!0-9]*) echo "" ;; *) echo "$1" ;; esac; }
 # A verified owner or member's lock call is its "next lock call" after a session-end hook wrote
 # ended/<sid>: the session is back (a session id survives a resume or a window reload; only a
 # /clear makes a new one).
-clear_ended() { rm -f "$TOKEN_DIR/ended/$1" 2>/dev/null || true; }
+clear_ended() { valid_sid "$1" || return 0; rm -f "$TOKEN_DIR/ended/$1" 2>/dev/null || true; }
 member_count() {
   _mc=0
   for _mf in "$TOKEN_DIR/members"/*; do [ -f "$_mf" ] && _mc=$((_mc + 1)); done
@@ -236,7 +236,10 @@ safe_text() { printf '%s' "$1" | LC_ALL=C tr -cd ' -~' | LC_ALL=C tr -d '"' | cu
 # The lock a member/turn/owner verb acts on: held, with the caller's slug, and owned. Never creates
 # anything: these verbs only ever write inside an existing lock.d.
 require_owned_lock() {
-  [ -d "$TOKEN_DIR" ] || die "no lock held at $LOCK_DIR"
+  if [ ! -d "$TOKEN_DIR" ]; then
+    _cm="$(cleared_msg "$WORKSPACE_LOCK_ID")" && die "$_cm"
+    die "no lock held at $LOCK_DIR"
+  fi
   _rh="$(token_holder)"
   [ "$_rh" = "$WORKSPACE_LOCK_ID" ] || die "the lock at $LOCK_DIR is held by '${_rh:-unknown}', not '$WORKSPACE_LOCK_ID'"
   is_owned || die "lock '$WORKSPACE_LOCK_ID' is not an owned lock (only acquire --owned makes one)"
@@ -245,11 +248,19 @@ require_owned_lock() {
 
 # record_give <sid> <clean|dirty|unknown>: the last hand-over, read by the next `turn take`.
 # Written (temp + rename) BEFORE the turn is freed, so the next taker never reads an older one.
+# Returns 1 when it could not write: a caller must never leave an older record standing.
 record_give() {
   _rg="$TOKEN_DIR/.last_give.$$.tmp"
   { printf '%s %s %s\n' "$(now_epoch)" "$1" "$2" > "$_rg" && mv -f "$_rg" "$TOKEN_DIR/last_give"; } 2>/dev/null \
-    || rm -f "$_rg" 2>/dev/null || true
+    && return 0
+  rm -f "$_rg" 2>/dev/null
+  return 1
 }
+# For a give that frees the turn whatever happens (remove, force): no record beats a stale one.
+record_give_or_drop() { record_give "$1" "$2" || rm -f "$TOKEN_DIR/last_give" 2>/dev/null || true; }
+
+# A path in a prompt line: printable ASCII only, so a directory name cannot reorder the text.
+prompt_path() { printf '%s' "$1" | LC_ALL=C tr -cd ' -~'; }
 
 # remove_dir <dir>: rename first, then delete. A rename is atomic, so a writer that arrives late
 # (a turn take's mkdir, a member add's write) gets ENOENT instead of landing in a half-deleted
@@ -259,7 +270,8 @@ remove_dir() {
   [ -d "$1" ] || return 0
   _rd="$1.gone.$$.$RANDOM"
   # No rm -rf fallback when the rename fails: the directory may already be someone else's new one.
-  mv "$1" "$_rd" 2>/dev/null || return 1
+  # A rename lost to a concurrent remover is a success (the directory is gone either way).
+  mv "$1" "$_rd" 2>/dev/null || { [ -d "$1" ] || return 0; return 1; }
   rm -rf "$_rd"
 }
 
@@ -331,7 +343,12 @@ say_wait() {
 WE_OWN_UNWRITTEN=0; WE_OWN_TURN=0
 cleanup_partial() {
   [ "$WE_OWN_UNWRITTEN" = "1" ] && rm -rf "$TOKEN_DIR"
-  [ "$WE_OWN_TURN" = "1" ] && rm -rf "$TURN_DIR"
+  # Only while it is still ours (or its sid not yet written): a member remove may have freed it
+  # and another member taken it meanwhile.
+  if [ "$WE_OWN_TURN" = "1" ]; then
+    _cs="$(turn_sid)"
+    { [ -z "$_cs" ] || [ "$_cs" = "${O_SID:-}" ]; } && remove_dir "$TURN_DIR"
+  fi
   exit 130
 }
 
@@ -546,7 +563,10 @@ cmd_release() {
     die "refusing to release lock held by '${_held:-unknown}' (I am '$WORKSPACE_LOCK_ID'); if its holder is dead, see 'clear' (asks the user)"
   fi
   owned_owner_check release "$_sid" "$_sid_set"
-  # A member mid-unit must not lose the lock under it: wait for the turn, or say --force.
+  is_owned || [ "$_force" = "0" ] || die "release: --force goes with an owned lock (it releases one while a turn is held)"
+  # A member mid-unit must not lose the lock under it: wait for the turn, or say --force. A take
+  # that wins between this check and the removal below is an accepted residual: the member's
+  # next mutation finds no lock.
   if is_owned && [ -d "$TURN_DIR" ] && [ "$_force" = "0" ]; then
     _ts="$(turn_sid)"
     die "release: a turn is held by '$(short "${_ts:-unknown}")' (task: \"$(safe_text "$(turn_meta task)")\"); wait for its turn give, or release --force"
@@ -715,7 +735,7 @@ cmd_clear() {
     # Holder-written free text: keep printable ASCII only (no control, bidi or zero-width chars),
     # drop quotes, cap it, and label it untrusted.
     _task="$(token_meta task | LC_ALL=C tr -cd ' -~' | LC_ALL=C tr -d '"' | cut -c1-80)"
-    echo "CLEARABLE Clear the workspace lock at $LOCK_DIR? Holder $_want; ETA $_eta_iso (expired $(( (_now - _xe) / 60 )) min ago); last heartbeat $_hb_txt. Approve only if that holder is dead. Holder-supplied task (untrusted): \"$_task\""
+    echo "CLEARABLE Clear the workspace lock at $(prompt_path "$LOCK_DIR")? Holder $_want; ETA $_eta_iso (expired $(( (_now - _xe) / 60 )) min ago); last heartbeat $_hb_txt. Approve only if that holder is dead. Holder-supplied task (untrusted): \"$_task\""
     return 0
   fi
   # Marker first: if it cannot be written, nothing is removed. Then re-check in place right before
@@ -800,7 +820,7 @@ cmd_member() {
     if is_member "$O_SID"; then clear_ended "$O_SID"; echo "MEMBER (already) $O_SID"; return 0; fi
     [ "$(member_count)" -lt "$MAX_MEMBERS" ] || die "member add: lock '$WORKSPACE_LOCK_ID' already has $MAX_MEMBERS members"
     # A plain write inside lock.d/members: if a release removed lock.d meanwhile, it fails, never recreates.
-    printf '%s\n' "$(now_epoch)" > "$TOKEN_DIR/members/$O_SID" 2>/dev/null \
+    { printf '%s\n' "$(now_epoch)" > "$TOKEN_DIR/members/$O_SID"; } 2>/dev/null \
       || die "member add: cannot write $TOKEN_DIR/members/$O_SID (was the lock released?)"
     clear_ended "$O_SID"
     log_line "MEMBER-ADDED $(short "$O_SID")"
@@ -816,11 +836,12 @@ cmd_member() {
   # Compare-and-free: the same residual window as release (the holder could give and another
   # member take between the read and the rm; turns are minutes long, so this is accepted).
   if [ -d "$TURN_DIR" ] && [ "$(turn_sid)" = "$O_SID" ]; then
-    record_give "$O_SID" unknown
+    record_give_or_drop "$O_SID" unknown
     remove_dir "$TURN_DIR"; _freed=1
     log_line "TURN-FREED-ON-REMOVE $(short "$O_SID")"
   fi
   if [ "$_was" = "1" ]; then log_line "MEMBER-REMOVED $(short "$O_SID")"; echo "MEMBER-REMOVED $O_SID"
+  elif [ "$_freed" = "1" ]; then echo "NOT-A-MEMBER $O_SID (but it held the turn)"
   else echo "NOT-A-MEMBER $O_SID (nothing to remove)"; fi
   [ "$_freed" = "0" ] || echo "TURN-FREED-ON-REMOVE $O_SID"
   return 0
@@ -855,7 +876,7 @@ turn_take() {
   is_party "$O_SID" || die "turn take: '$(short "$O_SID")' is not a member of lock '$WORKSPACE_LOCK_ID'; ask its owner to add you (member add), and only read until then"
   clear_ended "$O_SID"
   trap cleanup_partial INT TERM
-  _start="$(now_epoch)"; _say_state=""; _say_at=0
+  _start="$(now_epoch)"; _say_state=""; _say_at=0; _miss=0
   while : ; do
     # Re-checked on every poll: a waiter whose lock was released or replaced, or who was removed,
     # stops instead of taking a turn in a lock it no longer belongs to.
@@ -873,7 +894,7 @@ turn_take() {
              && now_epoch > "$TURN_DIR/heartbeat_epoch" \
              && printf '%s\n' "$O_TASK" > "$TURN_DIR/task" \
              && now_iso > "$TURN_DIR/taken_at"; } 2>/dev/null; then
-        remove_dir "$TURN_DIR"; WE_OWN_TURN=0
+        _cs="$(turn_sid)"; { [ -z "$_cs" ] || [ "$_cs" = "$O_SID" ]; } && remove_dir "$TURN_DIR"; WE_OWN_TURN=0
         die "turn take: won the turn but failed to write it; gave it back"
       fi
       # Test-only seam: hold the window between the win and the re-check open (test-turn.sh).
@@ -891,12 +912,20 @@ turn_take() {
       echo "TURN $O_SID"
       return 0
     fi
+    # No turn.d after a failed mkdir: not contention (lock.d vanished, or a give landed). Recheck now,
+    # but never spin on a mkdir that keeps failing for another reason.
+    if [ ! -d "$TURN_DIR" ]; then
+      _miss=$((_miss + 1))
+      [ "$_miss" -lt 3 ] || die "turn take: cannot create $TURN_DIR"
+      continue
+    fi
+    _miss=0
     _ts="$(turn_sid)"
     if [ -n "$_ts" ] && [ "$_ts" = "$O_SID" ]; then
       # Already ours (a retake after a compaction): refresh the ETA and beat, never self-deadlock.
-      printf '%s\n' $(( $(now_epoch) + O_ETA )) > "$TURN_DIR/eta_epoch" 2>/dev/null || true
-      now_epoch > "$TURN_DIR/heartbeat_epoch" 2>/dev/null || true
-      [ -z "$O_TASK" ] || printf '%s\n' "$O_TASK" > "$TURN_DIR/task" 2>/dev/null || true
+      { printf '%s\n' $(( $(now_epoch) + O_ETA )) > "$TURN_DIR/eta_epoch"
+        now_epoch > "$TURN_DIR/heartbeat_epoch"
+        [ -z "$O_TASK" ] || printf '%s\n' "$O_TASK" > "$TURN_DIR/task"; } 2>/dev/null || true
       echo "TURN (already held) $O_SID"
       return 0
     fi
@@ -934,7 +963,7 @@ turn_give() {
   [ -d "$TURN_DIR" ] || die "turn give: no turn is held on lock '$WORKSPACE_LOCK_ID' (was it freed? check status)"
   _ts="$(turn_sid)"
   [ "$_ts" = "$O_SID" ] || die "turn give: the turn is held by '$(short "${_ts:-unknown}")', not '$(short "$O_SID")'"
-  record_give "$O_SID" "$O_TREE"
+  record_give "$O_SID" "$O_TREE" || die "turn give: could not record the hand-over in $TOKEN_DIR/last_give; the turn is kept"
   remove_dir "$TURN_DIR" || die "turn give: failed to free the turn"
   clear_ended "$O_SID"
   log_line "TURN-GIVEN $(short "$O_SID") tree $O_TREE"
@@ -985,14 +1014,14 @@ turn_force() {
       _fe="$(num_or_empty "$(turn_meta eta_epoch)")"; _fb="$(num_or_empty "$(turn_meta heartbeat_epoch)")"
       _fe_txt=unknown; [ -n "$_fe" ] && _fe_txt="$(epoch_to_iso "$_fe") ($(( (_fn - _fe) / 60 )) min ago)"
       _fb_txt=unknown; [ -n "$_fb" ] && _fb_txt="$(epoch_to_iso "$_fb") ($(( (_fn - _fb) / 60 )) min ago)"
-      echo "FORCEABLE Free the turn on the workspace lock at $LOCK_DIR? Held by session $(short "$(turn_sid)"); ${_fw}; turn ETA $_fe_txt; last turn heartbeat $_fb_txt. Approve only if that session is dead. Holder-supplied task (untrusted): \"$(safe_text "$(turn_meta task)")\""
+      echo "FORCEABLE Free the turn on the workspace lock at $(prompt_path "$LOCK_DIR")? Held by session $(short "$(turn_sid)"); ${_fw}; turn ETA $_fe_txt; last turn heartbeat $_fb_txt. Approve only if that session is dead. Holder-supplied task (untrusted): \"$(safe_text "$(turn_meta task)")\""
     fi
     return 0
   fi
   # Re-check right before the removal: the holder may have beaten, given or been replaced since.
   _fc="$(force_class "$O_SID")"
   [ "${_fc%% *}" != "no" ] || { echo "NOT-FORCEABLE ${_fc#* } (changed during the force)"; exit 1; }
-  record_give "$O_SID" unknown
+  record_give_or_drop "$O_SID" unknown
   remove_dir "$TURN_DIR" || die "turn give --force: failed to remove $TURN_DIR"
   log_line "TURN-FORCED $(short "$O_SID") ($_fw)"
   echo "TURN-FORCED $O_SID"
@@ -1011,8 +1040,8 @@ turn_beat() {
   if [ "$O_ETA_SET" = "0" ] && [ -n "$_te" ] && [ "$(now_epoch)" -gt "$_te" ]; then
     die "turn ETA expired at $(epoch_to_iso "$_te"); retake with: \$HOME/.claude/tools/workspace-lock.sh turn beat --id $WORKSPACE_LOCK_ID --sid $O_SID --eta +30m"
   fi
-  now_epoch > "$TURN_DIR/heartbeat_epoch" 2>/dev/null || die "turn beat: cannot write the turn (was it freed?)"
-  [ "$O_ETA_SET" = "0" ] || printf '%s\n' $(( $(now_epoch) + O_ETA )) > "$TURN_DIR/eta_epoch" 2>/dev/null || true
+  { now_epoch > "$TURN_DIR/heartbeat_epoch"; } 2>/dev/null || die "turn beat: cannot write the turn (was it freed?)"
+  [ "$O_ETA_SET" = "0" ] || { printf '%s\n' $(( $(now_epoch) + O_ETA )) > "$TURN_DIR/eta_epoch"; } 2>/dev/null || true
   echo "TURN-BEAT $O_SID"
 }
 
@@ -1051,12 +1080,12 @@ cmd_owner() {
     _now="$(now_epoch)"; _xe="$(lock_eta_epoch)"; _hbe="$(heartbeat_epoch)"
     _xe_txt=unknown; [ -n "$_xe" ] && _xe_txt="$(epoch_to_iso "$_xe")"
     _hb_txt=unknown; [ -n "$_hbe" ] && _hb_txt="$(epoch_to_iso "$_hbe") ($(( (_now - _hbe) / 60 )) min ago)"
-    echo "TRANSFERABLE Make session $(short "$O_TO") the owner of the workspace lock at $LOCK_DIR? Current owner $(short "$_old"); lock ETA $_xe_txt; last heartbeat $_hb_txt. Approve only if the current owner has lost its session (for example after /clear)."
+    echo "TRANSFERABLE Make session $(short "$O_TO") the owner of the workspace lock at $(prompt_path "$LOCK_DIR")? Current owner $(short "$_old"); lock ETA $_xe_txt; last heartbeat $_hb_txt. Approve only if the current owner has lost its session (for example after /clear)."
     return 0
   fi
   # Write beside it and rename (atomic), after a re-check, so no reader sees a half-written owner.
   _tmp="$TOKEN_DIR/.owner.$$.tmp"
-  printf '%s\n' "$O_TO" > "$_tmp" 2>/dev/null || die "owner transfer: cannot write $TOKEN_DIR (was the lock released?)"
+  { printf '%s\n' "$O_TO" > "$_tmp"; } 2>/dev/null || die "owner transfer: cannot write $TOKEN_DIR (was the lock released?)"
   _why="$(transfer_refusal "$O_TO")"
   if [ -n "$_why" ] || [ "$(lock_owner)" != "$_old" ]; then
     rm -f "$_tmp"; echo "NOT-TRANSFERABLE ${_why:-the owner changed during the transfer}"; exit 1
