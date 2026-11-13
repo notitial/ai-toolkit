@@ -65,6 +65,7 @@ suites() {
   suite statusline           0 jq                                    'bash tools/test-statusline.sh'
   suite workspace-lock-guard 0 bash                                  'bash tools/workspace-lock/test-guard.sh'
   suite workspace-lock-wait  1 bash                                  'bash tools/workspace-lock/test-acquire.sh'
+  suite workspace-lock-turn  0 bash                                  'bash tools/workspace-lock/test-turn.sh'
   suite ait                  0 zsh                                   'bash tools/test-ait.sh'
 }
 
