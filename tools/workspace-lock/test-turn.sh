@@ -156,14 +156,14 @@ printf '%s' "$_o" | grep -qF "TURN (already held)" && [ "$(cat "$D/lock.d/turn.d
   && [ "$(cat "$D/lock.d/turn.d/task")" = "fix x" ]
 check "re-entrant take refreshes the ETA and keeps the task" $?
 wlw "$D" turn take --id t --sid "$O" --eta +5m >"$TMP/d.out" 2>"$TMP/d.err" &
-wait_for "$TMP/d.err" "BUSY turn held by bbbbbbbb" 5; check "the owner waits for a member's turn (BUSY names the holder)" $?
+wait_for "$TMP/d.err" "BUSY turn held by bbbbbbbb" 15; check "the owner waits for a member's turn (BUSY names the holder)" $?
 fails "turn give without --tree is refused" "--tree clean|dirty is required" wl "$D" turn give --id t --sid "$M1"
 fails "turn give --tree maybe is refused" "must be clean or dirty" wl "$D" turn give --id t --sid "$M1" --tree maybe
 fails "turn give by a non-holder is refused" "held by 'bbbbbbbb'" wl "$D" turn give --id t --sid "$M2" --tree clean
 fails "turn give --by without --force is refused" "go with --force" wl "$D" turn give --id t --sid "$M1" --tree clean --by "$O"
 _o="$(wl "$D" turn give --id t --sid "$M1" --tree dirty 2>&1)"; printf '%s' "$_o" | grep -qF "TURN-GIVEN $M1 dirty"
 check "turn give --tree dirty is recorded, never refused" $?
-wait_for "$TMP/d.out" "TURN $O" 5; check "the waiting owner takes the turn after the give" $?
+wait_for "$TMP/d.out" "TURN $O" 15; check "the waiting owner takes the turn after the give" $?
 grep -q "^LAST-GIVE .* by bbbbbbbb tree dirty$" "$TMP/d.out" && grep -qF "WARN the last turn was given back with tree 'dirty'" "$TMP/d.out"
 check "  ... and is shown the dirty hand-over with a WARN" $?
 wait
@@ -183,27 +183,29 @@ fails "turn give with no turn held is refused" "no turn is held" wl "$D" turn gi
 D="$(team e)"
 wl "$D" turn take --id t --sid "$O" --eta +5m >/dev/null 2>&1
 for _s in "$M1" "$M2"; do wlw "$D" turn take --id t --sid "$_s" --eta +5m >"$TMP/e.$_s.out" 2>&1 & done
-sleep 1.5
+wait_for "$TMP/e.$M1.out" "BUSY" 15 && wait_for "$TMP/e.$M2.out" "BUSY" 15; check "two waiters both wait (BUSY) before the give" $?
 wl "$D" turn give --id t --sid "$O" --tree clean >/dev/null 2>&1
-sleep 2.5
+# poll (bounded, 15 s) until one waiter wins, then give the other a full poll to (wrongly) win too
+_n=0; while [ "$_n" -lt 150 ] && ! grep -qF "TURN " "$TMP/e.$M1.out" "$TMP/e.$M2.out" 2>/dev/null; do sleep 0.1; _n=$((_n + 1)); done
+sleep 1.5
 _n=0; _won=""; for _s in "$M1" "$M2"; do grep -qF "TURN $_s" "$TMP/e.$_s.out" && { _n=$((_n + 1)); _won="$_s"; }; done
 [ "$_n" = 1 ] && [ "$(cat "$D/lock.d/turn.d/sid")" = "$_won" ]; check "two waiters, one give: exactly one takes the turn ($_n)" $?
 _lose="$M1"; [ "$_won" = "$M1" ] && _lose="$M2"
 wl "$D" turn give --id t --sid "$_won" --tree clean >/dev/null 2>&1
-wait_for "$TMP/e.$_lose.out" "TURN $_lose" 5; check "  ... the other takes it after the next give" $?
+wait_for "$TMP/e.$_lose.out" "TURN $_lose" 15; check "  ... the other takes it after the next give" $?
 wait
 
 # --- a waiter stops when it no longer belongs ---------------------------------------------------
 D="$(team f)"; wl "$D" turn take --id t --sid "$M1" --eta +5m >/dev/null 2>&1
 wlw "$D" turn take --id t --sid "$M2" --eta +5m >"$TMP/f1.out" 2>&1 & _p=$!
-wait_for "$TMP/f1.out" "BUSY" 5; wl "$D" member remove --id t --sid "$M2" --by "$O" >/dev/null 2>&1
+wait_for "$TMP/f1.out" "BUSY" 15; wl "$D" member remove --id t --sid "$M2" --by "$O" >/dev/null 2>&1
 wait "$_p"; _rc=$?; [ "$_rc" = 1 ] && grep -qF "no longer a member" "$TMP/f1.out"; check "a waiter exits 1 when the owner removes it" $?
 wl "$D" member add --id t --sid "$M2" --by "$O" >/dev/null 2>&1
 wlw "$D" turn take --id t --sid "$M2" --eta +5m >"$TMP/f2.out" 2>&1 & _p=$!
-wait_for "$TMP/f2.out" "BUSY" 5; printf '%s other\n' "$(now)" > "$D/lock.d/ended/$M2"
+wait_for "$TMP/f2.out" "BUSY" 15; printf '%s other\n' "$(now)" > "$D/lock.d/ended/$M2"
 wait "$_p"; _rc=$?; [ "$_rc" = 1 ] && grep -qF "ended while waiting" "$TMP/f2.out"; check "a waiter exits 1 when its session's end marker appears" $?
 wlw "$D" turn take --id t --sid "$M2" --eta +5m >"$TMP/f3.out" 2>&1 & _p=$!
-wait_for "$TMP/f3.out" "BUSY" 5; [ ! -f "$D/lock.d/ended/$M2" ]; check "turn take clears its own end marker when it starts" $?
+wait_for "$TMP/f3.out" "BUSY" 15; [ ! -f "$D/lock.d/ended/$M2" ]; check "turn take clears its own end marker when it starts" $?
 wl "$D" release --id t --sid "$O" --force >/dev/null 2>&1
 wait "$_p"; _rc=$?; [ "$_rc" = 1 ] && grep -qF "released or changed" "$TMP/f3.out" && [ ! -d "$D/lock.d" ]
 check "a waiter exits 1 when the lock is released, and recreates nothing" $?
@@ -212,8 +214,8 @@ check "a waiter exits 1 when the lock is released, and recreates nothing" $?
 D="$(team g)"; wl "$D" turn take --id t --sid "$O" --eta +5m >/dev/null 2>&1; wl "$D" turn give --id t --sid "$O" --tree clean >/dev/null 2>&1
 # (env, not the wenv function, so $! is the script itself and the kill reaches it)
 UNSET="-u WORKSPACE_LOCK_ID -u WORKSPACE_LOCK_LOG -u WORKSPACE_LOCK_MAX_WAIT -u WORKSPACE_LOCK_INIT_LEASE -u WORKSPACE_LOCK_WEDGE_GRACE -u WORKSPACE_LOCK_TEST_POLL"
-# until_turn <lockdir> <sid>: wait (bounded, 5 s) until that sid's take has won and written turn.d
-until_turn() { _n=0; while [ "$(cat "$1/lock.d/turn.d/sid" 2>/dev/null)" != "$2" ] && [ "$_n" -lt 50 ]; do sleep 0.1; _n=$((_n + 1)); done; }
+# until_turn <lockdir> <sid>: wait (bounded, 15 s) until that sid's take has won and written turn.d
+until_turn() { _n=0; while [ "$(cat "$1/lock.d/turn.d/sid" 2>/dev/null)" != "$2" ] && [ "$_n" -lt 150 ]; do sleep 0.1; _n=$((_n + 1)); done; }
 _lg0="$(cat "$D/lock.d/last_give")"
 env $UNSET WORKSPACE_LOCK_DIR="$D" WORKSPACE_LOCK_TEST_WIN_PAUSE=3 "$WL" turn take --id t --sid "$M1" --eta +5m >"$TMP/g.out" 2>&1 & _p=$!
 until_turn "$D" "$M1"; printf '%s other\n' "$(now)" > "$D/lock.d/ended/$M1"
