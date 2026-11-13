@@ -42,7 +42,6 @@ Installed globally alongside the skills above; they work together across a featu
 - **[/review-gate](review-gate/SKILL.md)** — routes a change to the right reviewer slate (code-reviewer always; payments/security reviewers by files touched) and writes a consolidated go/no-go
 - **[/archive-index](archive-index/SKILL.md)** — summarizes and indexes a feature's `.archive` workspace when resuming work
 - **[/prep-compact](prep-compact/SKILL.md)** — pre-compaction triage: capture state, ask what's next, recommend compact vs handover vs resume
-- **[/unattended-run](unattended-run/SKILL.md)** — arms (user-triggered only) and runs a kicked-off feature unattended, serialized via the orchestrator lock
 - **[/workspace-lock-protocol](workspace-lock-protocol/SKILL.md)** — the lock's detailed rules, loaded on demand so the always-on `workspace-lock` rule can stay short: which lock id to use (one shared id for a team run, a per-session id when working alone), when a lock is yours to take, how a worker in another repo finds the team's lock, and what to do while waiting for it
 
 ## Project-scoped skills

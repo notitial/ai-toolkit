@@ -213,7 +213,7 @@ Some skills invoke helper scripts from the repo's `tools/` directory that must b
 
 Scripts to install:
 
-- `tools/workspace-lock/workspace-lock.sh` → `~/.claude/tools/workspace-lock.sh` (used by the `unattended-run` skill)
+- `tools/workspace-lock/workspace-lock.sh` → `~/.claude/tools/workspace-lock.sh`
 - `tools/shell-init.zsh` → `~/.claude/tools/shell-init.zsh` (`~/.zshrc` sources it; it loads the `ait` zsh helpers, `tools/ait.zsh`)
 
 For each:

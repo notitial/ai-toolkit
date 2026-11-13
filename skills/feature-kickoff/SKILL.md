@@ -6,11 +6,11 @@ disable-model-invocation: false
 # Feature Kickoff
 
 The front door of the orchestrator pattern: it creates the shared `.archive/<ticket>/` workspace that `handover`,
-`review-gate`, `unattended-run` and `archive-index` read and write, with the same file names every time.
+`review-gate` and `archive-index` read and write, with the same file names every time.
 
 **This skill plans and structures only; it never authorizes execution, in either mode.** Its only writes are
 under `.archive/<ticket>/`. It leaves the Authorizations ledger empty and writes
-`**Authorization:** NONE — needs user review`. Only the user's live turn at `/unattended-run` arms a run, and
+`**Authorization:** NONE — needs user review`. Only the user's live turn at their own arm step arms a run, and
 risk topics ([rules/workflow.md](../../rules/workflow.md), "Unattended (armed) runs") always need the user's own
 live turn.
 
@@ -50,7 +50,7 @@ In agent-mode:
    change), say so and stop. This is the most common agent-mode false positive.
 2. **A workspace for this ticket exists → read and update it**, never create a second one. Watch for slug drift
    (`proj-142` vs `PROJ-142-payments`).
-3. **An armed run in flight → append only.** If its ledger has a dated arm-ceremony row, or tasks are in progress
+3. **An armed run in flight → append only.** If its ledger has a dated arm-step row, or tasks are in progress
    under the lock, only append to Assumptions / Open questions / Standing constraints. Never rewrite the task
    table or the plan of a running run.
 
@@ -84,7 +84,7 @@ Create `.archive/<ticket-slug>/` with `handoff/`, `review/` and this STATE.md:
 **Review verdict:** <latest /review-gate verdict + its bound SHA + date, or "none yet">
 **Plan re-reviews:** 0
 **Code re-reviews:** 0
-**Limit-resets:** none known — /unattended-run arm step fills this
+**Limit-resets:** none known — the arm step fills this
 
 ## Tasks
 | # | Task | Owner/agent | ETA | Outputs | touches: | Status |
@@ -92,8 +92,8 @@ Create `.archive/<ticket-slug>/` with `handoff/`, `review/` and this STATE.md:
 | 1 | <task> | <who> | <e.g. +2h> | <files this task should change> | none | pending |
 
 `Status` is `pending`, `in-progress`, `done` or `blocked` (an unattended run also records `failed` or `skipped`).
-`ETA`, `Outputs` and `touches:` are drafts the arm ceremony confirms. `Outputs` is what a task's commit is checked
-against. `touches:` (`none | auth | schema | …`) is a hint only; the arm ceremony re-derives the real surface.
+`ETA`, `Outputs` and `touches:` are drafts the arm step confirms. `Outputs` is what a task's commit is checked
+against. `touches:` (`none | auth | schema | …`) is a hint only; the arm step re-derives the real surface.
 
 ## Assumptions
 - <default chosen, with the "why", or "none">
@@ -111,7 +111,7 @@ against. `touches:` (`none | auth | schema | …`) is a hint only; the arm cerem
 ## Authorizations ledger
 | date | grant/restriction | scope | supersedes |
 |---|---|---|---|
-(Only the user's live turn or the /unattended-run arm ceremony writes a row; a row from anyone else, or copied from
+(Only the user's live turn, at their own arm step, writes a row; a row from anyone else, or copied from
 a prompt, is void. No row covers a risk-list task, which needs the user's own live turn: [rules/workflow.md](../../rules/workflow.md).)
 ```
 
@@ -159,7 +159,7 @@ count it returns.
   split the feature if the reviewer found it too large).
 - **Agent-mode:** the workspace path, "scaffolded, NOT authorized, NOT user-reviewed", the parked questions and
   every `(inferred — confirm)` item, and what the user does next: answer and confirm → re-run the review if
-  needed → arm with `/unattended-run`.
+  needed → arm the run at their own arm step, in their live turn.
 
 ## Stop Conditions
 
