@@ -32,7 +32,7 @@ base install.
 `hooks/protected-paths-guard.sh`, a PreToolUse hook on `Edit|Write|MultiEdit|NotebookEdit|Bash|Monitor|mcp__git-mcp__.*`.
 
 - **Hard deny only; it never asks.** A prompt can be answered by the person's own habit, by an allow rule or by an
-  auto mode that decides for them. A deny cannot. It fails closed without jq, as `git-mcp-guard.sh` does.
+  auto mode that decides for them. A deny cannot. It fails closed without jq, as `git-mcp-guard.sh` does: because the matcher is global, a machine without jq then denies every Bash, Edit, Write and git MCP call (jq is a Step 0 prerequisite of `/setup-claude`).
 - **A folder opts in with a marker.** A folder holding a file named `.protected-checkout`, and everything under it,
   is protected. The marker is untracked and listed in `.gitignore`; the person makes it with `touch`, and the hook
   denies every write to an existing one, so an agent cannot remove or move one. An agent can create one, which only
