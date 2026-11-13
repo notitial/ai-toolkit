@@ -252,6 +252,17 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "_comment": "Hard-denies writes to any folder that holds a .protected-checkout file (made by the person with touch, never committed) and to ~/.claude/settings*.json. Never asks. Does nothing in a folder without the marker. The settings files are protected whether or not any marker exists.",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Monitor|mcp__git-mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/protected-paths-guard.sh",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [

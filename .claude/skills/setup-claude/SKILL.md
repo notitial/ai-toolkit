@@ -88,6 +88,22 @@ For each listed hook:
 
 Verify each symlink resolves and the target script is executable. Hooks run by their path, so a hook without the bit does not start, and its control is off with nothing blocking. Never `chmod` it here: the bit has to come from a commit. Report it (`DRIFT: <script> not executable` in Step 10's drift assertion); the fix is a PR that commits it as `100755`, then a pull and another `/setup-claude`. When the commit has the bit and only this checkout lost it, `status` prints that smaller fix instead, for the user to run.
 
+### Protected checkout
+
+`hooks/protected-paths-guard.sh` (wired in Step 10) denies every write to a folder that holds a `.protected-checkout` file, and to `~/.claude/settings*.json` whether or not any marker exists. This checkout is one such folder: its tracked files go live on the next tool call (CLAUDE.md, Where agents edit). The marker is untracked (git-ignored) and the hook denies the agent every write to it, so only the user can make it. Check, then report; never try to create it:
+
+```bash
+ls <this checkout>/.protected-checkout
+```
+
+When it is missing, give the user this command to run themselves (a `!` line in this session works), with the checkout's real path filled in, and say what it does: from then on the agent's Edit, Write and Bash writes here are denied, and the work goes in a clone under `/tmp`:
+
+```bash
+touch <this checkout>/.protected-checkout
+```
+
+Other folders can be protected the same way, one `touch` each. Without the marker the settings-file protection still stands and nothing else here is guarded: report `Protected checkout: marker MISSING` in Step 11, as a warning, not a failure.
+
 ## Step 4: Install global skills
 
 List the committed skills: the `skills/<name>` lines of `bash tools/install-copies.sh roster` (a folder whose `SKILL.md` is committed).
@@ -310,6 +326,8 @@ Read `templates/safe-permissions.json` for:
 - `_migration.removeOverbroad` — overbroad permissions to remove (e.g. `Bash(cat *)`, which bypasses the workspace read boundary; the Read tool covers it)
 
 Read `~/.claude/settings.json` (or create `{}` if missing).
+
+**The agent does not write the live settings file.** `hooks/protected-paths-guard.sh` hard-denies the Edit, Write and Bash writes to `~/.claude/settings*.json` (a copy or a redirect included), so this step builds the result in a staged file and the user puts it in place (**Write settings.json** below). The backup below is not a `settings*.json` file and is still the agent's to make.
 
 Template keys that start with `_` (`_comment`, `_env_comment`, `_migration` and the rest, at any depth) are notes for this skill: never write one to the live file, including inside a copied hook entry or the `statusLine` object. (`_migration` is still read for its remove lists below; it is never copied.)
 
@@ -535,6 +553,8 @@ Any `STALE github` or `MISSING github` line is a failure. Report `DRIFT: github 
 
 The other hook commands reference `$HOME/.claude/hooks/<script>.sh` — these are the scripts installed in Step 3.
 
+**`protected-paths-guard.sh` is the one control that also protects this skill's own work:** once it is wired, an unwired or stale entry is `DRIFT` like any other, and a checkout without its marker is reported under Step 3's **Protected checkout**.
+
 ### Auto mode
 
 **Render the template's `autoMode` first.** Its entries carry the placeholders `<username>`, `<host>` and
@@ -626,7 +646,19 @@ The status line command references `$HOME/.claude/statusline.sh` — this is the
 5. `autoMode`, then `skillOverrides`, then `syncClaudeAiSkills` and `syncClaudeAiPlugins`, after the status line when they are new; an existing key keeps its position
 6. Other fields last
 
-Write the updated `~/.claude/settings.json`.
+**Stage, do not write.** Write the merged result to `~/.claude/settings.json.new-<YYYYMMDD-HHMMSS>` (the same date and time as the backup; mode 600; the name does not end in `.json`, so the hook lets the agent write it), then check it parses and show the user the diff against the live file:
+
+```bash
+jq empty ~/.claude/settings.json.new-<stamp> && diff <(jq -S . ~/.claude/settings.json) <(jq -S . ~/.claude/settings.json.new-<stamp>)
+```
+
+Then give the user one command to run themselves (a `!` line in this session works; the hook would deny the agent):
+
+```bash
+cp ~/.claude/settings.json.new-<stamp> ~/.claude/settings.json && rm ~/.claude/settings.json.new-<stamp>
+```
+
+Report the staged path and that the live file is unchanged until the user runs it. Nothing in Step 10 has taken effect before that: say so, and run the drift assertion again after the user confirms the copy. A first run with no `settings.json` stages the same way; the copy command creates it.
 
 ## Step 11: Report
 
@@ -698,6 +730,8 @@ Deny entries added: <list, or "none — already up to date"> (live-only deny ent
 Ask entries added: <list, or "none — already up to date"> (live-only ask entries: <list, or "none">); user to confirm they prompt
 Live checkout denies: <root>; added <list> / already present / declined / skipped (root under /tmp); leftovers for other paths: <list, or "none">; not covered: Bash writes
 Hooks config: Added / Already configured / Merged
+Settings file: staged <path>, live file unchanged until the user ran the copy / applied (user confirmed) / nothing to write
+Protected checkout: marker ok / MISSING (the user runs the touch command from Step 3)
 Status line config: Added / Already configured / Skipped
 Auto mode, per list (environment, soft_deny): Added / Merged <entries added> / Already configured / DRIFT (replaced on go, backup <path> mode 600 | left as is); live allow / hard_deny: <absent | with "$defaults" | WITHOUT "$defaults">; skillOverrides: <keys added, or "none">
 Start context: syncClaudeAiSkills / syncClaudeAiPlugins, per key: Added false / Already set (<value>, left as is)
