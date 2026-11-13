@@ -22,15 +22,16 @@ unattended run never includes them.
   and server resolving workspaces differently). Revisit when there is a real need.
 - **Automatic takeover of a stale lock:** rejected. A session that looks dead may be alive (a long build, a sleeping
   laptop), and breaking its lock lets two sessions mutate at once, the failure the lock exists to prevent.
-- **An advisory `mkdir` lock with a guard hook as the backstop: chosen.**
+- **An advisory lock directory with a guard hook as the backstop: chosen.**
 
 ## Decision
 
 The threat model is cooperative: the lock stops well-meaning sessions from forgetting the protocol, not a session that
 works around it on purpose, the same stance as the hooks in [ADR 0011](0011-shell-hook-enforcement.md).
 
-- **The lock.** `<workspace>/.workspace-lock/lock.d/`, created atomically by `mkdir`, is the mutex. The holder id lives
-  inside it (`lock.d/holder`), and `release` and `heartbeat` check that token; `status.json` is a display mirror that
+- **The lock.** `<workspace>/.workspace-lock/lock.d/` is the mutex, won by an exclusive create (`O_EXCL`) of
+  `lock.d/claim`, never by `mkdir`'s exit status (some mkdir builds exit 0 after losing the create race). The holder
+  id lives inside it (`lock.d/holder`), and `release` and `heartbeat` check that token; `status.json` is a display mirror that
   can never cause a double acquire. `tools/workspace-lock/workspace-lock.sh` does no git: a run branches off `main`,
   commits locally and never pushes or merges, with git through the MCP tools
   ([ADR 0010](0010-mcp-git-over-bash-git.md)). `/setup-claude` links the script to `~/.claude/tools/workspace-lock.sh`.
