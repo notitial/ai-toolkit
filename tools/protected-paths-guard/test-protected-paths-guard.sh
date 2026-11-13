@@ -19,7 +19,7 @@ H="$T/home"
 LIVE="$T/live"
 CLONE="$T/clone"
 STATE="$H/.claude/state"
-mkdir -p "$H/.claude/hooks" "$LIVE/tools" "$LIVE/hooks" "$LIVE/.archive/task" "$CLONE/tools" "$STATE/sub" "$T/other"
+mkdir -p "$LIVE/.git" "$CLONE/.git" "$LIVE/.archive/c1/.git" "$H/.claude/hooks" "$LIVE/tools" "$LIVE/hooks" "$LIVE/.archive/task" "$CLONE/tools" "$STATE/sub" "$T/other"
 : >"$LIVE/.protected-checkout"
 : >"$STATE/.protected-checkout"
 echo '{}' >"$H/.claude/settings.json"
@@ -63,7 +63,7 @@ for tool in Write Edit MultiEdit; do
   file $d "$LIVE/new/deep/file.ts" $tool
   file $d "$LIVE/.protected-checkout" $tool
   file $p "$CLONE/tools/a.ts" $tool
-  file $p "$LIVE/.archive/task/REPORT.md" $tool
+  file $p "$LIVE/.archive/task/notes.md" $tool
   file $p "$LIVE/.archive/x/y/z.md" $tool
 done
 expect $d "NotebookEdit under the root" "$(call NotebookEdit "$(jq -nc --arg p "$LIVE/n.ipynb" '{notebook_path: $p}')" "$CLONE")"
@@ -78,7 +78,7 @@ file $p "$H/.claude/hooks/other-new.sh" Write
 file $d "tools/a.ts" Write "$LIVE"
 file $p "tools/a.ts" Write "$CLONE"
 file $d "$LIVE" Write
-file $d "$STATE/prompts/x.json" Write
+file $d "$STATE/data/x.json" Write
 file $p "$STATE/.archive/x.json" Write
 file $d "$STATE/sub/y" Edit "$CLONE"
 
@@ -220,11 +220,11 @@ bash_ $d "echo x > ~/.claude/settings.json"
 bash_ $d "echo x > ~/.claude/settings.local.json"
 bash_ $p "echo x > ~/.claude/other.json"
 bash_ $d "rm $H/.claude/hooks/guard.sh"
-bash_ $d "echo x > $STATE/prompts/y"
+bash_ $d "echo x > $STATE/data/y"
 bash_ $d "touch $STATE/.protected-checkout"
 bash_ $d "rm $LIVE/.protected-checkout"
-bash_ $p "touch $LIVE/.archive/task/REPORT.md"
-bash_ $p "echo done >> $LIVE/.archive/task/REPORT.md"
+bash_ $p "touch $LIVE/.archive/task/notes.md"
+bash_ $p "echo done >> $LIVE/.archive/task/notes.md"
 bash_ $p "cat <<'EOF' > $CLONE/note.md
 rm $LIVE/tools/a.ts
 EOF"
@@ -360,9 +360,76 @@ expect $p "an unrelated tool" "$(call mcp__github__get_file_contents '{"owner":"
 # ---- known limits: these pass and the header says so ----
 bash_ $p "python3 -c \"open('$LIVE/tools/a.ts','w').write('x')\""
 bash_ $p "node -e \"require('fs').writeFileSync('$LIVE/tools/a.ts','x')\""
-bash_ $p "touch \$HOME/../live/x"
+bash_ $p "touch \$SOMEVAR/x"
 bash_ $p "make -C $LIVE"
 bash_ $p "echo $LIVE/tools/a.ts | xargs rm"
+
+# ---- $HOME forms ----
+bash_ $d "jq . x > \"\$HOME/.claude/settings.json\""
+bash_ $d "echo x > \"\${HOME}/.claude/settings.local.json\""
+bash_ $d "cd \"\$HOME/.claude\" && sed -i '' s/a/b/ settings.json"
+bash_ $d "touch \$HOME/../live/x"
+bash_ $p "cp -n \"\$HOME/.claude/settings.json\" \"\$HOME/.claude/settings.json.bak-3\""
+bash_ $p "echo x > \$HOME/.claude/settings.json.new-1"
+
+# ---- git run from below the work tree's top ----
+bash_ $d "git -C $LIVE/.archive reset --hard origin/main"
+bash_ $d "cd $LIVE/.archive/task && git checkout main"
+bash_ $d "git commit -m x" "$LIVE/.archive"
+bash_ $p "git -C $LIVE/.archive/c1 commit -m x"
+gitmcp $d git_reset "{\"path\":\"$LIVE/.archive\",\"mode\":\"hard\"}"
+gitmcp $p git_clone "{\"url\":\"u\",\"path\":\"$LIVE/.archive/newclone\"}"
+gitmcp $d git_clone "{\"url\":\"u\",\"path\":\"$LIVE/sub\"}"
+
+# ---- git options that take a value, and git reads ----
+bash_ $p "git clone -b main https://example.invalid/r.git $CLONE/x" "$LIVE"
+bash_ $p "git clone --depth 1 https://example.invalid/r.git $CLONE/x" "$LIVE"
+bash_ $d "git clone -b main https://example.invalid/r.git $LIVE/sub"
+bash_ $p "git init -b main $CLONE/x" "$LIVE"
+bash_ $d "git init -b main $LIVE/sub" "$CLONE"
+for c in "symbolic-ref --short HEAD" "tag --points-at HEAD" "tag --contains abc" "branch --points-at HEAD" "notes list" \
+  "apply --check x.diff" "apply --stat x.diff" "clean -n" "clean -fdn" "config --global user.name x" "hash-object f" "bisect log" "sparse-checkout list"; do
+  bash_ $p "git $c" "$LIVE"
+done
+for c in "symbolic-ref HEAD refs/heads/x" "hash-object -w f" "apply x.diff" "notes add -m x" "clean -fd" "bisect start" "sparse-checkout set a"; do
+  bash_ $d "git $c" "$LIVE"
+done
+
+# ---- chmod modes that start with a dash, sed and perl in place, patch, curl and wget ----
+bash_ $d "chmod -x $LIVE/hooks/guard.sh"
+bash_ $d "chmod -R a-w $LIVE/tools"
+bash_ $d "chmod -R -x $LIVE/tools"
+bash_ $p "chmod -x $CLONE/tools/a.ts" "$LIVE"
+bash_ $p "sed -i '' 's/a/b/' $CLONE/tools/a.ts" "$LIVE"
+bash_ $d "sed -i '' 's/a/b/' $LIVE/tools/a.ts" "$CLONE"
+bash_ $p "perl -i.bak -pe 's/a/b/' $CLONE/tools/a.ts" "$LIVE"
+bash_ $d "perl -i.bak -pe 's/a/b/' $LIVE/tools/a.ts" "$CLONE"
+bash_ $p "perl -Mstrict -ne print $LIVE/tools/a.ts" "$CLONE"
+bash_ $p "perl -Mstrict -ne print a.ts" "$LIVE"
+bash_ $d "patch -p1 -d $LIVE < x.diff" "$CLONE"
+bash_ $p "patch -d $CLONE -p1 < x.diff" "$LIVE"
+bash_ $d "curl -fsSLo $LIVE/tools/x https://example.invalid/x" "$CLONE"
+bash_ $d "wget -qO $LIVE/x https://example.invalid/x" "$CLONE"
+bash_ $p "wget -qO- https://example.invalid/x" "$LIVE"
+bash_ $p "wget -O - https://example.invalid/x" "$LIVE"
+bash_ $p "curl -fsSLo - https://example.invalid/x" "$LIVE"
+
+# ---- find with exec ----
+bash_ $p "find . -name '*.sh' -exec sed -n 1p {} +" "$LIVE"
+bash_ $p "find . -exec bash -n {} \\;" "$LIVE"
+bash_ $d "find $LIVE -name '*.sh' -exec rm {} \\;"
+bash_ $d "find -L $LIVE -delete"
+bash_ $d "find . -name '*.sh' -exec sed -i s/a/b/ {} +" "$LIVE"
+
+# ---- wrappers that take an option value, and cd options ----
+bash_ $d "sudo -u u rm $LIVE/tools/a.ts"
+bash_ $d "env -u NAME rm $LIVE/tools/a.ts"
+bash_ $d "timeout -s KILL 5 rm $LIVE/tools/a.ts"
+bash_ $d "/usr/bin/env rm $LIVE/tools/a.ts"
+bash_ $d "command -p rm $LIVE/tools/a.ts"
+bash_ $d "cd -- $LIVE && git reset --hard"
+bash_ $d "cd -P $LIVE && touch x"
+bash_ $p "cd -P $CLONE && touch x" "$LIVE"
 
 # ---- the marker is what protects: a folder with no marker stays editable ----
 file $p "$T/other/anything.txt" Write

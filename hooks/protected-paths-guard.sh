@@ -5,8 +5,8 @@
 #
 # WHAT IS PROTECTED
 #   - Any folder that holds a file named .protected-checkout, and everything under it. The marker is untracked
-#     (git-ignore it) and a person creates it with `touch`; this hook cannot, and a write to the marker is itself
-#     denied. The hook finds a root by walking up from the target's real path, so a clone made elsewhere (no marker
+#     (git-ignore it) and a person creates it with `touch`; a write to an existing marker is itself denied, so it
+#     cannot be removed or moved (a call that creates one only widens the protection). The hook finds a root by walking up from the target's real path, so a clone made elsewhere (no marker
 #     in it) stays editable, and a non-repository folder can be protected the same way.
 #   - ~/.claude/settings*.json (any such file directly under ~/.claude).
 #   Exceptions: <root>/.archive/** is writable; `git pull --ff-only`, `git merge --ff-only` and the git MCP
@@ -34,7 +34,9 @@
 #   Not read: the program text of an interpreter (python -c, node -e, a script file), make/npm/other tools that
 #   write on their own, paths built at run time ($VAR, $(...) output), a `cd` to a variable or glob (the folder is
 #   then unknown and only absolute operands are judged), file names fed to xargs on stdin, $(...) inside a heredoc,
-#   hard links, and a git MCP call with no `path` when the server's own folder differs from the session's. A
+#   hard links, the target of a find -exec, programs that write on their own (archive creators, compressors,
+#   formatters with an in-place flag), a < or > inside (( )) arithmetic, and a git MCP call with no `path` when
+#   the server's own folder differs from the session's. A
 #   recursive delete or move of a folder that contains a protected root is caught only for the session's own root
 #   and for ~/.claude.
 #
@@ -245,6 +247,19 @@ anc_check() {
   return 1
 }
 
+# git_top <abs dir>: the folder git acts on from there, the nearest one at or above it holding a .git (the folder
+# itself when there is none). A run from a subfolder changes the whole work tree, whatever the subfolder's status.
+git_top() {
+  local d
+  case "$1" in *'$'* | *'`'* | *[\*\?\[]*) printf '%s' "$1"; return ;; esac
+  d=$(phys_any "$1")
+  while [ -n "$d" ] && [ "$d" != "/" ]; do
+    if [ -e "$d/.git" ]; then printf '%s' "$d"; return; fi
+    d=${d%/*}
+  done
+  printf '%s' "$1"
+}
+
 ANC=0
 # judge_target <path> <what the call does>: deny when the path lands in a protected place.
 judge_target() {
@@ -252,6 +267,9 @@ judge_target() {
   [ -n "$p" ] || return 0
   case "$p" in
     /dev/*) return 0 ;;
+    '$HOME' | '${HOME}') p=$HOME_R ;;
+    '$HOME/'*) p="$HOME_R/${p#\$HOME/}" ;;
+    '${HOME}/'*) p="$HOME_R/${p#\$\{HOME\}/}" ;;
     "~") p=$HOME_R ;;
     "~/"*) p="$HOME_R/${p#\~/}" ;;
     "~"*) return 0 ;;
@@ -443,10 +461,19 @@ parse_args() {
 }
 
 set_cwd() {
-  local a="$1"
+  while :; do
+    case "${1:-}" in
+      -P | -L | -e | -@ | --) shift ;;
+      *) break ;;
+    esac
+  done
+  local a="${1:-}"
   case "$a" in
     "") CWD=$HOME_R ;;
     -) CWD="" ;;
+    '$HOME' | '${HOME}') CWD=$HOME_R ;;
+    '$HOME/'*) CWD="$HOME_R/${a#\$HOME/}" ;;
+    '${HOME}/'*) CWD="$HOME_R/${a#\$\{HOME\}/}" ;;
     *'$'* | *'`'* | *[\*\?\[]*) CWD="" ;;
     "~") CWD=$HOME_R ;;
     "~/"*) CWD="$HOME_R/${a#\~/}" ;;
@@ -458,19 +485,12 @@ set_cwd() {
   if [ -d "$CWD" ]; then CWD=$(cd -P -- "$CWD" 2>/dev/null && pwd -P) || CWD=$(lexnorm "$CWD"); else CWD=$(lexnorm "$CWD"); fi
 }
 
-is_write_verb() {
-  case "${1##*/}" in
-    rm | rmdir | unlink | shred | touch | mkdir | chmod | chown | chgrp | truncate | tee | mv | cp | install | ln | rsync | dd | patch | sed | perl | tar | unzip | curl | wget | sh | bash | zsh | dash | ksh | eval) return 0 ;;
-  esac
-  return 1
-}
-
 # git_is_write <subcommand> <args after it...>
 git_is_write() {
   local sub="$1" a has_ff=0 has_rebase=0 has_read=0 pos=0
   shift
   case "$sub" in
-    add | rm | mv | commit | checkout | switch | restore | reset | clean | cherry-pick | revert | apply | am | init | clone | update-ref | symbolic-ref | filter-branch | gc | prune | repack | notes | bisect | sparse-checkout | maintenance | replace | read-tree | checkout-index | write-tree | commit-tree | hash-object | fast-import | merge-file | update-index | pack-refs | rerere | submodule)
+    add | rm | mv | commit | checkout | switch | restore | reset | cherry-pick | revert | am | init | clone | update-ref | filter-branch | gc | prune | repack | maintenance | read-tree | checkout-index | write-tree | commit-tree | fast-import | merge-file | update-index | pack-refs | rerere | submodule)
       case "$sub" in submodule) case "${1:-}" in status | summary | foreach) return 1 ;; esac ;; esac
       return 0
       ;;
@@ -485,11 +505,58 @@ git_is_write() {
       return 0
       ;;
     rebase) return 0 ;;
+    clean)
+      for a in "$@"; do
+        case "$a" in --dry-run | -n | -[a-zA-Z]*n*) return 1 ;; esac
+      done
+      return 0
+      ;;
+    symbolic-ref)
+      for a in "$@"; do
+        case "$a" in -d | --delete) return 0 ;; -*) ;; *) pos=$((pos + 1)) ;; esac
+      done
+      [ "$pos" -ge 2 ] && return 0
+      return 1
+      ;;
+    hash-object)
+      for a in "$@"; do
+        case "$a" in -w) return 0 ;; esac
+      done
+      return 1
+      ;;
+    notes)
+      case "${1:-list}" in add | append | edit | remove | merge | prune | copy) return 0 ;; esac
+      return 1
+      ;;
+    apply)
+      for a in "$@"; do
+        case "$a" in --check | --stat | --numstat | --summary) return 1 ;; esac
+      done
+      return 0
+      ;;
+    bisect)
+      case "${1:-}" in log | view | visualize | replay) return 1 ;; esac
+      return 0
+      ;;
+    sparse-checkout)
+      case "${1:-}" in list) return 1 ;; esac
+      return 0
+      ;;
+    replace)
+      [ "$#" -eq 0 ] && return 1
+      for a in "$@"; do
+        case "$a" in -l | --list) return 1 ;; esac
+      done
+      return 0
+      ;;
     stash)
       case "${1:-push}" in list | show) return 1 ;; esac
       return 0
       ;;
     config)
+      for a in "$@"; do
+        case "$a" in --global | --system | --file | --file=* | -f) return 1 ;; esac
+      done
       for a in "$@"; do
         case "$a" in
           --unset | --unset-all | --add | --replace-all | --edit | -e | --rename-section | --remove-section) return 0 ;;
@@ -505,7 +572,7 @@ git_is_write() {
     tag)
       for a in "$@"; do
         case "$a" in
-          -l | --list | -v | --verify) return 1 ;;
+          -l | --list | -v | --verify | --contains | --no-contains | --points-at | --merged | --no-merged) return 1 ;;
           -d | --delete | -f | --force | -a | -s | -m | -F | -u) return 0 ;;
           -*) ;;
           *) pos=$((pos + 1)) ;;
@@ -517,7 +584,7 @@ git_is_write() {
     branch)
       for a in "$@"; do
         case "$a" in
-          -l | --list | --show-current | -a | -r | -v | -vv | --merged | --no-merged | --contains) has_read=1 ;;
+          -l | --list | --show-current | -a | -r | -v | -vv | --merged | --no-merged | --contains | --no-contains | --points-at) has_read=1 ;;
           -d | -D | --delete | -m | -M | --move | -c | -C | --copy | -f | --force | -u | --set-upstream-to* | --unset-upstream | --edit-description) return 0 ;;
           -*) ;;
           *) pos=$((pos + 1)) ;;
@@ -540,26 +607,48 @@ git_is_write() {
 
 # analyse <command words...>: judge one simple command.
 analyse() {
-  local verb a i n w base idx start
+  local verb a i n w idx start
   # Skip assignments, wrappers and shell keywords in front of the command.
+  local wv wb
   while [ "$#" -gt 0 ]; do
     w=$1
+    wb=${w##*/}
     case "$w" in
-      [A-Za-z_]*=* | if | then | else | elif | do | while | until | '{' | '}' | '!' | time | command | builtin | exec | nohup | setsid | caffeinate)
-        shift
+      [A-Za-z_]*=*) shift ;;
+      *)
+        case "$wb" in
+          if | then | else | elif | do | while | until | '{' | '}' | '!' | time | builtin | nohup | setsid | caffeinate)
+            shift
+            ;;
+          command | exec)
+            shift
+            while [ "${1:-}" = -p ] || [ "${1:-}" = -- ]; do shift; done
+            ;;
+          env | sudo | nice | stdbuf | ionice | timeout)
+            shift
+            case "$wb" in
+              env) wv=" -u -C -S " ;;
+              sudo) wv=" -u -g -h -p -C -r -t -U -D " ;;
+              nice) wv=" -n " ;;
+              timeout) wv=" -s -k " ;;
+              stdbuf) wv=" -i -o -e " ;;
+              *) wv=" -c -n -p -t " ;;
+            esac
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                -*)
+                  case "$wv" in *" $1 "*) shift ;; esac
+                  shift
+                  ;;
+                [A-Za-z_]*=*) shift ;;
+                *) break ;;
+              esac
+            done
+            [ "$wb" = timeout ] && [ "$#" -gt 0 ] && shift
+            ;;
+          *) break ;;
+        esac
         ;;
-      env | sudo | nice | stdbuf | ionice | timeout)
-        shift
-        while [ "$#" -gt 0 ]; do
-          case "$1" in
-            -n | -p | -u | -g | -s | -k | -i | -o | -e | -c | -C) shift; case "${1:-}" in '' | *[!0-9]*) ;; *) shift ;; esac ;;
-            -* | [A-Za-z_]*=*) shift ;;
-            *) break ;;
-          esac
-        done
-        [ "$w" = timeout ] && [ "$#" -gt 0 ] && shift
-        ;;
-      *) break ;;
     esac
   done
   [ "$#" -gt 0 ] || return 0
@@ -568,7 +657,7 @@ analyse() {
 
   case "$verb" in
     cd | pushd)
-      set_cwd "${1:-}"
+      set_cwd "$@"
       ;;
     popd)
       CWD=""
@@ -592,11 +681,18 @@ analyse() {
       for a in "${NONOPT[@]}"; do judge_target "$a" "$verb"; done
       ;;
     chmod | chown | chgrp)
-      parse_args "" "$@"
-      idx=0
-      for a in "${NONOPT[@]}"; do
-        [ "$idx" -ge 1 ] && judge_target "$a" "$verb"
-        idx=$((idx + 1))
+      local gotmode=0 dd=0
+      for a in "$@"; do
+        if [ "$dd" = 0 ]; then
+          case "$a" in
+            --) dd=1; continue ;;
+            --reference=*) gotmode=1; continue ;;
+          esac
+          if [ "$gotmode" = 0 ] && [[ "$a" =~ ^-[rwxXstugo]+$ ]]; then gotmode=1; continue; fi
+          case "$a" in -*) continue ;; esac
+        fi
+        if [ "$gotmode" = 0 ]; then gotmode=1; continue; fi
+        judge_target "$a" "$verb"
       done
       ;;
     truncate)
@@ -641,20 +737,35 @@ analyse() {
       done
       ;;
     patch)
-      [ -n "$CWD" ] && judge_target "$CWD" "$verb"
+      local pd="" nextd=0
       for a in "$@"; do
-        case "$a" in -d?*) judge_target "${a#-d}" "$verb" ;; esac
+        if [ "$nextd" = 1 ]; then pd=$a; nextd=0; continue; fi
+        case "$a" in
+          -d) nextd=1 ;;
+          -d?*) pd=${a#-d} ;;
+          --directory=*) pd=${a#*=} ;;
+        esac
       done
+      if [ -n "$pd" ]; then judge_target "$pd" "$verb"; elif [ -n "$CWD" ]; then judge_target "$CWD" "$verb"; fi
       ;;
     sed | perl)
-      local inplace=0 hasexpr=0
+      local inplace=0 hasexpr=0 takes=0 filt=()
       for a in "$@"; do
+        if [ "$takes" = 1 ]; then takes=0; continue; fi
+        if [ "$verb" = perl ]; then
+          case "$a" in -[MmIdDVxX]*) filt[${#filt[@]}]=$a; continue ;; esac
+        fi
         if [[ "$a" =~ ^-[a-zA-Z]*i ]] || [[ "$a" == --in-place* ]]; then inplace=1; fi
-        case "$a" in -e | --expression* | -f | --file*) hasexpr=1 ;; esac
-        case "$a" in -[a-zA-Z]*e | -[a-zA-Z]*e[!a-zA-Z]*) [ "$verb" = perl ] && hasexpr=1 ;; esac
+        case "$a" in
+          -e | -f | --expression | --file) takes=1; hasexpr=1 ;;
+          --expression=* | --file=*) hasexpr=1 ;;
+          -[a-zA-Z]*e) takes=1; hasexpr=1 ;;
+          *) filt[${#filt[@]}]=$a ;;
+        esac
       done
       if [ "$inplace" = 1 ]; then
-        parse_args "-e -f -l --expression --file --line-length" "$@"
+        parse_args "-l --line-length" "${filt[@]}"
+        if [ "${#NONOPT[@]}" -gt 0 ] && [ -z "${NONOPT[0]}" ]; then NONOPT=("${NONOPT[@]:1}"); fi
         start=1
         [ "$hasexpr" = 1 ] && start=0
         idx=0
@@ -701,11 +812,11 @@ analyse() {
     curl)
       local nexto=0 remote=0 outdir=""
       for a in "$@"; do
-        if [ "$nexto" = 1 ]; then judge_target "$a" "curl -o"; nexto=0; continue; fi
+        if [ "$nexto" = 1 ]; then [ "$a" = - ] || judge_target "$a" "curl -o"; nexto=0; continue; fi
         case "$a" in
-          -o | --output) nexto=1 ;;
-          -o?*) judge_target "${a#-o}" "curl -o" ;;
-          --output=*) judge_target "${a#*=}" "curl -o" ;;
+          -o | --output | -[a-zA-Z]*o) nexto=1 ;;
+          -o?*) [ "${a#-o}" = - ] || judge_target "${a#-o}" "curl -o" ;;
+          --output=*) [ "${a#*=}" = - ] || judge_target "${a#*=}" "curl -o" ;;
           -O | --remote-name | -[a-zA-Z]*O*) case "$a" in --*) [ "$a" = --remote-name ] && remote=1 ;; *) remote=1 ;; esac ;;
           --output-dir=*) outdir=${a#*=} ;;
         esac
@@ -719,32 +830,38 @@ analyse() {
       for a in "$@"; do
         if [ "$nexto" = 1 ]; then dest=$a; nexto=0; continue; fi
         case "$a" in
-          -O | -P) nexto=1 ;;
+          -O | -P | -[a-zA-Z]*[OP]) nexto=1 ;;
           -O?*) dest=${a#-O} ;;
           -P?*) dest=${a#-P} ;;
+          -[a-zA-Z]*[OP]?*) dest=${a#*[OP]} ;;
           --output-document=*) dest=${a#*=} ;;
           --directory-prefix=*) dest=${a#*=} ;;
         esac
       done
-      if [ -n "$dest" ]; then judge_target "$dest" wget; elif [ -n "$CWD" ]; then judge_target "$CWD" wget; fi
+      if [ "$dest" = - ]; then :; elif [ -n "$dest" ]; then judge_target "$dest" wget; elif [ -n "$CWD" ]; then judge_target "$CWD" wget; fi
       ;;
     find)
-      local starts=() writes=0 inx=0 xverb=""
+      local starts=() writes=0 inx=0 xsed=0
       for a in "$@"; do
         case "$a" in
+          -H | -L | -P) ;;
           -* | '(' | ')' | '!') break ;;
           *) starts[${#starts[@]}]=$a ;;
         esac
       done
       for a in "$@"; do
         if [ "$inx" = 1 ]; then
-          is_write_verb "$a" && writes=1
+          case "${a##*/}" in
+            rm | rmdir | unlink | shred | touch | mkdir | chmod | chown | chgrp | truncate | tee | mv | cp | install | ln | rsync | dd | patch) writes=1 ;;
+            sed | perl) xsed=1 ;;
+          esac
           inx=0
           continue
         fi
         case "$a" in
           -delete | -fprint | -fprint0 | -fprintf | -fls) writes=1 ;;
           -exec | -execdir | -ok | -okdir) inx=1 ;;
+          -i* | -[a-zA-Z]*i | --in-place*) [ "$xsed" = 1 ] && writes=1 ;;
         esac
       done
       if [ "$writes" = 1 ]; then
@@ -799,7 +916,7 @@ read_nested() {
 }
 
 analyse_git() {
-  local wt=$CWD gd="" a sub="" subargs=() next="" args=("$@") pass=0 base target
+  local wt=$CWD gd="" a sub="" subargs=() next="" base
   for a in "$@"; do
     if [ -n "$next" ]; then
       case "$next" in
@@ -836,8 +953,15 @@ analyse_git() {
   git_is_write "$sub" "${subargs[@]}" || return 0
   case "$sub" in
     clone)
-      local pos=() s
-      for s in "${subargs[@]}"; do case "$s" in -*) ;; *) pos[${#pos[@]}]=$s ;; esac; done
+      local pos=() s skipn=0
+      for s in "${subargs[@]}"; do
+        if [ "$skipn" = 1 ]; then skipn=0; continue; fi
+        case "$s" in
+          -b | --branch | --depth | -o | --origin | -c | --config | --filter | --reference | --separate-git-dir | --template | -j | --jobs | -u | --upload-pack) skipn=1 ;;
+          -*) ;;
+          *) pos[${#pos[@]}]=$s ;;
+        esac
+      done
       if [ "${#pos[@]}" -ge 2 ]; then
         judge_target "${pos[1]}" "git clone"
       elif [ "${#pos[@]}" -eq 1 ] && [ -n "$wt" ]; then
@@ -848,8 +972,15 @@ analyse_git() {
       return 0
       ;;
     init)
-      local pos=() s
-      for s in "${subargs[@]}"; do case "$s" in -*) ;; *) pos[${#pos[@]}]=$s ;; esac; done
+      local pos=() s skipn=0
+      for s in "${subargs[@]}"; do
+        if [ "$skipn" = 1 ]; then skipn=0; continue; fi
+        case "$s" in
+          -b | --initial-branch | --template | --separate-git-dir | --object-format) skipn=1 ;;
+          -*) ;;
+          *) pos[${#pos[@]}]=$s ;;
+        esac
+      done
       if [ "${#pos[@]}" -ge 1 ]; then
         case "${pos[0]}" in /*) judge_target "${pos[0]}" "git init" ;; *) [ -n "$wt" ] && judge_target "$wt/${pos[0]}" "git init" ;; esac
       elif [ -n "$wt" ]; then
@@ -858,14 +989,15 @@ analyse_git() {
       return 0
       ;;
   esac
-  [ -n "$wt" ] && judge_target "$wt" "git $sub"
+  [ -n "$wt" ] && judge_target "$(git_top "$wt")" "git $sub"
   [ -n "$gd" ] && judge_target "$gd" "git $sub"
   return 0
 }
 
 check_command() {
-  local cmd="$1" line w redir=0
+  local cmd="$1" line w redir=0 tok
   local SEG=()
+  tok=$(printf '%s' "$cmd" | tokenise) || deny "could not read the command text - blocked (fail-closed)."
   while IFS= read -r line; do
     case "$line" in
       S)
@@ -887,7 +1019,7 @@ check_command() {
         fi
         ;;
     esac
-  done < <(printf '%s' "$cmd" | tokenise)
+  done < <(printf '%s\n' "$tok")
   [ "${#SEG[@]}" -gt 0 ] && analyse "${SEG[@]}"
   return 0
 }
@@ -914,6 +1046,10 @@ git_tool() {
   case "$path" in
     /*) ;;
     *) path="$SESSION_CWD/$path" ;;
+  esac
+  case "$name" in
+    git_clone | git_init) ;;
+    *) path=$(git_top "$path") ;;
   esac
   judge_target "$path" "$name"
   if [ "$name" = git_worktree ]; then

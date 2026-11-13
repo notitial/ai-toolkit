@@ -19,7 +19,6 @@ Scripts and their tests. `/setup-claude` links a few into `~/.claude/` (the stat
 Which suite to run after a change (`bash tools/test-all.sh NAME` runs one; keep this list in step with its `suite` lines), all under `tools/`:
 
 - `tools/gh-block/` — `bash tools/gh-block/test-gh-block.sh` after changing `hooks/gh-block.sh`.
-- `tools/protected-paths-guard/` — `bash tools/protected-paths-guard/test-protected-paths-guard.sh` after changing `hooks/protected-paths-guard.sh` (needs jq).
 - `tools/github-mcp/` — `bash tools/github-mcp/test-guard.sh` after changing `guard.sh` or `launch`; `bash tools/github-mcp/test-update-check.sh` after changing `hooks/github-mcp-update-check.sh`.
 - `tools/ait.zsh`, `tools/accounts.zsh`, `tools/shell-init.zsh` — `bash tools/test-ait.sh` after changing any of them (needs zsh). `tools/install-copies.sh` `status` and `accounts` are in that suite too.
 - `tools/install-copies.sh` — `bash tools/test-install-copies.sh` after changing it (its `accounts` parser and account status lines are tested by `bash tools/test-ait.sh`).
@@ -28,5 +27,5 @@ Which suite to run after a change (`bash tools/test-all.sh NAME` runs one; keep 
 - `tools/cleanup-claude/` — `bash tools/cleanup-claude/test-cleanup.sh` after changing `cleanup.sh` or what `/setup-claude` and the installers put on a machine (needs jq).
 - `tools/claude-review/` — `python3 -I -B -m unittest discover -s tools/claude-review/tests` after changing the workflow's inline scripts, the kit's files or this repo's installed copies (`.github/workflows/claude-review.yml`, `.claude/commands/claude-pr-review.md`).
 - `tools/build-kit/` — `python3 -I -B -m unittest discover -s tools/build-kit/tests` after changing the kit (`build.py`, `buildkit/`) or what `/add-build-kit` installs (Python 3.9+, no Xcode or Android SDK needed: fake tools stand in).
-- `tools/audit-logger/`, `tools/build-redirect/`, `tools/destructive-blocker/`, `tools/git-mcp-guard/`, `tools/git-mcp-redirect/`, `tools/secret-detector/`, `tools/secret-redact-output/` — `bash tools/<name>/test-<name>.sh` after changing the matching `hooks/<name>.sh`.
+- `tools/audit-logger/`, `tools/build-redirect/`, `tools/destructive-blocker/`, `tools/git-mcp-guard/`, `tools/git-mcp-redirect/`, `tools/protected-paths-guard/` (needs jq), `tools/secret-detector/`, `tools/secret-redact-output/` — `bash tools/<name>/test-<name>.sh` after changing the matching `hooks/<name>.sh`.
 - `tools/workspace-lock/` — `bash tools/workspace-lock/test-guard.sh`, `bash tools/workspace-lock/test-acquire.sh` (about 1.5 min) and `bash tools/workspace-lock/test-turn.sh` (the owned team's members and turns, about 30 s) after changing the lock script or its guard.
