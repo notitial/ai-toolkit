@@ -85,6 +85,11 @@ echo
 echo "$PASSED passed, $(echo $FAILS | wc -w | tr -d ' ') failed, $SKIPPED skipped of $RAN"
 for f in $FAILS; do
   echo
+  # the failed cases first (shell suites print "FAIL ..." or "FAIL: ...", unittest "FAIL: ..." or "ERROR: ..."),
+  # each with the indented detail lines a suite prints right under it
+  echo "--- $f (failed cases) ---"
+  cases=$(awk '/^(FAIL|ERROR)[: ]/ { d = 1; print; next } d && /^[ \t]/ { print; next } { d = 0 }' "$LOG/$f.log" | head -n 80)
+  if [ -n "$cases" ]; then printf '%s\n' "$cases"; else echo "(no FAIL or ERROR line: see the tail)"; fi
   echo "--- $f (last 20 lines) ---"
   tail -n 20 "$LOG/$f.log"
 done

@@ -5,7 +5,8 @@
 # On-disk layout — one dot-prefixed folder (created on first acquire):
 #   $WORKSPACE_LOCK_DIR/          must be ABSOLUTE when set via env (default: $PWD/.workspace-lock)
 #     status.json                    persistent display MIRROR: {"state":"free"} | {"state":"locked",…}
-#     lock.d/                        the atomic mutex (mkdir/rmdir) — AUTHORITATIVE for held/free
+#     lock.d/                        the lock: present = held — AUTHORITATIVE for held/free
+#     lock.d/claim                   empty; its exclusive create decides who holds lock.d
 #     lock.d/holder                  the AUTHORITATIVE holder id (written before the mirror)
 #     lock.d/{eta_epoch,phase,task,reason,repos,acquired_at}   token metadata — lets heartbeat
 #                                    rebuild the mirror after a race/crash stamps it free
@@ -19,12 +20,14 @@
 #     lock.d/members/<sid>           "<added epoch>", one per member the owner added (at most 16)
 #     lock.d/ended/<sid>             "<epoch> <reason>": that session's process stopped (written by a
 #                                    session-end hook); its next lock call clears it
-#     lock.d/turn.d/                 the turn mutex (atomic mkdir): one member mutates at a time
-#     lock.d/turn.d/sid              the turn holder's session id, written first
+#     lock.d/turn.d/                 the turn: one member mutates at a time
+#     lock.d/turn.d/sid              the turn holder's session id; its exclusive create decides the turn
 #     lock.d/turn.d/{eta_epoch,heartbeat_epoch,task,taken_at}
 #     lock.d/last_give               "<epoch> <sid> <clean|dirty|unknown>": the last hand-over
 #
-# The mutex is `lock.d` (atomic `mkdir`); the holder id lives in `lock.d/holder`. `release` and
+# The mutex is `lock.d`, won by an exclusive create (noclobber, O_EXCL) of `lock.d/claim`, never by
+# mkdir's exit status: some mkdir builds exit 0 when another process created the directory first.
+# The holder id lives in `lock.d/holder`. `release` and
 # `heartbeat` authenticate against `lock.d/holder` — NEVER `status.json` — and refuse on an unknown
 # or mismatched holder. `status.json` is a display MIRROR only: every acquire gates on `lock.d`,
 # never on the flag, so it can never cause a double-acquire. `status` is read-only and reconciles
@@ -263,7 +266,7 @@ record_give_or_drop() { record_give "$1" "$2" || rm -f "$TOKEN_DIR/last_give" 2>
 prompt_path() { printf '%s' "$1" | LC_ALL=C tr -cd ' -~'; }
 
 # remove_dir <dir>: rename first, then delete. A rename is atomic, so a writer that arrives late
-# (a turn take's mkdir, a member add's write) gets ENOENT instead of landing in a half-deleted
+# (a turn take's claim, a member add's write) gets ENOENT instead of landing in a half-deleted
 # directory. With a plain rm -rf a late entry makes the final rmdir fail and leaves a lock.d with
 # no holder (the orphan state) or a turn.d with no sid.
 remove_dir() {
@@ -342,12 +345,10 @@ say_wait() {
 # The same for a turn this process won but has not finished writing.
 WE_OWN_UNWRITTEN=0; WE_OWN_TURN=0
 cleanup_partial() {
-  [ "$WE_OWN_UNWRITTEN" = "1" ] && rm -rf "$TOKEN_DIR"
-  # Only while it is still ours (or its sid not yet written): a member remove may have freed it
-  # and another member taken it meanwhile.
+  [ "$WE_OWN_UNWRITTEN" = "1" ] && remove_dir "$TOKEN_DIR"
+  # Only while it is still ours: a member remove may have freed it and another member taken it.
   if [ "$WE_OWN_TURN" = "1" ]; then
-    _cs="$(turn_sid)"
-    { [ -z "$_cs" ] || [ "$_cs" = "${O_SID:-}" ]; } && remove_dir "$TURN_DIR"
+    [ "$(turn_sid)" != "${O_SID:-}" ] || remove_dir "$TURN_DIR"
   fi
   exit 130
 }
@@ -414,9 +415,15 @@ cmd_acquire() {
   fi
   mkdir -p "$LOCK_DIR" 2>/dev/null || die "cannot create $LOCK_DIR"
   _start="$(now_epoch)"
-  _wedge_logged=0; _say_state=""; _say_at=0
+  _wedge_logged=0; _say_state=""; _say_at=0; _miss=0
   while : ; do
-    if mkdir "$TOKEN_DIR" 2>/dev/null; then          # atomic — exactly one racer wins
+    # The winner is whoever creates lock.d/claim (noclobber opens it O_EXCL): exactly one racer.
+    # mkdir's status decides nothing (some builds exit 0 after losing the create race). A lock.d
+    # that already has a holder is never claimed, so a lock taken before the claim file existed is
+    # not taken over; that check only reads. Plain mkdir (LOCK_DIR was made above): a waiter whose
+    # lock folder was removed fails its claim and stops, instead of rebuilding the folder.
+    mkdir "$TOKEN_DIR" 2>/dev/null
+    if [ ! -e "$TOKEN_DIR/holder" ] && ( set -C; : > "$TOKEN_DIR/claim" ) 2>/dev/null; then
       WE_OWN_UNWRITTEN=1
       # An owned lock writes kind and owner BEFORE holder, so no reader that sees the holder ever
       # takes it for an open lock. members/ and ended/ are made here, inside the fresh lock.d, so
@@ -424,21 +431,21 @@ cmd_acquire() {
       if [ "$_owned" = "1" ]; then
         if ! { printf 'owned\n' > "$TOKEN_DIR/kind" && printf '%s\n' "$_sid" > "$TOKEN_DIR/owner" \
                && mkdir "$TOKEN_DIR/members" "$TOKEN_DIR/ended"; } 2>/dev/null; then
-          rm -rf "$TOKEN_DIR"; WE_OWN_UNWRITTEN=0
+          remove_dir "$TOKEN_DIR"; WE_OWN_UNWRITTEN=0
           die "acquired lock but failed to write the owned-lock files; released it"
         fi
       fi
       # Write the AUTHORITATIVE holder id inside the token FIRST — before the mirror — so a
       # concurrent release/heartbeat authenticates against real ownership, never a stale mirror.
       if ! printf '%s\n' "$WORKSPACE_LOCK_ID" > "$TOKEN_DIR/holder" 2>/dev/null; then
-        rm -rf "$TOKEN_DIR"; WE_OWN_UNWRITTEN=0
+        remove_dir "$TOKEN_DIR"; WE_OWN_UNWRITTEN=0
         die "acquired lock but failed to write holder token; released it"
       fi
       H_ETA_EPOCH=$(( $(now_epoch) + _eta_secs ))
       H_ACQUIRED_AT="$(now_iso)"
       H_REPOS_JSON="$(repos_json "$H_REPOS")"
       if ! token_write_meta 2>/dev/null; then
-        rm -rf "$TOKEN_DIR"; WE_OWN_UNWRITTEN=0
+        remove_dir "$TOKEN_DIR"; WE_OWN_UNWRITTEN=0
         die "acquired lock but failed to write token metadata; released it"
       fi
       if write_status "$(status_locked_json)"; then
@@ -451,9 +458,17 @@ cmd_acquire() {
         fi
         return 0
       fi
-      rm -rf "$TOKEN_DIR"; WE_OWN_UNWRITTEN=0        # partial-failure cleanup (the only "trap")
+      remove_dir "$TOKEN_DIR"; WE_OWN_UNWRITTEN=0        # partial-failure cleanup (the only "trap")
       die "acquired lock but failed to write status.json; released it"
     fi
+    # Neither a claim nor a holder after a failed claim: not contention (a release removed lock.d in
+    # between, or the create fails for another reason). Retry now, but never spin on a failing create.
+    if [ ! -e "$TOKEN_DIR/claim" ] && [ ! -e "$TOKEN_DIR/holder" ]; then
+      _miss=$((_miss + 1))
+      [ "$_miss" -lt 3 ] || die "cannot create $TOKEN_DIR/claim"
+      continue
+    fi
+    _miss=0
     _held="$(token_holder)"
     if [ -n "$_held" ] && [ "$_held" = "$WORKSPACE_LOCK_ID" ]; then
       # An owned lock is closed: only its owner re-enters, and only by saying --owned. Anyone else
@@ -888,25 +903,31 @@ turn_take() {
     # waiter works for has stopped, so it must not win a turn nobody drives.
     [ ! -f "$TOKEN_DIR/ended/$O_SID" ] \
       || die "turn take: the session '$(short "$O_SID")' ended while waiting; run turn take again if it is back"
-    # Plain mkdir inside lock.d: if lock.d is gone it fails, and the next check above stops us.
-    if mkdir "$TURN_DIR" 2>/dev/null; then
+    # Plain mkdir inside lock.d (never -p: if lock.d is gone it fails, and the check above stops us).
+    # Its status decides nothing: the winner is whoever creates turn.d/sid (noclobber, O_EXCL).
+    mkdir "$TURN_DIR" 2>/dev/null
+    if ( set -C; printf '%s\n' "$O_SID" > "$TURN_DIR/sid" ) 2>/dev/null; then
       WE_OWN_TURN=1
-      if ! { printf '%s\n' "$O_SID" > "$TURN_DIR/sid" \
-             && printf '%s\n' $(( $(now_epoch) + O_ETA )) > "$TURN_DIR/eta_epoch" \
+      if ! { printf '%s\n' $(( $(now_epoch) + O_ETA )) > "$TURN_DIR/eta_epoch" \
              && now_epoch > "$TURN_DIR/heartbeat_epoch" \
              && printf '%s\n' "$O_TASK" > "$TURN_DIR/task" \
              && now_iso > "$TURN_DIR/taken_at"; } 2>/dev/null; then
-        _cs="$(turn_sid)"; { [ -z "$_cs" ] || [ "$_cs" = "$O_SID" ]; } && remove_dir "$TURN_DIR"; WE_OWN_TURN=0
+        [ "$(turn_sid)" != "$O_SID" ] || remove_dir "$TURN_DIR"; WE_OWN_TURN=0
         die "turn take: won the turn but failed to write it; gave it back"
       fi
       # Test-only seam: hold the window between the win and the re-check open (test-turn.sh).
       [ -z "${WORKSPACE_LOCK_TEST_WIN_PAUSE:-}" ] || sleep "$WORKSPACE_LOCK_TEST_WIN_PAUSE"
       # Re-check after the win: a release, a member remove or this session's end may have landed
-      # during the mkdir. A give-back leaves last_give alone: this turn never did any work.
+      # during the claim. A give-back leaves last_give alone: this turn never did any work.
       if ! turn_party_ok "$O_SID" || [ -f "$TOKEN_DIR/ended/$O_SID" ]; then
         # Only if it is still ours: a member remove may already have freed it, and another taken it.
         [ "$(turn_sid)" != "$O_SID" ] || remove_dir "$TURN_DIR"; WE_OWN_TURN=0
         die "turn take: won the turn, but the lock changed, '$(short "$O_SID")' was removed or its session ended; gave it back"
+      fi
+      # A force or member remove that freed this turn meanwhile: never report a turn held by another.
+      if [ "$(turn_sid)" != "$O_SID" ]; then
+        WE_OWN_TURN=0
+        die "turn take: won the turn, but it was freed before the take finished; run turn take again"
       fi
       WE_OWN_TURN=0
       log_line "TURN-TAKEN $(short "$O_SID")"
@@ -914,9 +935,9 @@ turn_take() {
       echo "TURN $O_SID"
       return 0
     fi
-    # No turn.d after a failed mkdir: not contention (lock.d vanished, or a give landed). Recheck now,
-    # but never spin on a mkdir that keeps failing for another reason.
-    if [ ! -d "$TURN_DIR" ]; then
+    # No sid after a failed claim: not contention (lock.d vanished, or a give landed). Recheck now,
+    # but never spin on a create that keeps failing for another reason.
+    if [ ! -e "$TURN_DIR/sid" ]; then
       _miss=$((_miss + 1))
       [ "$_miss" -lt 3 ] || die "turn take: cannot create $TURN_DIR"
       continue
