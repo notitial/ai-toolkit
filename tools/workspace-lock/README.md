@@ -45,16 +45,20 @@ still asks for permission, the entry did not match: add the literal absolute pat
   ```
   .workspace-lock/
     status.json              # persistent mirror: {"state":"free"} | {"state":"locked", holder…}
-    lock.d/                  # the atomic mutex (mkdir/rmdir) — AUTHORITATIVE
-    lock.d/holder            # the holder id, written first; release and heartbeat check it
+    lock.d/                  # the lock: present = held — AUTHORITATIVE
+    lock.d/claim             # empty; its exclusive create decides who holds lock.d
+    lock.d/holder            # the holder id, written before the mirror; release and heartbeat check it
     lock.d/{eta_epoch,phase,task,reason,repos,acquired_at}   # token metadata the mirror is rebuilt from
     lock.d/heartbeat_epoch   # last acquire or heartbeat: the liveness half of `clear`
     cleared/<id>             # "<epoch> <by-id>": <id>'s lock was cleared; its next lock call fails loudly
     sessions/<session_id>    # written by the guard hook: the id this session acquired with
     workspace-lock.log       # durable give-up/refuse/wedge/clear log
   ```
-- **Atomic acquire** via `mkdir .../lock.d` (a directory *is* the mutex — exactly one racer wins).
-  The holder id is written to `lock.d/holder` *before* the mirror; `release`/`heartbeat`
+- **Atomic acquire** via an exclusive create of `lock.d/claim` (bash noclobber, which opens the file
+  `O_EXCL`): exactly one racer wins. `lock.d` itself is made with `mkdir -p`, and mkdir's exit status
+  decides nothing: some mkdir builds (uutils coreutils 0.10, the default on Ubuntu 26.04) exit 0 when
+  another process created the directory first. A `lock.d` that already has a holder is never claimed.
+  A turn works the same way: the exclusive create of `turn.d/sid` decides it. The holder id is written to `lock.d/holder` *before* the mirror; `release`/`heartbeat`
   authenticate against it (refuse on unknown/mismatch), never against `status.json`.
 - **`status.json` is a display MIRROR, not the lock.** Created on first `acquire`, it **persists**
   across free↔locked (does not vanish on release). Every acquire gates on `lock.d`, never on the
@@ -129,14 +133,14 @@ shorten) the holder's own lease. Ids MUST be unique per run.
 ### Polling
 A waiter rechecks every **30 s plus 0–5 s of jitter**, whatever ETA the holder declared, so a
 holder that releases early is noticed within ~35 s; the jitter reduces lockstep rechecks between
-waiters (`mkdir` picks the one winner), and the last sleep is clamped so the wait never overruns `MAX_WAIT`. (An earlier
+waiters (the claim picks the one winner), and the last sleep is clamped so the wait never overruns `MAX_WAIT`. (An earlier
 ETA-scaled ladder slept up to 60 min after an early release, because declared ETAs are padded.)
 The `BUSY` / `WARN` stderr line prints on the first check, whenever the holder or wedge state
 changes, and otherwise at most every 10 min. **Because a single foreground Bash call caps at 10
 minutes, run `acquire` as a background task**; the harness wakes the session when it exits with
 `ACQUIRED` / `TIMEOUT`.
 
-There is no queue: the lock goes to whichever `mkdir` lands first after a release, so a fresh
+There is no queue: the lock goes to whichever claim lands first after a release, so a fresh
 acquirer can win the gap ahead of an earlier waiter (correct — the waiter keeps waiting). A
 background `acquire` whose session no longer needs the lock can still win it and hold it
 unattended; it surfaces as wedged at its ETA + grace.
@@ -174,10 +178,12 @@ protocol in a fresh interactive session.
 - **No automatic break of a stale lock.** A waiter that sees a wedged or empty-holder lock
   **WARNs and logs, but never removes `lock.d`**; a long-silent holder is freed only by a
   prompted `clear` (above), and an empty-holder corpse only by hand (`status` to inspect, then
-  remove `lock.d`). Softeners: `release` runs on
+  remove `lock.d`). A `lock.d` with neither a claim nor a holder (killed between its `mkdir -p` and
+  the claim) is not a corpse: the next acquire claims it. Likewise a `turn.d` with no `sid` file: the
+  next `turn take` claims it, and the owner's `turn give --force` still frees one with an empty `sid`. Softeners: `release` runs on
   ordinary failures; a bounded `MAX_WAIT` makes waiters log-and-exit instead of hanging all night;
   waiter-side wedge WARN + the durable `WEDGED` log line let the morning handover spot a dead
-  holder fast. (A hard signal in the one-statement gap between winning the `mkdir` and writing
+  holder fast. (A hard signal in the one-statement gap between winning the claim and writing
   `status.json` leaves the same empty-holder signature — an irreducible micro-window of the same
   class; waiters surface it as `holder unknown`, and `status` as locked-with-metadata-unavailable,
   never free.)
@@ -187,7 +193,7 @@ protocol in a fresh interactive session.
   each task in with that task's ETA, so a dead parent leaves a lock whose ETA expires and is visibly stale.
 - **Repo paths must not contain commas** — the `--repos` list is comma-separated. Quotes/control
   chars in field values are escaped/stripped; `WORKSPACE_LOCK_ID` is restricted to `[A-Za-z0-9._-]`.
-- **Same-machine, same-filesystem only.** `mkdir` atomicity is not guaranteed over networked FS.
+- **Same-machine, same-filesystem only.** `O_EXCL` create is not guaranteed atomic over networked FS.
 - **Workspace root must not sit under a `.archive` path component without an intervening `.git`
   marker** — such a root can be neither armed nor guarded (the guard's `.archive` exemption
   swallows it: arm refuses, guard skips — symmetric). Keep the lock at a true repo/workspace root.

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # test-turn.sh — functional tests for workspace-lock.sh's owned team: acquire --owned, members,
 # turns (take, give --tree, beat, give --force), owner transfer, owner-only release and heartbeat,
-# and the owned status fields. Runs the real script against throwaway lock dirs; time is faked by
-# writing epoch files, and waits use a 1-second poll, so it is fast enough for --quick.
+# the owned status fields, and the exclusive claims that decide the lock and the turn. Runs the real
+# script against throwaway lock dirs; time is faked by writing epoch files, and waits use a 1-second
+# poll, so it is fast enough for --quick.
 #
 # Usage: bash tools/workspace-lock/test-turn.sh      (about 30 s). WL_SCRIPT=<path> tests another copy.
 # Exit 0 = all pass, 1 = any fail.
@@ -198,6 +199,68 @@ _lose="$M1"; [ "$_won" = "$M1" ] && _lose="$M2"
 wl "$D" turn give --id t --sid "$_won" --tree clean >/dev/null 2>&1
 wait_for "$TMP/e.$_lose.out" "TURN $_lose" 15; check "  ... the other takes it after the next give" $?
 wait
+
+# --- a non-exclusive mkdir still gives one winner: the claim decides, not mkdir's status -----------
+# Some mkdir builds check, then create, and exit 0 when another process created the directory first.
+# This fake does that deterministically (the sleep holds both racers between the check and the create).
+FAKEBIN="$TMP/fakebin"; mkdir -p "$FAKEBIN"
+cat > "$FAKEBIN/mkdir" <<EOF
+#!/bin/bash
+for a in "\$@"; do [ "\$a" != -p ] || exec "$(command -v mkdir)" "\$@"; done
+rc=0
+for a in "\$@"; do
+  case \$a in -*) continue ;; esac
+  if [ -e "\$a" ]; then echo "mkdir: \$a: File exists" >&2; rc=1; continue; fi
+  sleep 0.5
+  "$(command -v mkdir)" "\$a" 2>/dev/null || [ -d "\$a" ] || rc=1
+done
+exit \$rc
+EOF
+chmod +x "$FAKEBIN/mkdir"
+# wlf <lockdir> <args...> — a racer with the fake mkdir first on PATH: 1 s poll, 3 s cap.
+wlf() { _d="$1"; shift; PATH="$FAKEBIN:$PATH" wenv WORKSPACE_LOCK_DIR="$_d" WORKSPACE_LOCK_TEST_POLL=1 WORKSPACE_LOCK_MAX_WAIT=3 "$WL" "$@"; }
+
+D="$(newdir fa)"
+wlf "$D" acquire --id ra >"$TMP/fa.ra.out" 2>&1 & _pa=$!
+wlf "$D" acquire --id rb >"$TMP/fa.rb.out" 2>&1 & _pb=$!
+wait "$_pa" "$_pb"
+_n=0; _won=""; for _s in ra rb; do grep -q "^ACQUIRED $_s " "$TMP/fa.$_s.out" && { _n=$((_n + 1)); _won="$_s"; }; done
+[ "$_n" = 1 ] && [ "$(cat "$D/lock.d/holder")" = "$_won" ]
+check "non-exclusive mkdir: two acquires on a free lock, exactly one wins ($_n)" $?
+
+D="$(team fb)"
+wlf "$D" turn take --id t --sid "$M1" --eta +5m >"$TMP/fb.$M1.out" 2>&1 & _pa=$!
+wlf "$D" turn take --id t --sid "$M2" --eta +5m >"$TMP/fb.$M2.out" 2>&1 & _pb=$!
+wait "$_pa" "$_pb"
+_n=0; _won=""; for _s in "$M1" "$M2"; do grep -q "^TURN $_s" "$TMP/fb.$_s.out" && { _n=$((_n + 1)); _won="$_s"; }; done
+[ "$_n" = 1 ] && [ "$(cat "$D/lock.d/turn.d/sid")" = "$_won" ]
+check "non-exclusive mkdir: two takes on a free turn, exactly one wins ($_n)" $?
+
+# --- crash states around the claim -------------------------------------------------------------------
+# wls <lockdir> <args...> — a short waiter: 1 s poll, 2 s cap.
+wls() { _d="$1"; shift; wenv WORKSPACE_LOCK_DIR="$_d" WORKSPACE_LOCK_TEST_POLL=1 WORKSPACE_LOCK_MAX_WAIT=2 "$WL" "$@"; }
+D="$(newdir fc)"; mkdir -p "$D/lock.d"
+wls "$D" acquire --id a 2>&1 | grep -q '^ACQUIRED a ' && [ "$(cat "$D/lock.d/holder")" = a ]
+check "an empty lock.d (killed before its claim) is claimed by the next acquire" $?
+D="$(newdir fd)"; mkdir -p "$D/lock.d"; : > "$D/lock.d/claim"
+_o="$(wls "$D" acquire --id a 2>&1)"; _rc=$?
+[ "$_rc" = 2 ] && printf '%s' "$_o" | grep -qF "WARN lock wedged, holder unknown" && [ ! -e "$D/lock.d/holder" ]
+check "a claim with no holder (killed before the holder write) is wedged, as before: the acquire waits and times out" $?
+wl "$D" status 2>&1 | grep -q '"state": "locked"'; check "  ... status reports it locked" $?
+fails "  ... and clear leaves it to a human" "holder unknown" wl "$D" clear --check --id c --holder x
+D="$(newdir fe)"; mkdir -p "$D/lock.d"; printf 'h\n' > "$D/lock.d/holder"
+_o="$(wls "$D" acquire --id a 2>&1)"; _rc=$?
+[ "$_rc" = 2 ] && [ "$(cat "$D/lock.d/holder")" = h ] && [ ! -e "$D/lock.d/claim" ]
+check "a lock.d with a holder but no claim (taken before claims existed) is never claimed" $?
+D="$(team ff)"; mkdir "$D/lock.d/turn.d"
+wls "$D" turn take --id t --sid "$M1" --eta +5m 2>&1 | grep -q "^TURN $M1" && [ "$(cat "$D/lock.d/turn.d/sid")" = "$M1" ]
+check "a turn.d with no sid (killed before its claim) is claimed by the next take" $?
+D="$(team fg)"; mkdir "$D/lock.d/turn.d"; : > "$D/lock.d/turn.d/sid"
+_o="$(wls "$D" turn take --id t --sid "$M1" --eta +5m 2>&1)"; _rc=$?
+[ "$_rc" = 2 ] && printf '%s' "$_o" | grep -qF "holder unknown" && [ ! -s "$D/lock.d/turn.d/sid" ]
+check "a turn.d with an empty sid waits as holder unknown" $?
+wl "$D" turn give --id t --sid "$M2" --by "$O" --force --check 2>&1 | grep -q '^FORCEABLE .*no holder recorded'
+check "  ... and the owner can force it (prompt class)" $?
 
 # --- a waiter stops when it no longer belongs ---------------------------------------------------
 D="$(team f)"; wl "$D" turn take --id t --sid "$M1" --eta +5m >/dev/null 2>&1
