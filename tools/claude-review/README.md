@@ -320,8 +320,9 @@ denies a post, give the user the `gh` command instead.
    If a required check stays queued for a long time, or a failure is outside the PR's scope, tell the user instead of
    marking it ready.
 2. Wait for the review (the runner may be queued): poll `pull_request_read` with `get_check_runs` every few minutes,
-   until the `Publish the review` run completes (about 1–2 minutes once a runner picks it up). It must conclude `success`: `skipped` means no review ran,
-   so tell the user.
+   until the `Publish the review` run that started after you marked the PR ready completes (about 1–2 minutes once a
+   runner picks it up). The draft phase left a `skipped` one on the same head: ignore it. The new run must conclude
+   `success`: `skipped` means no review ran, so tell the user.
 3. Read the findings with `pull_request_read`: the App's inline comments (`get_review_comments`), the review body's
    "Not on a changed line" section (`get_reviews`), and the overview comment (`get_comments`, the one starting
    `<!-- claude-review:summary`). A review that did not finish shows "No verdict" in the overview comment, or posts
