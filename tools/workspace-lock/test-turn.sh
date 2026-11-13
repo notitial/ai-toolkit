@@ -182,6 +182,23 @@ fails "turn give with no turn held is refused" "no turn is held" wl "$D" turn gi
 # --- TEMPORARY, reverted before merge: the race below, repeated on fresh dirs to catch a rare double win.
 # On a GitHub runner the waiters and the give run under strace (installed if missing); the dump on the
 # first failure merges their syscalls on turn.d by time.
+if [ "${GITHUB_ACTIONS:-}" = true ]; then
+  # Probe (GitHub runner only, reported as a FAIL so CI prints it): 200 rounds of two concurrent creates of
+  # one name, released together by a go file both spin on; count the rounds where BOTH report success.
+  _pd="$TMP/probe"; mkdir -p "$_pd"; _md=0; _nc=0
+  for _i in $(seq 200); do
+    ( while [ ! -e "$_pd/gm$_i" ]; do :; done; mkdir "$_pd/m$_i" ) 2>/dev/null & _a=$!
+    ( while [ ! -e "$_pd/gm$_i" ]; do :; done; mkdir "$_pd/m$_i" ) 2>/dev/null & _b=$!
+    sleep 0.05; : > "$_pd/gm$_i"; wait "$_a"; _ra=$?; wait "$_b"; _rb=$?
+    [ "$_ra" = 0 ] && [ "$_rb" = 0 ] && _md=$((_md + 1))
+    ( while [ ! -e "$_pd/gn$_i" ]; do :; done; set -C; : > "$_pd/n$_i" ) 2>/dev/null & _a=$!
+    ( while [ ! -e "$_pd/gn$_i" ]; do :; done; set -C; : > "$_pd/n$_i" ) 2>/dev/null & _b=$!
+    sleep 0.05; : > "$_pd/gn$_i"; wait "$_a"; _ra=$?; wait "$_b"; _rb=$?
+    [ "$_ra" = 0 ] && [ "$_rb" = 0 ] && _nc=$((_nc + 1))
+  done
+  bad "mkdir probe (temporary, info only): both mkdirs exited 0 in $_md of 200 rounds; both noclobber creates in $_nc of 200"
+  { mkdir --version 2>&1 | head -n 1; readlink -f "$(command -v mkdir)"; head -n 3 /etc/os-release; } | sed 's/^/      /'
+fi
 _st=""
 command -v strace >/dev/null 2>&1 || { [ "${GITHUB_ACTIONS:-}" = true ] && sudo -n apt-get install -y -q strace >/dev/null 2>&1; }
 _sto=off; command -v strace >/dev/null 2>&1 && _sto=on && _st="strace -f -tt -qq -e trace=mkdir,mkdirat,rename,renameat,renameat2,rmdir,unlink,unlinkat -o"
