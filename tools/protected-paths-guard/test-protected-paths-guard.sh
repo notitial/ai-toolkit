@@ -431,6 +431,55 @@ bash_ $d "cd -- $LIVE && git reset --hard"
 bash_ $d "cd -P $LIVE && touch x"
 bash_ $p "cd -P $CLONE && touch x" "$LIVE"
 
+# ---- a file created inside an existing folder ----
+bash_ $d "cp $CLONE/settings.json $H/.claude/"
+bash_ $d "cp $CLONE/settings.json ~/.claude/"
+bash_ $d "mv $CLONE/settings.local.json $H/.claude"
+bash_ $d "cp -t $H/.claude $CLONE/settings.json"
+bash_ $d "cp --target-directory $H/.claude $CLONE/settings.json"
+bash_ $d "cp --target-directory $LIVE/hooks $CLONE/x.sh"
+bash_ $d "install -m 755 $CLONE/guard.sh $LIVE/hooks/"
+bash_ $d "rsync -a $CLONE/settings.json $H/.claude/"
+bash_ $d "ln -s $CLONE/settings.json $H/.claude/"
+bash_ $d "cp x.json $LIVE/tools" "$CLONE"
+bash_ $p "cp $CLONE/other.json $H/.claude/"
+bash_ $p "cp $CLONE/settings.json $CLONE/tools/"
+bash_ $p "mv $LIVE/.archive/task/settings.json $LIVE/.archive/"
+
+# ---- a cd inside a group does not outlive it ----
+bash_ $d "D=\$(cd $CLONE && pwd); git reset --hard" "$LIVE"
+bash_ $d "(cd /tmp); rm hooks/guard.sh" "$LIVE"
+bash_ $d "x=\`cd $CLONE; pwd\`; touch y" "$LIVE"
+bash_ $p "(cd $CLONE && touch x); echo ok" "$LIVE"
+bash_ $p "D=\$(cd $CLONE && pwd); touch $CLONE/y" "$LIVE"
+
+# ---- a control character in the command ----
+ctl=$(printf '\001')
+bash_ $d "echo '${ctl}'; touch $LIVE/x"
+bash_ $d "echo \"${ctl}\"; rm $LIVE/.protected-checkout"
+bash_ $p "echo 'a	b'
+echo c"
+
+# ---- long options with a separate value, wrapper options ----
+bash_ $d "curl --output-dir $LIVE/tools -O https://example.invalid/x" "$CLONE"
+bash_ $d "wget --directory-prefix $LIVE/tools https://example.invalid/y" "$CLONE"
+bash_ $d "wget --output-document $LIVE/tools/x https://example.invalid/y" "$CLONE"
+bash_ $d "curl -fsSLO https://example.invalid/x" "$LIVE"
+bash_ $p "curl -XPOST -d a=1 https://example.invalid" "$LIVE"
+bash_ $p "curl -fsSL -HOST:x https://example.invalid" "$LIVE"
+bash_ $d "time -p rm $LIVE/tools/a.ts"
+bash_ $d "time -p rm $LIVE/.protected-checkout"
+bash_ $d "exec -a NAME rm $LIVE/tools/a.ts"
+bash_ $d "sudo --user root rm $LIVE/tools/a.ts"
+bash_ $d "env --unset X rm $LIVE/tools/a.ts"
+
+# ---- git config -f, a relative work tree ----
+bash_ $d "git config -f $LIVE/.git/config user.name x" "$CLONE"
+bash_ $d "git config --file $LIVE/x k v" "$CLONE"
+bash_ $p "git config -f $CLONE/c k v" "$LIVE"
+bash_ $p "git --work-tree=sub checkout ." "$CLONE"
+bash_ $d "git --work-tree=sub checkout ." "$LIVE"
+
 # ---- the marker is what protects: a folder with no marker stays editable ----
 file $p "$T/other/anything.txt" Write
 bash_ $p "rm $T/other/anything.txt"

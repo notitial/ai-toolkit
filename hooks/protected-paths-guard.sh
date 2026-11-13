@@ -35,7 +35,7 @@
 #   write on their own, paths built at run time ($VAR, $(...) output), a `cd` to a variable or glob (the folder is
 #   then unknown and only absolute operands are judged), file names fed to xargs on stdin, $(...) inside a heredoc,
 #   hard links, the target of a find -exec, programs that write on their own (archive creators, compressors,
-#   formatters with an in-place flag), a < or > inside (( )) arithmetic, and a git MCP call with no `path` when
+#   formatters with an in-place flag), env -C and env -S, a < or > inside (( )) arithmetic, and a git MCP call with no `path` when
 #   the server's own folder differs from the session's. A
 #   recursive delete or move of a folder that contains a protected root is caught only for the session's own root
 #   and for ~/.claude.
@@ -114,6 +114,7 @@ lexnorm() {
 phys_any() {
   local a="$1" tail="" r
   while [ -n "$a" ] && [ ! -d "$a" ]; do
+    case "$a" in */*) ;; *) tail="/$a$tail"; a=""; break ;; esac
     tail="/${a##*/}$tail"
     a=${a%/*}
   done
@@ -252,12 +253,46 @@ anc_check() {
 git_top() {
   local d
   case "$1" in *'$'* | *'`'* | *[\*\?\[]*) printf '%s' "$1"; return ;; esac
+  case "$1" in /*) ;; *) printf '%s' "$1"; return ;; esac
   d=$(phys_any "$1")
   while [ -n "$d" ] && [ "$d" != "/" ]; do
     if [ -e "$d/.git" ]; then printf '%s' "$d"; return; fi
     d=${d%/*}
   done
   printf '%s' "$1"
+}
+
+# judge_into <verb> <target dir or empty> <operands...>: a copy, move or link into an existing folder creates a
+# file inside it, so each source's name in that folder is judged too. The destination is the target dir when
+# given, else the last operand.
+judge_into() {
+  local verb=$1 dest=$2 s b n d i=0 last
+  shift 2
+  local srcs=("$@")
+  n=${#srcs[@]}
+  last=$n
+  if [ -z "$dest" ]; then
+    [ "$n" -ge 2 ] || return 0
+    dest=${srcs[$((n - 1))]}
+    last=$((n - 1))
+  fi
+  case "$dest" in
+    '$HOME' | '${HOME}') d=$HOME_R ;;
+    '$HOME/'*) d="$HOME_R/${dest#\$HOME/}" ;;
+    '${HOME}/'*) d="$HOME_R/${dest#\$\{HOME\}/}" ;;
+    "~") d=$HOME_R ;;
+    "~/"*) d="$HOME_R/${dest#\~/}" ;;
+    *'$'* | *'`'* | *[\*\?\[]*) return 0 ;;
+    /*) d=$dest ;;
+    *) [ -n "$CWD" ] || return 0; d="$CWD/$dest" ;;
+  esac
+  [ -d "$d" ] || return 0
+  while [ "$i" -lt "$last" ]; do
+    s=${srcs[$i]}
+    b=${s##*/}
+    case "$b" in "" | . | "..") ;; *) judge_target "$d/$b" "$verb" ;; esac
+    i=$((i + 1))
+  done
 }
 
 ANC=0
@@ -307,8 +342,8 @@ judge_target() {
 
 # ---- Bash -------------------------------------------------------------------------------------------------------
 
-# tokenise: the command on stdin as lines: Wword, S (a segment ends), R (the next word is a redirect target),
-# I (the next word is an input and is dropped). Quotes are removed, heredoc bodies are skipped.
+# tokenise: the command on stdin as lines: Wword, S (a segment ends), O and C (a ( $( or ` group opens and closes),
+# R (the next word is a redirect target), I (the next word is an input and is dropped). Quotes are removed, heredoc bodies are skipped.
 tokenise() {
   awk 'BEGIN { RS = "\001" }
 function flush() {
@@ -338,8 +373,8 @@ function skiphd(   e, line, l2) {
         w = w c; i++; continue
       }
       if (c == "\"") { sp--; i++; continue }
-      if (c == "$" && substr(s, i + 1, 1) == "(") { flush(); print "S"; sp++; st[sp] = "S"; pd[sp] = 0; i += 2; continue }
-      if (c == "`") { flush(); print "S"; sp++; st[sp] = "B"; i++; continue }
+      if (c == "$" && substr(s, i + 1, 1) == "(") { flush(); print "S"; print "O"; sp++; st[sp] = "S"; pd[sp] = 0; i += 2; continue }
+      if (c == "`") { flush(); print "S"; print "O"; sp++; st[sp] = "B"; i++; continue }
       w = w c; inw = 1; i++; continue
     }
     if (c == "\\") {
@@ -355,7 +390,7 @@ function skiphd(   e, line, l2) {
     if (c == "\"") { sp++; st[sp] = "D"; inw = 1; wq = 1; i++; continue }
     if (c == "$") {
       nx = substr(s, i + 1, 1)
-      if (nx == "(") { flush(); print "S"; sp++; st[sp] = "S"; pd[sp] = 0; i += 2; continue }
+      if (nx == "(") { flush(); print "S"; print "O"; sp++; st[sp] = "S"; pd[sp] = 0; i += 2; continue }
       if (nx == "\047") {
         j = index(substr(s, i + 2), "\047")
         if (j == 0) { w = w substr(s, i + 2); i = n + 1 } else { w = w substr(s, i + 2, j - 1); i += j + 2 }
@@ -365,7 +400,7 @@ function skiphd(   e, line, l2) {
     }
     if (c == "`") {
       flush(); print "S"
-      if (top == "B") sp--; else { sp++; st[sp] = "B" }
+      if (top == "B") { sp--; print "C" } else { sp++; st[sp] = "B"; print "O" }
       i++; continue
     }
     if (c == " " || c == "\t") { flush(); i++; continue }
@@ -381,9 +416,9 @@ function skiphd(   e, line, l2) {
       if (substr(s, i + 1, 1) == ">") { flush(); print "R"; i += 2; if (substr(s, i, 1) == ">") i++; continue }
       flush(); print "S"; i++; if (substr(s, i, 1) == "&") i++; continue
     }
-    if (c == "(") { flush(); print "S"; if (top == "S") pd[sp]++; i++; continue }
+    if (c == "(") { flush(); print "S"; print "O"; if (top == "S") pd[sp]++; i++; continue }
     if (c == ")") {
-      flush(); print "S"
+      flush(); print "S"; print "C"
       if (top == "S") { if (pd[sp] > 0) pd[sp]--; else sp-- }
       i++; continue
     }
@@ -415,7 +450,7 @@ function skiphd(   e, line, l2) {
         }
         hd = dl; continue
       }
-      if (nx == "(") { flush(); print "S"; sp++; st[sp] = "S"; pd[sp] = 0; i += 2; continue }
+      if (nx == "(") { flush(); print "S"; print "O"; sp++; st[sp] = "S"; pd[sp] = 0; i += 2; continue }
       flush(); print "I"; i++
       if (substr(s, i, 1) == "&") i++
       continue
@@ -449,6 +484,7 @@ parse_args() {
     fi
     case "$a" in
       --) dd=1 ;;
+      --target-directory) pend=$a; OPTS="$OPTS$a " ;;
       --target-directory=*) TDIR=${a#*=}; OPTS="$OPTS$a " ;;
       -t?*) TDIR=${a#-t}; OPTS="$OPTS$a " ;;
       -*)
@@ -483,6 +519,20 @@ set_cwd() {
   esac
   [ -n "$CWD" ] || return 0
   if [ -d "$CWD" ]; then CWD=$(cd -P -- "$CWD" 2>/dev/null && pwd -P) || CWD=$(lexnorm "$CWD"); else CWD=$(lexnorm "$CWD"); fi
+}
+
+# curl_bundle_O <-letters>: 0 when the bundle holds -O before any option that takes a value.
+curl_bundle_O() {
+  local b=${1#-} ch
+  while [ -n "$b" ]; do
+    ch=${b%"${b#?}"}
+    b=${b#?}
+    case "$ch" in
+      O) return 0 ;;
+      [AbcCdDeEFHKmoPQrTuUwxXyYz]) return 1 ;;
+    esac
+  done
+  return 1
 }
 
 # git_is_write <subcommand> <args after it...>
@@ -617,20 +667,40 @@ analyse() {
       [A-Za-z_]*=*) shift ;;
       *)
         case "$wb" in
-          if | then | else | elif | do | while | until | '{' | '}' | '!' | time | builtin | nohup | setsid | caffeinate)
+          if | then | else | elif | do | while | until | '{' | '}' | '!' | builtin | nohup | setsid | caffeinate)
             shift
             ;;
-          command | exec)
+          time)
+            shift
+            while :; do
+              case "${1:-}" in
+                -p | -v | -l | --portability | --verbose) shift ;;
+                -o | -f | --output | --format) shift; shift ;;
+                *) break ;;
+              esac
+            done
+            ;;
+          command)
             shift
             while [ "${1:-}" = -p ] || [ "${1:-}" = -- ]; do shift; done
+            ;;
+          exec)
+            shift
+            while :; do
+              case "${1:-}" in
+                -a) shift; shift ;;
+                -c | -l | --) shift ;;
+                *) break ;;
+              esac
+            done
             ;;
           env | sudo | nice | stdbuf | ionice | timeout)
             shift
             case "$wb" in
-              env) wv=" -u -C -S " ;;
-              sudo) wv=" -u -g -h -p -C -r -t -U -D " ;;
-              nice) wv=" -n " ;;
-              timeout) wv=" -s -k " ;;
+              env) wv=" -u -C -S --unset --chdir --split-string " ;;
+              sudo) wv=" -u -g -h -p -C -r -t -U -D --user --group --host --prompt --chdir --role --type --other-user --close-from " ;;
+              nice) wv=" -n --adjustment " ;;
+              timeout) wv=" -s -k --signal --kill-after " ;;
               stdbuf) wv=" -i -o -e " ;;
               *) wv=" -c -n -p -t " ;;
             esac
@@ -705,6 +775,7 @@ analyse() {
       [ -n "$TDIR" ] && judge_target "$TDIR" "$verb"
       for a in "${NONOPT[@]}"; do judge_target "$a" "$verb"; done
       ANC=0
+      judge_into "$verb" "$TDIR" "${NONOPT[@]}"
       ;;
     cp | install)
       parse_args "-t -m -o -g -S" "$@"
@@ -714,6 +785,7 @@ analyse() {
         [ -n "$TDIR" ] && judge_target "$TDIR" "$verb"
         n=${#NONOPT[@]}
         [ "$n" -ge 1 ] && judge_target "${NONOPT[$((n - 1))]}" "$verb"
+        judge_into "$verb" "$TDIR" "${NONOPT[@]}"
       fi
       ;;
     ln)
@@ -725,11 +797,13 @@ analyse() {
       elif [ "$n" -eq 1 ] && [ -n "$CWD" ]; then
         judge_target "$CWD/${NONOPT[0]##*/}" "$verb"
       fi
+      judge_into "$verb" "$TDIR" "${NONOPT[@]}"
       ;;
     rsync)
       parse_args "-e --rsh -f --filter --exclude --include --exclude-from --include-from --files-from --rsync-path --log-file --backup-dir" "$@"
       n=${#NONOPT[@]}
       [ "$n" -ge 1 ] && judge_target "${NONOPT[$((n - 1))]}" "$verb"
+      judge_into "$verb" "" "${NONOPT[@]}"
       ;;
     dd)
       for a in "$@"; do
@@ -812,13 +886,16 @@ analyse() {
     curl)
       local nexto=0 remote=0 outdir=""
       for a in "$@"; do
+        if [ "$nexto" = 2 ]; then outdir=$a; nexto=0; continue; fi
         if [ "$nexto" = 1 ]; then [ "$a" = - ] || judge_target "$a" "curl -o"; nexto=0; continue; fi
         case "$a" in
           -o | --output | -[a-zA-Z]*o) nexto=1 ;;
           -o?*) [ "${a#-o}" = - ] || judge_target "${a#-o}" "curl -o" ;;
           --output=*) [ "${a#*=}" = - ] || judge_target "${a#*=}" "curl -o" ;;
-          -O | --remote-name | -[a-zA-Z]*O*) case "$a" in --*) [ "$a" = --remote-name ] && remote=1 ;; *) remote=1 ;; esac ;;
+          -O | --remote-name) remote=1 ;;
+          --output-dir) nexto=2 ;;
           --output-dir=*) outdir=${a#*=} ;;
+          -[a-zA-Z]*) curl_bundle_O "$a" && remote=1 ;;
         esac
       done
       if [ "$remote" = 1 ]; then
@@ -830,7 +907,7 @@ analyse() {
       for a in "$@"; do
         if [ "$nexto" = 1 ]; then dest=$a; nexto=0; continue; fi
         case "$a" in
-          -O | -P | -[a-zA-Z]*[OP]) nexto=1 ;;
+          -O | -P | -[a-zA-Z]*[OP] | --directory-prefix | --output-document) nexto=1 ;;
           -O?*) dest=${a#-O} ;;
           -P?*) dest=${a#-P} ;;
           -[a-zA-Z]*[OP]?*) dest=${a#*[OP]} ;;
@@ -950,6 +1027,16 @@ analyse_git() {
     esac
   done
   [ -n "$sub" ] || return 0
+  if [ "$sub" = config ]; then
+    local cf=0
+    for a in "${subargs[@]}"; do
+      if [ "$cf" = 1 ]; then judge_target "$a" "git config"; cf=0; continue; fi
+      case "$a" in
+        -f | --file) cf=1 ;;
+        --file=*) judge_target "${a#*=}" "git config" ;;
+      esac
+    done
+  fi
   git_is_write "$sub" "${subargs[@]}" || return 0
   case "$sub" in
     clone)
@@ -995,8 +1082,12 @@ analyse_git() {
 }
 
 check_command() {
-  local cmd="$1" line w redir=0 tok
-  local SEG=()
+  local cmd="$1" line w redir=0 tok n
+  local SEG=() STK=()
+  if [ "$NEST" -eq 0 ]; then
+    tok=$(printf '%s' "$cmd" | LC_ALL=C tr -d '\011\012\040-\176\200-\377')
+    [ -z "$tok" ] || deny "the command holds control characters the hook cannot read safely - blocked (fail-closed)."
+  fi
   tok=$(printf '%s' "$cmd" | tokenise) || deny "could not read the command text - blocked (fail-closed)."
   while IFS= read -r line; do
     case "$line" in
@@ -1004,6 +1095,14 @@ check_command() {
         [ "${#SEG[@]}" -gt 0 ] && analyse "${SEG[@]}"
         SEG=()
         redir=0
+        ;;
+      O) STK[${#STK[@]}]=$CWD ;;
+      C)
+        n=${#STK[@]}
+        if [ "$n" -gt 0 ]; then
+          CWD=${STK[$((n - 1))]}
+          unset "STK[$((n - 1))]"
+        fi
         ;;
       R) redir=1 ;;
       I) redir=2 ;;
