@@ -36,9 +36,15 @@ works around it on purpose, the same stance as the hooks in [ADR 0011](0011-shel
   ([ADR 0010](0010-mcp-git-over-bash-git.md)). `/setup-claude` links the script to `~/.claude/tools/workspace-lock.sh`.
 - **The guard.** `hooks/workspace-lock-guard.sh` (PreToolUse on edits, Bash and git MCP) denies a mutation in a guarded
   workspace unless this session holds the lock. A session registers by running `acquire --id <slug>` and holds the lock
-  when that slug equals `lock.d/holder`. A non-holder may still read (a short list of read-only commands), write under
-  `.archive/` or a temp dir, and run the lock script. Builds and tests are not on that list: serializing them is the
-  point. A deny names the holder and ETA and says how to proceed. An empty holder denies everyone until a human inspects
+  when that slug equals `lock.d/holder`. A non-holder may still read (a short list of read-only commands, among them
+  `git fetch`, `git branch` listings, `git rev-parse`, `git ls-files`, `git merge-base`, `git remote -v` and `get-url`,
+  `git worktree list` and `git config --get <key>`, each in its read-only form only: a fetch with a refspec that has a
+  destination, a branch name outside `--list`, or `config --list` is still a mutation). A fetch does write inside
+  `.git` (`FETCH_HEAD`, remote-tracking refs, tags, maybe an automatic gc), also in a repo named with `-C`; that is
+  accepted. A non-holder may also write under `.archive/` or a temp dir, append to a file in the workspace's own
+  `.archive/` with a single-quoted `cat >> <path> <<'TAG'` heredoc, and run the lock script. Builds and tests are not
+  on that list: serializing them is the point. A deny names the holder and ETA and says how to proceed. An empty
+  holder denies everyone until a human inspects
   it and removes `lock.d` by hand; `clear` refuses an empty holder.
 - **The rule.** `rules/workspace-lock.md` is installed globally but does nothing unless the workspace is armed
   (`WORKSPACE_LOCK_DIR` set, or a held lock at or above the cwd). Where it applies, agents acquire before their first
