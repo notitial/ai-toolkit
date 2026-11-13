@@ -179,6 +179,37 @@ fi
 wl "$D" turn give --id t --sid "$M2" --tree clean >/dev/null 2>&1
 fails "turn give with no turn held is refused" "no turn is held" wl "$D" turn give --id t --sid "$M2" --tree clean
 
+# --- TEMPORARY, reverted before merge: the race below, repeated on fresh dirs to catch a rare double win.
+# On a GitHub runner the waiters and the give run under strace (installed if missing); the dump on the
+# first failure merges their syscalls on turn.d by time.
+_st=""
+command -v strace >/dev/null 2>&1 || { [ "${GITHUB_ACTIONS:-}" = true ] && sudo -n apt-get install -y -q strace >/dev/null 2>&1; }
+_sto=off; command -v strace >/dev/null 2>&1 && _sto=on && _st="strace -f -tt -qq -e trace=mkdir,mkdirat,rename,renameat,renameat2,rmdir,unlink,unlinkat -o"
+# rwl <trace file> <lockdir> <args...>: the script as a waiter (1 s poll, 20 s cap), under strace when there is one
+rwl() { _f="$1"; _d="$2"; shift 2; wenv WORKSPACE_LOCK_DIR="$_d" WORKSPACE_LOCK_TEST_POLL=1 WORKSPACE_LOCK_MAX_WAIT=20 ${_st:+$_st "$_f"} "$WL" "$@"; }
+_rr=0; _rbad=0
+while [ "$_rr" -lt "${RACE_REPEAT:-25}" ] && [ "$_rbad" = 0 ]; do
+  _rr=$((_rr + 1)); D="$(team "rep$_rr")"; _p="$TMP/rep$_rr"
+  wl "$D" turn take --id t --sid "$O" --eta +5m >/dev/null 2>&1
+  for _s in "$M1" "$M2"; do rwl "$_p.$_s.st" "$D" turn take --id t --sid "$_s" --eta +5m >"$_p.$_s.out" 2>&1 & done
+  wait_for "$_p.$M1.out" "BUSY" 15 && wait_for "$_p.$M2.out" "BUSY" 15; _busy=$?
+  rwl "$_p.give.st" "$D" turn give --id t --sid "$O" --tree clean >"$_p.give.out" 2>&1
+  _n=0; while [ "$_n" -lt 150 ] && ! grep -qF "TURN " "$_p.$M1.out" "$_p.$M2.out" 2>/dev/null; do sleep 0.1; _n=$((_n + 1)); done
+  sleep 1.5
+  _n=0; for _s in "$M1" "$M2"; do grep -qF "TURN $_s" "$_p.$_s.out" && _n=$((_n + 1)); done
+  if [ "$_n" != 1 ] || [ "$_busy" != 0 ]; then
+    _rbad=1; bad "race repeat $_rr: exactly one takes the turn ($_n winners, busy-wait rc $_busy, strace $_sto)"
+    echo "      fs: $(stat -f -c %T "$TMP" 2>/dev/null || df -T "$TMP" 2>/dev/null | tail -n 1)"
+    for _f in "$M1.out" "$M2.out" give.out; do sed "s|^|      ${_f%%-*}: |" "$_p.$_f"; done
+    sed 's/^/      log: /' "$D/workspace-lock.log"
+    for _w in "$M1" "$M2" give; do
+      [ -f "$_p.$_w.st" ] && grep -E 'turn\.d(\.gone[^"]*)?"' "$_p.$_w.st" | awk -v w="${_w%%-*}" '{ t = $2; p = $1; $1 = ""; $2 = ""; print t, w, p, $0 }'
+    done | sort | sed -e "s|$D/lock.d/||g" -e 's/^/      st: /' | head -n 50
+  fi
+  wl "$D" release --id t --sid "$O" --force >/dev/null 2>&1; wait
+done
+[ "$_rbad" = 1 ] || ok "race repeated $_rr times: exactly one winner each time (strace $_sto)"
+
 # --- two waiters race: exactly one wins each give -----------------------------------------------
 D="$(team e)"
 wl "$D" turn take --id t --sid "$O" --eta +5m >/dev/null 2>&1
@@ -198,28 +229,6 @@ _lose="$M1"; [ "$_won" = "$M1" ] && _lose="$M2"
 wl "$D" turn give --id t --sid "$_won" --tree clean >/dev/null 2>&1
 wait_for "$TMP/e.$_lose.out" "TURN $_lose" 15; check "  ... the other takes it after the next give" $?
 wait
-
-# --- TEMPORARY, reverted before merge: the race above, repeated on fresh dirs to catch a rare double win ---
-_rr=0; _rbad=0
-while [ "$_rr" -lt "${RACE_REPEAT:-25}" ] && [ "$_rbad" = 0 ]; do
-  _rr=$((_rr + 1)); D="$(team "rep$_rr")"; _p="$TMP/rep$_rr"
-  wl "$D" turn take --id t --sid "$O" --eta +5m >/dev/null 2>&1
-  for _s in "$M1" "$M2"; do wlw "$D" turn take --id t --sid "$_s" --eta +5m >"$_p.$_s.out" 2>&1 & done
-  wait_for "$_p.$M1.out" "BUSY" 15 && wait_for "$_p.$M2.out" "BUSY" 15; _busy=$?
-  wl "$D" turn give --id t --sid "$O" --tree clean >"$_p.give.out" 2>&1
-  _n=0; while [ "$_n" -lt 150 ] && ! grep -qF "TURN " "$_p.$M1.out" "$_p.$M2.out" 2>/dev/null; do sleep 0.1; _n=$((_n + 1)); done
-  sleep 1.5
-  _n=0; for _s in "$M1" "$M2"; do grep -qF "TURN $_s" "$_p.$_s.out" && _n=$((_n + 1)); done
-  if [ "$_n" != 1 ] || [ "$_busy" != 0 ]; then
-    _rbad=1; bad "race repeat $_rr: exactly one takes the turn ($_n winners, busy-wait rc $_busy)"
-    for _f in "$M1.out" "$M2.out" give.out; do sed "s|^|      $_f: |" "$_p.$_f"; done
-    sed 's/^/      log: /' "$D/workspace-lock.log"
-    ls -laR "$D/lock.d" | sed 's/^/      lock.d: /'
-    for _f in "$D"/lock.d/turn.d*/sid; do [ -f "$_f" ] && echo "      sid ${_f#"$D"/}: $(cat "$_f")"; done
-  fi
-  wl "$D" release --id t --sid "$O" --force >/dev/null 2>&1; wait
-done
-[ "$_rbad" = 1 ] || ok "race repeated $_rr times: exactly one winner each time"
 
 # --- a waiter stops when it no longer belongs ---------------------------------------------------
 D="$(team f)"; wl "$D" turn take --id t --sid "$M1" --eta +5m >/dev/null 2>&1
