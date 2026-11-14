@@ -148,8 +148,8 @@ spelled `$HOME/.claude/tools/workspace-lock.sh`, with no `$`, braces or globs in
 
 The lock's ETA gates only the owner's own turn and `clear`; a member is gated by its turn's ETA. A session-end hook,
 where one is installed, writes `ended/<sid>` and frees that session's turn; it keeps the membership, and an owner's
-end leaves the lock in place. It runs on a normal stop and on SIGTERM, SIGHUP and SIGINT; a SIGKILL or a crash
-runs nothing (a closed window is untested) and leaves a stale turn, which the prompted force covers. Headless sessions cannot answer a prompt, so they cannot
+end leaves the lock in place. It runs on a normal stop, on SIGTERM, SIGHUP and SIGINT and on a window close; a
+SIGKILL or a crash runs nothing and leaves a stale turn, which the prompted force covers. Headless sessions cannot answer a prompt, so they cannot
 force a stale turn, transfer ownership or `clear`. The protocol text is in
 [the protocol skill](../../skills/workspace-lock-protocol/SKILL.md).
 

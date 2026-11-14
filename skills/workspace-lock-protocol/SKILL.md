@@ -87,9 +87,9 @@ their parent's session id (observed in a probe), so they work under the parent's
    that share a port are not serialized by their two locks; that case is not covered.
 
 **When a session ends.** A session-end hook, where one is installed, frees a stopped session's turn and marks it
-`ended`; it keeps the membership, since a resumed session keeps its id. It runs on a normal stop and on
-the catchable signals (SIGTERM, SIGHUP, SIGINT), headless sessions included. It cannot run after SIGKILL or a
-crash, and a closed window is untested: the turn then stays until its ETA and grace pass and the user answers the
+`ended`; it keeps the membership, since a resumed session keeps its id. It runs on a normal stop, on the
+catchable signals (SIGTERM, SIGHUP, SIGINT) and on a window close, headless sessions included. It cannot run after
+SIGKILL or a crash: the turn then stays until its ETA and grace pass and the user answers the
 force prompt. An owner that stops leaves the lock and the members' turns in place.
 
 **Headless sessions cannot answer a prompt.** A headless owner or member cannot force a stale turn, transfer

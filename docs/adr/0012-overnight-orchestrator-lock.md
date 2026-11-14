@@ -83,8 +83,8 @@ works around it on purpose, the same stance as the hooks in [ADR 0011](0011-shel
   grace with a stale heartbeat needs a permission prompt, and one whose session a session-end hook marked `ended`
   passes the guard without it. `owner transfer`, for an owner that lost its id, always prompts. They go through the
   script's read-only `--check` and, like `clear`, the guard's prompt; a headless session cannot answer one. A session-end hook, where installed,
-  marks a stopped session `ended` and frees its turn but keeps its membership; it runs on a normal stop and on
-  SIGTERM, SIGHUP and SIGINT, but not after SIGKILL or a crash, so a stale turn can remain, and the prompted force
+  marks a stopped session `ended` and frees its turn but keeps its membership; it runs on a normal stop, on
+  SIGTERM, SIGHUP and SIGINT and on a window close, but not after SIGKILL or a crash, so a stale turn can remain, and the prompted force
   covers it. The members, turn files and `ended/` markers
   are plain files of the same user, so a session that forges them is outside the cooperative threat model, as before.
   The protocol is in [the protocol skill](../../skills/workspace-lock-protocol/SKILL.md); a repo is armed for it by the
