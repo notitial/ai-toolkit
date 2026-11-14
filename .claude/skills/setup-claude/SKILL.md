@@ -51,7 +51,7 @@ Read these files to understand what's already configured:
   - `hooks/*.sh` — global hook scripts
   - `rules/*.md` — global always-on rule files (no frontmatter — distinct from project-scoped `.claude/rules/`)
   - `tools/statusline.sh` — status line script
-  - `tools/workspace-lock/workspace-lock.sh` — overnight-orchestrator lock script
+  - `tools/workspace-lock/workspace-lock.sh` — workspace lock script (the owned team's members and turns included)
   - `tools/shell-init.zsh` — `~/.zshrc` sources it through its `~/.claude/tools/` link; it loads the `ait` zsh helpers (`tools/ait.zsh`)
   - `tools/install-copies.sh` — the status of what is installed outside the checkout (Step 8b)
 
