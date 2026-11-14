@@ -10,7 +10,8 @@
 #     removed member would return as a stranger. The lock script clears ended/<S> on that session's next
 #     lock call, and `turn give --force` frees a turn whose holder has an ended/ marker at once.
 #   - S is the owner: the lock stays (members may be mid-unit); log OWNER-ENDED.
-#   - then remove sessions/<S> (a guard registration) when there is one.
+#   - on reason clear only, remove sessions/<S> (a guard registration): any other stop can resume with the same sid
+#     and must keep it, or a returning holder of an open lock would be denied its own lock.
 # A session that is none of these (the panel's throwaway sessions, any session in an open lock) gets nothing
 # written. A workspace with no lock.d (free or released) is left alone: nothing here ever creates a
 # folder, so a release racing this hook cannot be undone by it.
@@ -140,7 +141,10 @@ main() {
     fi
   fi
 
-  [ -f "$LOCK_DIR/sessions/$SID" ] && rm -f "$LOCK_DIR/sessions/$SID" 2>/dev/null
+  # The guard's registration of this session (written by a plain acquire) is the only way it learns its holder id.
+  # A stop that can resume (every reason but clear) must keep it, or the returning holder is locked out of its own
+  # lock; after /clear the old id cannot come back. A release removes registrations too, so none is left for long.
+  [ "$REASON" = clear ] && [ -f "$LOCK_DIR/sessions/$SID" ] && rm -f "$LOCK_DIR/sessions/$SID" 2>/dev/null
   return 0
 }
 

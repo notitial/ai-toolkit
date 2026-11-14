@@ -99,13 +99,17 @@ R="$TMP/open"; mkdir -p "$R/sub"
 wl "$R/.workspace-lock" acquire --id solo-1 --eta +1h >/dev/null 2>&1
 mkdir -p "$R/.workspace-lock/sessions"; echo solo-1 > "$R/.workspace-lock/sessions/$X"; echo solo-1 > "$R/.workspace-lock/sessions/$M2"
 _before="$(cat "$R/.workspace-lock/lock.d/holder")"
-hook "$R/sub" "$X" other
+hook "$R/sub" "$X" resume
+hook_ok && [ -f "$R/.workspace-lock/sessions/$X" ]; check "open lock: a stop that can resume keeps the registration" $?
+hook "$R/sub" "$X" clear
 hook_ok; check "open lock: exits 0, no output" $?
-[ ! -e "$R/.workspace-lock/sessions/$X" ] && [ -f "$R/.workspace-lock/sessions/$M2" ]; check "open lock: only this session's registration is removed" $?
+[ ! -e "$R/.workspace-lock/sessions/$X" ] && [ -f "$R/.workspace-lock/sessions/$M2" ]; check "open lock: on clear only this session's registration is removed" $?
 [ "$(cat "$R/.workspace-lock/lock.d/holder")" = "$_before" ] && [ ! -d "$R/.workspace-lock/lock.d/ended" ]; check "open lock: holder untouched, no owned folders made" $?
 R="$(team e)"; mkdir -p "$R/.workspace-lock/sessions"; echo t > "$R/.workspace-lock/sessions/$M1"
 hook "$R" "$M1" other
-[ ! -e "$R/.workspace-lock/sessions/$M1" ]; check "owned lock: the member's registration is removed too" $?
+[ -f "$R/.workspace-lock/sessions/$M1" ]; check "owned lock: a resumable stop keeps the registration" $?
+hook "$R" "$M1" clear
+[ ! -e "$R/.workspace-lock/sessions/$M1" ]; check "owned lock: on clear the member's registration is removed too" $?
 
 # --- a free or released workspace ----------------------------------------------------------------------------
 mkdir -p "$TMP/free/sub"
