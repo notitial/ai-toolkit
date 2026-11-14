@@ -109,6 +109,7 @@ under_archive() {
   return 1
 }
 
+# hooks/workspace-lock-session-end.sh keeps its own copy of walk_up and resolve_lock_dir (no shared library); change both.
 # resolve_lock_dir <dir>: WORKSPACE_LOCK_DIR when <dir> is in its workspace or in one of the
 # lock's --repos; otherwise the walk up. A stray WORKSPACE_LOCK_DIR is ignored.
 resolve_lock_dir() {

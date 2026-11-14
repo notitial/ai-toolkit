@@ -67,6 +67,7 @@ suites() {
   suite workspace-lock-guard 0 bash                                  'bash tools/workspace-lock/test-guard.sh'
   suite workspace-lock-wait  1 bash                                  'bash tools/workspace-lock/test-acquire.sh'
   suite workspace-lock-turn  0 bash                                  'bash tools/workspace-lock/test-turn.sh'
+  suite workspace-lock-end   0 bash                                  'bash tools/workspace-lock/test-session-end.sh'
   suite ait                  0 zsh                                   'bash tools/test-ait.sh'
 }
 
