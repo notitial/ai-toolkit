@@ -1017,7 +1017,12 @@ judge_push() {
         --) dd=1; continue ;;
         --repo=*) ropt=${a#*=}; continue ;;
         --repo | --push-option | --receive-pack | --exec) opt=$a; skipn=1; continue ;;
-        -o | -[!-]*o) opt=-o; skipn=1; continue ;;
+        -o) opt=-o; skipn=1; continue ;;
+        -[!-]*o)
+          # a cluster takes the next word only when its first o is the last letter (-fo); -oVALUE carries its own
+          case "${a%o}" in *o*) ;; *) opt=-o; skipn=1 ;; esac
+          continue
+          ;;
         -*) continue ;;
       esac
     fi
