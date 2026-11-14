@@ -41,9 +41,9 @@ edit). Nothing is owned by root and nothing needs `sudo`.
 - **Fail closed.** The guard's hook command is `/bin/bash -p '<checkout>/tools/github-mcp/guard.sh' || exit 2`, so a
   guard that cannot start blocks the call. The launcher refuses a checkout path that `/setup-claude` writes no guard
   hook for.
-- **Permission rules.** `/setup-claude` writes Edit denies on the live checkout's `.git`, `hooks`, `rules`, `agents`,
-  `skills`, `tools/github-mcp`, `tools/workspace-lock`, the status line and the shell helpers. The template denies the
-  `~/.claude` link paths and asks on every edit of the user settings.
+- **Permission rules.** The template denies the `~/.claude` link paths and asks on every edit of the user settings.
+  `/setup-claude` once also wrote Edit denies on the live checkout's own paths; [ADR 0017](0017-protected-paths-hook.md)
+  replaced them with a hook that hard-denies writes to a marked checkout.
 - **Committed files only.** `/setup-claude` links only the agents, hooks, rules and skills committed at `HEAD`
   (`install-copies.sh roster`), never an untracked file in the checkout. This amends the discovery by glob that
   [ADR 0006](0006-symlink-based-skill-distribution.md), [ADR 0007](0007-global-setup-skill.md) and
@@ -58,11 +58,10 @@ well-meaning session that forgets the rules, not a hijacked agent that works aro
 - **The check lives in the files it checks.** A shell write can delete it from `guard.sh` or `launch`. Against a
   hijacked agent, the clone rule in CLAUDE.md is the only layer. Root ownership stopped that edit; nothing here does.
 - **A shell write is not an Edit.** No permission rule stops `sed -i`, a redirect or a `git checkout` in the live
-  checkout. The Edit denies close the editing tools only.
+  checkout; the protected-paths hook ([ADR 0017](0017-protected-paths-hook.md)) stops the simple forms.
 - **The git pins list known routes.** Three security reviews kept finding the same class of problem: git runs what the
-  checkout's `.git/config` names. The pins close every route found so far. The `.git/**` Edit deny is what holds the
-  class against an editing tool. Tested on Claude Code 2.1.319, an Edit deny also matches a mixed-case spelling on a
-  case-insensitive volume and a path through a symlink in either direction
+  checkout's `.git/config` names. The pins close every route found so far. The protected-paths hook covers `.git/` of a
+  marked checkout against the editing tools, git MCP and simple Bash writes
   ([tools/github-mcp/README.md](../../tools/github-mcp/README.md)).
 - **Local forgery stays possible.** `origin/main` can be forged by `update-ref` or one text write, and a commit can be
   rewritten in `.git/objects` by a shell write. A swap of the binary between its hash check and its exec is not caught,

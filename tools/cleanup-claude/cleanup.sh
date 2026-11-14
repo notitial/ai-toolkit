@@ -188,10 +188,6 @@ EOF
   [ "$mine" = 1 ] || printf '%s\n' "$n"
 done | jq -R . | jq -s .)
 CFG_JSON=$(printf '%s' "$CFGS" | jq -R . | jq -s 'map(select(. != ""))')
-# The deny entries /setup-claude writes from this checkout's real path (not in the template): security entries, so
-# they go only with --include-security, like the template's own deny entries.
-LIVE_DENY=$(jq -n --arg r "$ROOT" '[".git/**", "hooks/**", "rules/**", "agents/**", "skills/**", "tools/github-mcp/**", "tools/workspace-lock/**", "tools/statusline.sh", "tools/shell-init.zsh", "tools/ait.zsh", "tools/accounts.zsh", "tools/install-copies.sh"] | map("Edit(/" + $r + "/" + . + ")")')
-
 JQ_CLEAN='
 def tl: $t[0];
 def prune(k): if has(k) and (.[k] == {} or .[k] == []) then del(.[k]) else . end;
@@ -246,7 +242,7 @@ def toolkit_cmd:
 | (if (.permissions | type) == "object" then
     reduce (((if $amb == 1 then ["allow"] else [] end) + (if $sec == 1 then ["ask", "deny"] else [] end))[]) as $k (.;
       if (.permissions[$k] | type) == "array" then
-        .permissions[$k] |= map(select(. as $e | (any((tl.permissions[$k] // [])[]; . == $e) or ($k == "deny" and ($live | index($e)) != null)) | not))
+        .permissions[$k] |= map(select(. as $e | any((tl.permissions[$k] // [])[]; . == $e) | not))
         | (if .permissions[$k] == [] then del(.permissions[$k]) else . end)
       else . end)
     | prune("permissions")
@@ -298,7 +294,7 @@ while IFS= read -r cfg; do
   fi
   jq -S . "$rf" > "$SCRATCH/old.json"
   jq -S --slurpfile t "$RTEMPLATE" --argjson names "$HOOK_NAMES" --argjson cfgs "$CFG_JSON" \
-    --arg guard "$ROOT/tools/github-mcp/guard.sh" --argjson live "$LIVE_DENY" \
+    --arg guard "$ROOT/tools/github-mcp/guard.sh" \
     --argjson amb $((1 - KEEP_AMB)) --argjson sec "$SEC" --argjson rmguard "$RMGUARD" "$JQ_CLEAN" "$rf" > "$SCRATCH/new.json" 2>/dev/null
   if [ ! -s "$SCRATCH/new.json" ]; then
     N_FAIL=$((N_FAIL + 1)); say FAIL "$rf (the clean-up filter failed; left alone)"; keep_if_root_guard "$rf" "is left alone"; continue
