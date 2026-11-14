@@ -462,13 +462,14 @@ cmd_automode() {
 # ask, deny, then any other key. allow: Bash, mcp__git-mcp__, mcp__github__, other mcp__ (each mcp group sorted), then the
 # rest. ask: caffeinate, workspace-lock, other Bash, Edit, mcp__, the rest. deny: Bash, mcp__github__ (sorted), other
 # mcp__, Edit(~/...), other Edit, Read, the rest. A group not marked sorted keeps its original relative order, so a
-# Read(!...) exception stays after its rule. hooks: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop,
+# Read(!...) exception a user added stays after its rule. hooks: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop,
 # SessionEnd, then other events in their original order; the entries within an event keep their order.
 # Exit 1 on a missing, unreadable or invalid file (or no jq), 2 on a bad call.
 cmd_order() {
   [ $# = 1 ] || { fail "usage: install-copies.sh order <file>"; return 2; }
   [ -f "$1" ] || { fail "order: no such file: $1"; return 1; }
   command -v jq >/dev/null 2>&1 || { fail "order needs jq"; return 1; }
+  jq -e 'type == "object"' "$1" >/dev/null 2>&1 || { fail "order: $1 is not a JSON object"; return 1; }
   jq '
     def rank($list): . as $k | ($list | index($k)) // ($list | length);
     def mcp: startswith("mcp__");
@@ -480,14 +481,14 @@ cmd_order() {
         "env","attribution","permissions","autoMode","hooks","enableAllProjectMcpServers","deniedMcpServers",
         "enabledPlugins","skillOverrides","syncClaudeAiSkills","syncClaudeAiPlugins"]) end;
     def allow_rank:
-      if startswith("Bash") then 0 elif startswith("mcp__git-mcp__") then 1 elif startswith("mcp__github__") then 2
+      if startswith("Bash(") then 0 elif startswith("mcp__git-mcp__") then 1 elif startswith("mcp__github__") then 2
       elif mcp then 3 else 4 end;
     def ask_rank:
-      if startswith("Bash") and test("caffeinate") then 0 elif startswith("Bash") and test("workspace-lock") then 1
-      elif startswith("Bash") then 2 elif startswith("Edit") then 3 elif mcp then 4 else 5 end;
+      if startswith("Bash(") and test("caffeinate") then 0 elif startswith("Bash(") and test("workspace-lock") then 1
+      elif startswith("Bash(") then 2 elif startswith("Edit(") then 3 elif mcp then 4 else 5 end;
     def deny_rank:
-      if startswith("Bash") then 0 elif startswith("mcp__github__") then 1 elif mcp then 2
-      elif startswith("Edit(~/") then 3 elif startswith("Edit") then 4 elif startswith("Read") then 5 else 6 end;
+      if startswith("Bash(") then 0 elif startswith("mcp__github__") then 1 elif mcp then 2
+      elif startswith("Edit(~/") then 3 elif startswith("Edit(") then 4 elif startswith("Read(") then 5 else 6 end;
     def is_str: type == "string";
     def order_list(rk; sg):
       if type == "array" and all(.[]; is_str) then

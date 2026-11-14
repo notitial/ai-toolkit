@@ -626,13 +626,13 @@ It only reorders: no key, entry or value is added, dropped or changed, and a key
 ones in its original order. The order is documented in the script header and tested in `tools/test-install-copies.sh`.
 In short: the model and cache keys, then the display, notification and `skip*` keys, then `env`, `attribution`,
 `permissions`, `autoMode`, `hooks`, the MCP keys, the plugin and skill keys; `permissions` is `allow`, `ask`, `deny`,
-each grouped (Bash, git MCP, github MCP, other MCP; `ask` and `deny` have their own groups), with a `Read(!…)`
+each grouped (Bash, git MCP, github MCP, other MCP; `ask` and `deny` have their own groups), with a user-added `Read(!…)`
 exception left after its rule; `hooks` events run SessionStart to SessionEnd, one entry per script, entries in
 their original order.
 
 **Stage, do not write.** Write the merged result to `~/.claude/settings.json.new-<YYYYMMDD-HHMMSS>` (the same date and time as the backup; the name does not end in `.json`, so the hook lets the agent write it), run `chmod 600` on it (the Write tool creates it with the default mode, and the file holds MCP server and env key names), then put it in order: run `bash <root>/tools/install-copies.sh order ~/.claude/settings.json.new-<stamp>`, with the
 output redirected to `~/.claude/settings.json.new-<stamp>.ordered` (a name the hook also lets the agent write), and `mv` that
-over the staged file (the mode stays 600: `chmod 600` again). `<root>` is the repo root this skill runs from. If the
+over the staged file once it is non-empty (the mode stays 600: `chmod 600` again). `<root>` is the repo root this skill runs from. If the
 command exits non-zero, stop and report it: never stage an unordered file. Then check it parses and show the user
 the diff against the live file (a reordered list shows as changed lines; the content is the same):
 

@@ -674,6 +674,12 @@ expect_rc "order exits 1 on a missing file" 1
 printf '{ not json' > "$C/bad.json"
 ic order "$C/bad.json"
 expect_rc "order exits 1 on invalid JSON" 1
+: > "$C/empty.json"
+ic order "$C/empty.json"
+expect_rc "order exits 1 on an empty file" 1
+printf '[1]\n' > "$C/arr.json"
+ic order "$C/arr.json"
+expect_rc "order exits 1 on a non-object root" 1
 ic order
 expect_rc "order exits 2 with no file" 2
 ic order "$IN" extra

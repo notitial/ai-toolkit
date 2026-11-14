@@ -19,9 +19,8 @@ run (`github_write_owners`, `github_keychain_account`, and the optional `github_
 
 Nothing is copied or root-owned: the launcher and the guard run from the live checkout, which stays on `main` and moves
 only with `git pull --ff-only` after a merge. A merge plus that pull is the install. Agents edit in `/tmp` clones, never
-in the live checkout (`CLAUDE.md`, "Where agents edit"), and `/setup-claude` adds Edit denies on `tools/github-mcp/**`
-and `hooks/**` there, plus the other places it links from (`rules/`, `agents/`, `skills/`, the status line, the lock
-script). Both the launcher and the guard also turn themselves off unless the checkout is reviewed code: on `main`, no
+in the live checkout (`CLAUDE.md`, "Where agents edit"); `hooks/protected-paths-guard.sh` and the checkout's
+`.protected-checkout` marker (ADR 0017) deny the editing tools, git MCP and simple Bash writes there. Both the launcher and the guard also turn themselves off unless the checkout is reviewed code: on `main`, no
 tracked file changed, `HEAD` on `origin/main`, and the files they run equal to their committed blobs (`guard.sh` and
 `launch` for the guard; those two and `server.sha256` for the launcher), so a `skip-worktree` flag hides nothing. The launcher then compares the binary to `server.sha256` before it
 reads the token. It refuses to start; the guard denies every call, reads included. The guard's hook command is
@@ -65,8 +64,8 @@ deliberately not in `hooks/`, which `/setup-claude` symlinks into `~/.claude/hoo
    denies `claude mcp add`, `add-json`, `add-from-claude-desktop` and `remove` (`list` stays usable) and edits to
    `~/.claude.json`, asks on edits to any `.mcp.json`, and enforces `enableAllProjectMcpServers: false`;
    registering the launcher under another name would bypass every rule. These name-keyed denies are defence in depth,
-   not a fence: Residuals lists the routes they miss. Bash denies on `security`, `gh auth token` and `gh` (the last two
-   alongside the gh-block hook) are defence in depth only too (a full path or another program gets past them). `Bash(security:*)` also blocks `security`'s
+   not a fence: Residuals lists the routes they miss. Bash denies on `security` and `gh` (which covers `gh auth token`;
+   `gh` also has the gh-block hook) are defence in depth only too (a full path or another program gets past them). `Bash(security:*)` also blocks `security`'s
    codesign and certificate subcommands; nothing in the toolkit uses them, and you run them with the `!` prefix.
    - GitHub's hosted server (`https://api.githubcopilot.com/mcp/`, OAuth, every toolset including merge and push)
      ships in the official `github` plugin, and a plugin your organization syncs (such as `engineering`) can carry
