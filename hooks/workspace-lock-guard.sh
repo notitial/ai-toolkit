@@ -205,7 +205,7 @@ turn_note() { head -n1 "$LOCK_DIR/lock.d/turn.d/task" 2>/dev/null | LC_ALL=C tr 
 owned_mutation() {
   _slug=$(holder); _own=$(team_owner)
   _rd=""
-  case "$1" in Bash*) _rd=" If this command was read-only, use the Read/Grep tools or a simpler read-only form." ;; esac
+  case "$1" in Bash*) _rd=" If this command was read-only, use the Read/Grep tools or a simpler read-only form.$(runner_note)" ;; esac
   team_may_mutate && return 0
   if [ -z "$SID" ]; then
     guard_log "BLOCKED unknown wanted $1 - owned lock '$_slug', no session id"
@@ -243,6 +243,20 @@ owned_mutation() {
   deny "no turn is held on lock '$_slug', and every mutation in an owned team needs one. $_take"
 }
 
+# runner_note: for a Bash call that runs a package through npx, npm exec, pnpx or bunx, says why the guard counts it
+# as a mutation. Those tools download and run arbitrary code, so no run can be told to be read-only.
+# Best effort and text only: it looks at every word, so it can name a runner that sits in a quoted string, and it
+# misses forms such as `npm --silent exec` or `pnpm dlx`. The decision to deny never depends on it.
+runner_note() {
+  _rn=0; _prev=""
+  for _w in $CMD_WORDS; do
+    case "${_w##*/}" in npx|pnpx|bunx) _rn=1 ;; exec|x) [ "${_prev##*/}" = npm ] && _rn=1 ;; esac
+    _prev=$_w
+  done
+  [ "$_rn" = 1 ] || return 0
+  printf '%s' " A command run through npx, npm exec, pnpx or bunx counts as a mutation even when it only reads, because the guard cannot tell what the package does: acquire the lock first, or ask the user."
+}
+
 # guard_mutation <label>: returns only when this session holds the lock and is within its ETA.
 guard_mutation() {
   if [ "${WORKSPACE_LOCK_BYPASS:-}" = "1" ]; then guard_log "BYPASS sid=${SID:-unknown} tool=$1"; return 0; fi
@@ -253,7 +267,7 @@ guard_mutation() {
   _hint="Announce this block to the user, then run ${LOCK_SCRIPT_HINT} acquire --id ${_id} --eta <expected-duration> in the BACKGROUND, wait for ACQUIRED, then retry this exact call. Never remove lock.d yourself."
   below_root && _hint="$BELOW_ROOT_MSG Never remove lock.d yourself."
   _read=""
-  case "$1" in Bash*) _read=" If this command was read-only, use the Read/Grep tools or a simpler read-only form instead of acquiring." ;; esac
+  case "$1" in Bash*) _read=" If this command was read-only, use the Read/Grep tools or a simpler read-only form instead of acquiring.$(runner_note)" ;; esac
   _hint="$_hint$_read"
   _why="${REASON:+ reason=$REASON}"
   if [ -d "$LOCK_DIR/lock.d" ]; then

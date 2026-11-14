@@ -91,6 +91,8 @@ run deny  "team run: Write by an unregistered session" "$(writejson "$W" "$W/f.t
 has_reason "a team run holds this workspace's lock" "the deny says a team run holds it"
 has_reason "Tell the user. Don't take a solo id" "the deny says to tell the user, not take a solo id"
 has_reason "only if whoever started this team told you to" "the deny limits joining to whoever started the team"
+run deny  "team run: npx by an unregistered session" "$(bashjson "$W" "npx eslint .")"
+has_reason "counts as a mutation even when it only reads" "the team deny carries the npx note"
 # The holder's phase text is quoted as its note: printable only, no quotes, 80 characters at most.
 printf 'build \033[31mred\033[0m "quoted" %s\n' "$(printf 'x%.0s' $(seq 1 120))" > "$W/$LOCKNAME/lock.d/phase"
 run deny  "team run: a noisy phase"        "$(writejson "$W" "$W/f.txt")"
@@ -167,6 +169,19 @@ for c in "touch f" "rm f" "npm test" "make" "ls | xargs rm" "echo \$(id)" "echo 
   run deny "not a read: $c" "$(bashjson "$W" "$c")"
 done
 has_reason "use the Read/Grep tools" "a Bash deny points at the read tools"
+
+# --- npx and its kin: a mutation even when it only reads, and the deny says so
+NPXMSG="counts as a mutation even when it only reads"
+for c in "npx eslint ." "npx --yes tsc --noEmit" "pnpx knip" "bunx biome check" "npm exec eslint ." "npm x eslint ." "cd app && npx eslint ." "FOO=1 npx eslint ." "/usr/local/bin/npx eslint ."; do
+  run deny "npx kin: $c" "$(bashjson "$W" "$c")"
+  has_reason "$NPXMSG" "npx kin names why: $c"
+  has_reason "acquire the lock first, or ask the user" "npx kin names what to do: $c"
+done
+W_FREE=$(mkws npx_free); mkdir -p "$W_FREE/$LOCKNAME/lock.d"
+run deny "npx with a free lock" "$(bashjson "$W_FREE" "npx eslint .")"
+has_reason "$NPXMSG" "npx with a free lock names why"
+run deny "a non-runner deny carries no npx note" "$(bashjson "$W" "make")"
+case "$_out" in *"$NPXMSG"*) echo "FAIL  a non-runner deny carries the npx note"; FAIL=$((FAIL + 1)) ;; *) PASS=$((PASS + 1)) ;; esac
 run deny  "a read over 8 KB goes to the lock"     "$(bashjson "$W" "echo '$(head -c 9000 /dev/zero | tr '\0' a)'")"
 
 # --- Wider git reads: each writing form of the same command is refused
@@ -498,6 +513,8 @@ run allow "owned: the turn holder switches branch"   "$(bashjson "$W" "git check
 run allow "owned: the turn holder writes a file"     "$(writejson "$W" "$W/f.txt" $M1)"
 run allow "owned: the turn holder uses git MCP"      "$(gmcpjsons mcp__git-mcp__git_commit "$W" $M1)"
 run deny  "owned: a member without the turn, build"  "$(bashjson "$W" "npm test" $M2)"
+run deny  "owned: a member without the turn, npx"   "$(bashjson "$W" "npx eslint ." $M2)"
+has_reason "counts as a mutation even when it only reads" "the owned deny carries the npx note"
 has_reason "held by session bbbbbbbb" "the deny names the turn holder"
 has_reason "build the api" "the deny names the turn's task"
 has_reason "turn take --id team-o --sid $M2" "the deny says how to take a turn, with the session's own id"
