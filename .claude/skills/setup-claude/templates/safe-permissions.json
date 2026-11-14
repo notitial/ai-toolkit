@@ -304,6 +304,18 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "_comment": "No matcher, on purpose: it fires for every end reason. Tells an owned workspace lock that this session's process stopped (writes ended/<sid>, frees a held turn, keeps the member). Does nothing for a session that is not the owner, a member or the turn holder, or when no lock is held. Never blocks, always exits 0.",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/workspace-lock-session-end.sh",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "statusLine": {
