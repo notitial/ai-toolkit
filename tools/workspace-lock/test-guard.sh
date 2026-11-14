@@ -90,7 +90,7 @@ W=$(mkws armed_team team-x-20261101)
 run deny  "team run: Write by an unregistered session" "$(writejson "$W" "$W/f.txt")"
 has_reason "a team run holds this workspace's lock" "the deny says a team run holds it"
 has_reason "Tell the user. Don't take a solo id" "the deny says to tell the user, not take a solo id"
-has_reason "only if your spawn prompt names you a member" "the deny limits joining to named members"
+has_reason "only if whoever started this team told you to" "the deny limits joining to whoever started the team"
 # The holder's phase text is quoted as its note: printable only, no quotes, 80 characters at most.
 printf 'build \033[31mred\033[0m "quoted" %s\n' "$(printf 'x%.0s' $(seq 1 120))" > "$W/$LOCKNAME/lock.d/phase"
 run deny  "team run: a noisy phase"        "$(writejson "$W" "$W/f.txt")"
@@ -452,6 +452,377 @@ W=$(mkclr rearm_git solo-me 10 10 s)
 run deny  "re-arm: git-mcp commit"               "$(gmcpjson mcp__git-mcp__git_commit "$W")"
 W=$(mkclr rearm_future solo-me -600 10 sess1)
 run allow "a holder within its ETA"              "$(writejson "$W" "$W/f.txt")"
+
+
+# --- An empty lock.d nobody claimed is not orphaned: the next acquire takes it
+W=$(mkws unclaimed ""); mkdir -p "$W/$LOCKNAME/lock.d"
+run deny  "an empty, unclaimed lock.d denies a session that has not acquired" "$(writejson "$W" "$W/f.txt")"
+has_reason "nobody holds it" "the unclaimed deny says the next acquire takes it"
+case "$_out" in *orphaned*) echo "FAIL  an unclaimed lock.d is not called orphaned"; FAIL=$((FAIL + 1)) ;; *) PASS=$((PASS + 1)) ;; esac
+has_reason "acquire --id" "the unclaimed deny says how to acquire"
+W=$(mkws claimed_only ""); mkdir -p "$W/$LOCKNAME/lock.d"; : > "$W/$LOCKNAME/lock.d/claim"
+run deny  "a claim with no holder is a crashed acquire" "$(writejson "$W" "$W/f.txt")"
+has_reason "orphaned" "a claim with no holder stays orphaned"
+
+# --- Owned team: judged by session id and the turn, on every tool
+OWN=aaaaaaaa-0000-4000-8000-000000000001
+M1=bbbbbbbb-0000-4000-8000-000000000002
+M2=cccccccc-0000-4000-8000-000000000003
+STR=dddddddd-0000-4000-8000-000000000004
+bashjsone() { jq -nc --arg c "$1" --arg cmd "$2" --arg s "$3" --arg m "${4:-default}" \
+  '{tool_name:"Bash",cwd:$c,session_id:$s,permission_mode:$m,tool_input:{command:$cmd}}'; }   # <cwd> <cmd> <sid, may be empty> [mode]
+gmcpjsons() { jq -nc --arg t "$1" --arg p "$2" --arg s "$3" --arg m "${4:-}" \
+  '{tool_name:$t,cwd:$p,session_id:$s,tool_input:({path:$p}+(if $m=="" then {} else {mode:$m} end))}'; }
+mkowned() {  # mkowned <name> [slug] [lock ETA offset s]: an owned lock held by OWN, members M1 and M2, no turn
+  _o=$(mkws "$1"); mkdir -p "$_o/$LOCKNAME/lock.d/members" "$_o/$LOCKNAME/lock.d/ended" "$_o/$LOCKNAME/sessions"
+  printf 'owned\n' > "$_o/$LOCKNAME/lock.d/kind"; printf '%s\n' "$OWN" > "$_o/$LOCKNAME/lock.d/owner"
+  printf '%s\n' "${2:-team-o}" > "$_o/$LOCKNAME/lock.d/holder"
+  printf '%s\n' $((NOW + ${3:-3600})) > "$_o/$LOCKNAME/lock.d/eta_epoch"; printf '%s\n' "$NOW" > "$_o/$LOCKNAME/lock.d/heartbeat_epoch"
+  printf '%s\n' "$NOW" > "$_o/$LOCKNAME/lock.d/members/$M1"; printf '%s\n' "$NOW" > "$_o/$LOCKNAME/lock.d/members/$M2"
+  printf '%s' "$_o"
+}
+giveturn() {  # giveturn <ws> <sid> [ETA offset s] [heartbeat age s] [task]
+  _t="$1/$LOCKNAME/lock.d/turn.d"; rm -rf "$_t"; mkdir -p "$_t"
+  printf '%s\n' "$2" > "$_t/sid"; printf '%s\n' $((NOW + ${3:-600})) > "$_t/eta_epoch"
+  printf '%s\n' $((NOW - ${4:-0})) > "$_t/heartbeat_epoch"; printf '%s\n' "${5:-build the api}" > "$_t/task"
+}
+NL=$'\n'
+BRC="{a,--sid,$M1}"
+RMF="r""m -r""f"
+GCF="-f""d"
+registered() { [ -e "$1/$LOCKNAME/sessions/$2" ]; }
+
+W=$(mkowned own_a); giveturn "$W" $M1
+run allow "owned: the turn holder runs a build"      "$(bashjson "$W" "npm test" $M1)"
+run allow "owned: the turn holder switches branch"   "$(bashjson "$W" "git checkout main" $M1)"
+run allow "owned: the turn holder writes a file"     "$(writejson "$W" "$W/f.txt" $M1)"
+run allow "owned: the turn holder uses git MCP"      "$(gmcpjsons mcp__git-mcp__git_commit "$W" $M1)"
+run deny  "owned: a member without the turn, build"  "$(bashjson "$W" "npm test" $M2)"
+has_reason "held by session bbbbbbbb" "the deny names the turn holder"
+has_reason "build the api" "the deny names the turn's task"
+has_reason "turn take --id team-o --sid $M2" "the deny says how to take a turn, with the session's own id"
+has_reason "BACKGROUND" "the deny says to take the turn in the background"
+has_reason "never remove turn.d" "the deny forbids removing turn.d"
+run deny  "owned: a member without the turn, git checkout" "$(bashjson "$W" "git checkout main" $M2)"
+run deny  "owned: a member without the turn, Write"  "$(writejson "$W" "$W/f.txt" $M2)"
+run deny  "owned: a member without the turn, git MCP checkout" "$(gmcpjsons mcp__git-mcp__git_checkout "$W" $M2)"
+run deny  "owned: the owner without the turn"        "$(bashjson "$W" "npm test" $OWN)"
+run allow "owned: a member without the turn reads"   "$(bashjson "$W" "ls -la" $M2)"
+run allow "owned: a member reads git status in Bash" "$(bashjson "$W" "git status" $M2)"
+run allow "owned: a member reads git_status over MCP" "$(gmcpjsons mcp__git-mcp__git_status "$W" $M2)"
+run allow "owned: a member writes under .archive/"   "$(writejson "$W" "$W/.archive/notes.md" $M2)"
+run allow "owned: a member runs the lock script"     "$(bashjson "$W" "$LS status" $M2)"
+run deny  "owned: a stranger"                        "$(bashjson "$W" "npm test" $STR)"
+has_reason "a team holds this workspace's lock" "the stranger deny says a team holds it"
+has_reason "Only the owner can add you" "the stranger deny says who adds members"
+has_reason 'echo $CLAUDE_CODE_SESSION_ID' "the stranger deny says how to read its session id"
+run deny  "owned: a stranger, Write"                 "$(writejson "$W" "$W/f.txt" $STR)"
+run deny  "owned: a stranger, git MCP"               "$(gmcpjsons mcp__git-mcp__git_commit "$W" $STR)"
+printf 'team-o\n' > "$W/$LOCKNAME/sessions/$STR"
+run deny  "owned: a registration under the slug does not make a holder" "$(bashjson "$W" "npm test" $STR)"
+EXTRA_ENV="WORKSPACE_LOCK_ID=team-o"
+run deny  "owned: WORKSPACE_LOCK_ID does not count"  "$(bashjson "$W" "npm test" $STR)"
+EXTRA_ENV=""
+giveturn "$W" $OWN
+run allow "owned: the owner with the turn"           "$(bashjson "$W" "npm test" $OWN)"
+run deny  "owned: a member while the owner holds the turn" "$(bashjson "$W" "npm test" $M1)"
+has_reason "held by session aaaaaaaa" "the deny names the owner as the turn holder"
+# The lock's ETA gates only the owner's own turn: a silent owner does not stop a member that has the turn.
+W=$(mkowned own_silent team-o -600); giveturn "$W" $M1
+run allow "owned: a member keeps working while the owner is silent past the lock's ETA" "$(bashjson "$W" "npm test" $M1)"
+giveturn "$W" $OWN
+run deny  "owned: the owner past the lock's ETA is re-armed" "$(bashjson "$W" "npm test" $OWN)"
+has_reason "heartbeat --id team-o --sid $OWN" "the owner's re-arm names the retake"
+# The turn's own ETA gates its holder.
+W=$(mkowned own_late); giveturn "$W" $M1 -10
+run deny  "owned: a member past its turn's ETA"      "$(bashjson "$W" "npm test" $M1)"
+has_reason "turn beat --id team-o --sid $M1" "the turn re-arm names turn beat"
+run deny  "owned: a member past its turn's ETA, Write" "$(writejson "$W" "$W/f.txt" $M1)"
+run deny  "owned: a member past its turn's ETA, git MCP" "$(gmcpjsons mcp__git-mcp__git_commit "$W" $M1)"
+W=$(mkowned own_noeta); giveturn "$W" $M1; rm "$W/$LOCKNAME/lock.d/turn.d/eta_epoch"
+run deny  "owned: a turn with no readable ETA is re-armed" "$(bashjson "$W" "npm test" $M1)"
+W=$(mkowned own_free)
+run deny  "owned: no turn held, member"              "$(bashjson "$W" "npm test" $M1)"
+has_reason "no turn is held" "the deny says no turn is held"
+run deny  "owned: no turn held, owner"               "$(writejson "$W" "$W/f.txt" $OWN)"
+# A turn with no sid is held by no one, the owner included.
+W=$(mkowned own_nosid); giveturn "$W" ""
+run deny  "owned: an empty turn sid is held by no one, member" "$(bashjson "$W" "npm test" $M1)"
+has_reason "holder is unknown" "the deny says the holder is unknown"
+run deny  "owned: an empty turn sid is held by no one, owner" "$(bashjson "$W" "npm test" $OWN)"
+run deny  "owned: an empty turn sid, empty session id" "$(bashjsone "$W" "npm test" "")"
+# A turn held by a session that is not (or no longer) a member does not count, nor does anyone else's.
+W=$(mkowned own_gone); giveturn "$W" $STR
+run deny  "owned: a non-member holding turn.d is denied" "$(bashjson "$W" "npm test" $STR)"
+run deny  "owned: a member under a non-member's turn"    "$(bashjson "$W" "npm test" $M1)"
+# An empty session id is never a party.
+W=$(mkowned own_empty_sid); giveturn "$W" $M1
+run deny  "owned: empty session_id"                  "$(bashjsone "$W" "npm test" "")"
+has_reason "no session id" "the empty-session deny says so"
+run deny  "owned: no session_id key"                 "$(jq -nc --arg c "$W" '{tool_name:"Bash",cwd:$c,tool_input:{command:"npm test"}}')"
+giveturn "$W" $OWN
+run deny  "owned: empty session_id, owner's turn, Write" "$(jq -nc --arg c "$W" --arg f "$W/f.txt" '{tool_name:"Write",cwd:$c,session_id:"",tool_input:{file_path:$f,content:"x"}}')"
+run deny  "owned: empty session_id, owner's turn, Bash"  "$(bashjsone "$W" "npm test" "")"
+run deny  "owned: empty session_id, git MCP"             "$(gmcpjsons mcp__git-mcp__git_commit "$W" "")"
+# Plain writes into the lock folder stay denied for every session, the turn holder included.
+W=$(mkowned own_folder); giveturn "$W" $M1
+run deny  "owned folder: Write into lock.d by the turn holder"  "$(writejson "$W" "$W/$LOCKNAME/lock.d/ended/$M2" $M1)"
+has_reason "the team lock's own state" "the folder deny says why"
+run deny  "owned folder: Write through .."           "$(writejson "$W" "$W/src/../$LOCKNAME/lock.d/members/$STR" $M1)"
+run deny  "owned folder: Write into status.json"     "$(writejson "$W" "$W/$LOCKNAME/status.json" $M1)"
+run deny  "owned folder: Write by the owner"         "$(writejson "$W" "$W/$LOCKNAME/lock.d/owner" $OWN)"
+run deny  "owned folder: touch ended/ in Bash"       "$(bashjson "$W" "touch .workspace-lock/lock.d/ended/$M2" $M1)"
+run deny  "owned folder: rm turn.d in Bash"          "$(bashjson "$W" "rm -rf .workspace-lock/lock.d/turn.d" $M1)"
+run deny  "owned folder: a redirect into lock.d"     "$(bashjson "$W" "echo x > .workspace-lock/lock.d/kind" $M1)"
+run deny  "owned folder: a chained write names lock.d" "$(bashjson "$W" "cd .workspace-lock && touch lock.d/x" $M1)"
+run deny  "owned folder: the absolute path"          "$(bashjson "$W" "rm $W/$LOCKNAME/status.json" $M1)"
+run allow "owned folder: a read of lock.d passes"    "$(bashjson "$W" "cat .workspace-lock/lock.d/holder" $M1)"
+run allow "owned folder: a read by a non-holder passes" "$(bashjson "$W" "cat .workspace-lock/lock.d/holder" $M2)"
+run allow "owned folder: a .gitignore line naming the folder" "$(bashjson "$W" "echo '.workspace-lock/' >> .gitignore" $M1)"
+run allow "owned folder: Edit of a source file by the turn holder" "$(writejson "$W" "$W/src/a.txt" $M1)"
+run deny  "owned folder: the folder itself in Bash"       "$(bashjson "$W" "$RMF .workspace-lock" $M1)"
+run deny  "owned folder: a double slash and a quoted name" "$(bashjson "$W" "$RMF .workspace-lock//'lock.d'" $M1)"
+run deny  "owned folder: a glob into the folder"          "$(bashjson "$W" "$RMF .workspace-lock/*" $M1)"
+run deny  "owned folder: a write from a cwd inside the folder" "$(bashjson "$W/$LOCKNAME/lock.d" "touch owner" $M1)"
+run allow "owned folder: a read from a cwd inside the folder" "$(bashjson "$W/$LOCKNAME/lock.d" "cat owner" $M1)"
+run deny  "owned folder: a Write in other letter case"    "$(writejson "$W" "$W/.Workspace-Lock/LOCK.D/ended/$M2" $M1)"
+run deny  "owned folder: git clean"                       "$(bashjson "$W" "git clean $GCF" $M1)"
+run deny  "owned folder: git clean with x"                "$(bashjson "$W" "git clean ${GCF}x" $M1)"
+run allow "owned folder: git clean -n"                    "$(bashjson "$W" "git clean -nd" $M1)"
+run allow "owned folder: git clean excluding the folder"  "$(bashjson "$W" "git clean ${GCF}x -e .workspace-lock" $M1)"
+run deny  "owned folder: git clean -e of another path"    "$(bashjson "$W" "git clean $GCF -e build" $M1)"
+run deny  "owned folder: git_clean over MCP"              "$(gmcpjsons mcp__git-mcp__git_clean "$W" $M1)"
+run allow "owned folder: git_clean on an open lock is as before" "$(gmcpjsons mcp__git-mcp__git_clean "$(mkws gc_open open-1 sessO)" sessO)"
+# A lock-script verb in any form but the single plain call skips the check of who calls, even for the turn holder.
+run deny  "owned verbs: a pipe, by the turn holder"       "$(bashjson "$W" "$LS member add --id team-o --sid $STR --by $OWN | cat" $M1)"
+run deny  "owned verbs: a quoted script path, by the turn holder" "$(bashjson "$W" "\"\$HOME/.claude/tools/workspace-lock.sh\" owner transfer --id team-o --to $STR" $M1)"
+run deny  "owned verbs: the repo copy, by the turn holder" "$(bashjson "$W" "bash tools/workspace-lock/workspace-lock.sh release --id team-o --sid $OWN" $M1)"
+run allow "owned verbs: status in a pipe is a read"       "$(bashjson "$W" "$LS status | cat" $M1)"
+run allow "owned folder: a commit message that names lock.d is not a write" "$(bashjson "$W" "git commit -m \"fix the lock.d wording\"" $M1)"
+EXTRA_ENV="WORKSPACE_LOCK_BYPASS=1"
+run allow "owned folder: WORKSPACE_LOCK_BYPASS overrides, Write" "$(writejson "$W" "$W/$LOCKNAME/status.json" $M2)"
+run allow "owned folder: WORKSPACE_LOCK_BYPASS overrides, Bash" "$(bashjson "$W" "touch .workspace-lock/lock.d/x" $M2)"
+EXTRA_ENV=""
+W=$(mkws open_folder open-1 sessO)
+run allow "open lock: the holder still writes in its lock folder (unchanged)" "$(writejson "$W" "$W/$LOCKNAME/status.json" sessO)"
+
+# --- Owned team: acquire is closed to everyone but the owner, and registers no one
+W=$(mkowned acq_a); giveturn "$W" $M1
+run deny  "acquire: a stranger takes the owned slug"  "$(bashjson "$W" "$LS acquire --id team-o --eta 30m" $STR)"
+has_reason "closed" "the refused acquire says the lock is closed"
+registered "$W" $STR && { echo "FAIL  a refused acquire of an owned slug is not registered"; FAIL=$((FAIL + 1)); } || PASS=$((PASS + 1))
+run deny  "acquire: a stranger, --owned with its own sid" "$(bashjson "$W" "$LS acquire --id team-o --owned --sid $STR --eta 30m" $STR)"
+registered "$W" $STR && { echo "FAIL  a refused owned acquire is not registered"; FAIL=$((FAIL + 1)); } || PASS=$((PASS + 1))
+run deny  "acquire: a member never acquires"          "$(bashjson "$W" "$LS acquire --id team-o --owned --sid $M1 --eta 30m" $M1)"
+has_reason "never acquires" "the member's refused acquire says so"
+run deny  "acquire: a member without --owned"         "$(bashjson "$W" "$LS acquire --id team-o --eta 30m" $M1)"
+run allow "acquire: the owner re-enters"              "$(bashjson "$W" "$LS acquire --id team-o --owned --sid $OWN --eta +1h" $OWN)"
+registered "$W" $OWN && { echo "FAIL  an owned acquire registers no one"; FAIL=$((FAIL + 1)); } || PASS=$((PASS + 1))
+run deny  "acquire: the owner without --owned"        "$(bashjson "$W" "$LS acquire --id team-o --eta +1h" $OWN)"
+run deny  "acquire: the owner naming another sid"     "$(bashjson "$W" "$LS acquire --id team-o --owned --sid $M1 --eta +1h" $OWN)"
+run deny  "acquire: --owned with a variable sid"      "$(bashjson "$W" "$LS acquire --id team-o --owned --sid \$CLAUDE_CODE_SESSION_ID --eta +1h" $OWN)"
+has_reason 'echo $CLAUDE_CODE_SESSION_ID' "a variable sid is denied with the literal hint"
+run deny  "acquire: a duplicate --sid"                "$(bashjson "$W" "$LS acquire --id team-o --owned --sid $OWN --sid $M1" $OWN)"
+run allow "acquire: another slug waits its turn, registered" "$(bashjson "$W" "$LS acquire --id other-1 --eta 30m" $STR)"
+[ "$(cat "$W/$LOCKNAME/sessions/$STR" 2>/dev/null)" = other-1 ] && PASS=$((PASS + 1)) || { echo "FAIL  an acquire of another slug registers the session"; FAIL=$((FAIL + 1)); }
+W=$(mkws acq_free)
+run allow "acquire --owned: free workspace, own sid"  "$(bashjson "$W" "$LS acquire --id team-n --owned --sid $STR --eta +1h" $STR)"
+registered "$W" $STR && { echo "FAIL  an owned acquire of a free workspace registers no one"; FAIL=$((FAIL + 1)); } || PASS=$((PASS + 1))
+run deny  "acquire --owned: another session's sid"    "$(bashjson "$W" "$LS acquire --id team-n --owned --sid $OWN --eta +1h" $STR)"
+run deny  "acquire --owned: no --sid"                 "$(bashjson "$W" "$LS acquire --id team-n --owned --eta +1h" $STR)"
+run deny  "acquire --owned: empty session id"         "$(bashjsone "$W" "$LS acquire --id team-n --owned --sid $STR --eta +1h" "")"
+run deny  "acquire --owned: a variable sid"           "$(bashjson "$W" "$LS acquire --id team-n --owned --sid \"\$CLAUDE_CODE_SESSION_ID\" --eta +1h" $STR)"
+run deny  "acquire --owned: a backtick sid"           "$(bashjson "$(mkws acq_arm solo-other)" "$LS acquire --id team-n --owned --sid \`echo x\` --eta +1h" $STR)"
+run allow "acquire: --owned inside a quoted --task is only text" "$(bashjson "$W" "$LS acquire --id solo-t --task \"do --owned things\" --eta 30m" $STR)"
+[ "$(cat "$W/$LOCKNAME/sessions/$STR" 2>/dev/null)" = solo-t ] && PASS=$((PASS + 1)) || { echo "FAIL  a plain acquire whose task says --owned registers"; FAIL=$((FAIL + 1)); }
+W=$(mkws acq_bad)
+run allow "acquire: an open acquire the parser dislikes still registers (the guard cannot see the script refuse it)" "$(bashjson "$W" "$LS acquire --id solo-b --bogus" $STR)"
+[ "$(cat "$W/$LOCKNAME/sessions/$STR" 2>/dev/null)" = solo-b ] && PASS=$((PASS + 1)) || { echo "FAIL  an open acquire registers even when the parser dislikes a flag"; FAIL=$((FAIL + 1)); }
+
+# --- Owned team: the identity of each verb (a cell per rule)
+CH2="$SANDBOX/teamhome"; mkdir -p "$CH2/.claude/tools"; ln -s "$WL_SCRIPT" "$CH2/.claude/tools/workspace-lock.sh"
+EXTRA_ENV="HOME=$CH2 CLAUDE_CODE_ENTRYPOINT=cli"
+W=$(mkowned idc); giveturn "$W" $M1
+TK="$LS turn take --id team-o"
+run allow "identity: turn take, own sid"              "$(bashjson "$W" "$TK --sid $M1 --eta +20m" $M1)"
+run allow "identity: turn take with a task"           "$(bashjson "$W" "$TK --sid $M1 --eta +20m --task \"fix the --sid bug\"" $M1)"
+run deny  "identity: turn take, another session's sid" "$(bashjson "$W" "$TK --sid $M1 --eta +20m" $M2)"
+has_reason "must be this session's own id ($M2)" "the mismatch deny names the session's own id"
+run deny  "identity: turn take, no --sid"             "$(bashjson "$W" "$TK --eta +20m" $M1)"
+run deny  "identity: turn take, a variable sid"       "$(bashjson "$W" "$TK --sid \$CLAUDE_CODE_SESSION_ID --eta +20m" $M1)"
+has_reason 'echo $CLAUDE_CODE_SESSION_ID' "a variable sid is denied with the literal hint"
+run deny  "identity: turn take, a doubled --sid"      "$(bashjson "$W" "$TK --sid $M1 --sid $M2 --eta +20m" $M1)"
+run deny  "identity: turn take, empty session id"     "$(bashjsone "$W" "$TK --sid $M1 --eta +20m" "")"
+run deny  "identity: turn take, --id=slug form"       "$(bashjson "$W" "$LS turn take --id=team-o --sid $M1 --eta +20m" $M1)"
+run deny  "identity: turn take, a trailing flag with no value" "$(bashjson "$W" "$TK --sid $M1 --eta" $M1)"
+run deny  "identity: turn take, an unknown flag"      "$(bashjson "$W" "$TK --sid $M1 --eta +20m --by $M1" $M1)"
+run deny  "identity: turn take, no --id"              "$(bashjson "$W" "$LS turn take --sid $M1 --eta +20m" $M1)"
+run allow "identity: turn take through bash"          "$(bashjson "$W" "bash $TK --sid $M1 --eta +20m" $M1)"
+run allow "identity: turn take, redirect to /dev/null" "$(bashjson "$W" "$TK --sid $M1 --eta +20m > /dev/null 2>&1" $M1)"
+run deny  "identity: turn take, a compound call"      "$(bashjson "$W" "$TK --sid $M2 --eta +20m; touch f" $M2)"
+run allow "identity: turn beat, own sid"              "$(bashjson "$W" "$LS turn beat --id team-o --sid $M1 --eta +20m" $M1)"
+run deny  "identity: turn beat, another session's sid" "$(bashjson "$W" "$LS turn beat --id team-o --sid $M1" $M2)"
+run allow "identity: turn give, own sid"              "$(bashjson "$W" "$LS turn give --id team-o --sid $M1 --tree clean" $M1)"
+run deny  "identity: turn give, another session's sid" "$(bashjson "$W" "$LS turn give --id team-o --sid $M1 --tree clean" $M2)"
+run deny  "identity: turn give with --by but no --force" "$(bashjson "$W" "$LS turn give --id team-o --sid $M1 --by $OWN --tree clean" $M1)"
+run deny  "identity: turn give with --check but no --force" "$(bashjson "$W" "$LS turn give --id team-o --sid $M1 --tree clean --check" $M1)"
+run allow "identity: member add, the owner"           "$(bashjson "$W" "$LS member add --id team-o --sid $STR --by $OWN" $OWN)"
+run allow "identity: member remove, the owner"        "$(bashjson "$W" "$LS member remove --id team-o --sid $M2 --by $OWN" $OWN)"
+run deny  "identity: member add, --by is another session" "$(bashjson "$W" "$LS member add --id team-o --sid $STR --by $OWN" $M1)"
+run deny  "identity: member add, a member naming itself --by" "$(bashjson "$W" "$LS member add --id team-o --sid $STR --by $M1" $M1)"
+has_reason "owns this workspace's team lock" "the member-add deny says it is for the owner"
+run deny  "identity: member add, a stranger"          "$(bashjson "$W" "$LS member add --id team-o --sid $STR --by $STR" $STR)"
+run deny  "identity: member add, no --by"             "$(bashjson "$W" "$LS member add --id team-o --sid $STR" $OWN)"
+run deny  "identity: member add, a malformed --sid"   "$(bashjson "$W" "$LS member add --id team-o --sid not-a-sid --by $OWN" $OWN)"
+run deny  "identity: member add, a variable --sid"    "$(bashjson "$W" "$LS member add --id team-o --sid \$NEW --by $OWN" $OWN)"
+run deny  "identity: member remove, a member"         "$(bashjson "$W" "$LS member remove --id team-o --sid $M2 --by $M1" $M1)"
+run allow "identity: member list, anyone"             "$(bashjson "$W" "$LS member list --id team-o" $STR)"
+run deny  "identity: a made-up verb"                  "$(bashjson "$W" "$LS member promote --id team-o" $OWN)"
+run deny  "identity: turn with no action"             "$(bashjson "$W" "$LS turn --id team-o" $OWN)"
+W2=$(mkws idc_nolock)
+run deny  "identity: member add on a workspace with no owned lock" "$(bashjson "$W2" "$LS member add --id team-o --sid $STR --by $STR" $STR)"
+mkdir -p "$W/sub"
+run deny  "identity: turn take from a subfolder"      "$(bashjson "$W/sub" "$TK --sid $M1 --eta +20m" $M1)"
+has_reason "workspace root" "the subfolder deny says to run it from the root"
+# Owned release and heartbeat: the owner only, naming itself.
+run allow "identity: release, the owner"              "$(bashjson "$W" "$LS release --id team-o --sid $OWN" $OWN)"
+run allow "identity: release --force, the owner"      "$(bashjson "$W" "$LS release --id team-o --sid $OWN --force" $OWN)"
+run deny  "identity: release without --sid"           "$(bashjson "$W" "$LS release --id team-o" $OWN)"
+run deny  "identity: release, a member"               "$(bashjson "$W" "$LS release --id team-o --sid $M1" $M1)"
+run deny  "identity: release, a member naming the owner" "$(bashjson "$W" "$LS release --id team-o --sid $OWN" $M1)"
+run deny  "identity: release, a stranger"             "$(bashjson "$W" "$LS release --id team-o --sid $STR" $STR)"
+run deny  "identity: release, a variable sid"         "$(bashjson "$W" "$LS release --id team-o --sid \$CLAUDE_CODE_SESSION_ID" $OWN)"
+run deny  "identity: release, empty session id"       "$(bashjsone "$W" "$LS release --id team-o --sid $OWN" "")"
+EXTRA_ENV="HOME=$CH2 CLAUDE_CODE_ENTRYPOINT=cli WORKSPACE_LOCK_ID=team-o"
+run deny  "identity: release by WORKSPACE_LOCK_ID without --sid" "$(bashjson "$W" "$LS release" $M1)"
+EXTRA_ENV="HOME=$CH2 CLAUDE_CODE_ENTRYPOINT=cli"
+run allow "identity: release of another slug passes to the script" "$(bashjson "$W" "$LS release --id other-1" $STR)"
+run allow "identity: heartbeat, the owner"            "$(bashjson "$W" "$LS heartbeat --id team-o --sid $OWN --eta +1h" $OWN)"
+run deny  "identity: heartbeat without --sid"         "$(bashjson "$W" "$LS heartbeat --id team-o --eta +1h" $OWN)"
+run deny  "identity: heartbeat, a member"             "$(bashjson "$W" "$LS heartbeat --id team-o --sid $M1 --eta +1h" $M1)"
+run deny  "identity: heartbeat, a variable sid"       "$(bashjson "$W" "$LS heartbeat --id team-o --sid \$X --eta +1h" $OWN)"
+run deny  "identity: heartbeat, empty session id"     "$(bashjsone "$W" "$LS heartbeat --id team-o --sid $OWN --eta +1h" "")"
+run deny  "parse: release with a comment that rewrites --id" "$(bashjson "$W" "$LS release --id team-o --sid $OWN --force # --id x" $STR)"
+run deny  "parse: release with a brace list"          "$(bashjson "$W" "$LS release --id $BRC" $STR)"
+run deny  "parse: heartbeat with a comment that rewrites --id" "$(bashjson "$W" "$LS heartbeat --id team-o --sid $OWN --eta +1h # --id x" $STR)"
+run deny  "parse: turn give with a brace list in --tree" "$(bashjson "$W" "$LS turn give --id team-o --sid $M2 --tree $BRC" $M2)"
+run deny  "parse: turn beat with a glob in --eta"     "$(bashjson "$W" "$LS turn beat --id team-o --sid $M2 --eta +*" $M2)"
+run deny  "parse: owned acquire with a brace in --task" "$(bashjson "$W" "$LS acquire --id team-o --owned --sid $OWN --task $BRC" $OWN)"
+run deny  "parse: a variable in --task of a team verb" "$(bashjson "$W" "$LS turn take --id team-o --sid $M2 --eta +5m --task \$WHAT" $M2)"
+run deny  "parse: a flag word with a space"           "$(bashjson "$W" "$LS turn give --id team-o --sid $M2 --tree clean \"--force --check\"" $M2)"
+run deny  "parse: a tilde word in a team verb"        "$(bashjson "$W" "$LS turn take --id team-o --sid $M2 --eta +5m --task ~/x" $M2)"
+run allow "parse: a trailing comment on a plain team call" "$(bashjson "$W" "$LS turn take --id team-o --sid $M2 --eta +5m # waiting" $M2)"
+run deny  "parse: a multi-line team call is not the single plain call" "$(bashjson "$W" "$LS turn take --id team-o \\${NL}  --sid $M2 --eta +5m" $M2)"
+W2=$(mkws par_open solo-other)
+run allow "parse: an open acquire in the background registers" "$(bashjson "$W2" "$LS acquire --id solo-bg --eta 30m > /tmp/acq.log 2>&1 &" sessBG)"
+[ "$(cat "$W2/$LOCKNAME/sessions/sessBG" 2>/dev/null)" = solo-bg ] && PASS=$((PASS + 1)) || { echo "FAIL  a trailing & does not stop the registration"; FAIL=$((FAIL + 1)); }
+run allow "parse: an open acquire whose --task mentions --id registers under the real --id" "$(bashjson "$W2" "$LS acquire --task \"see --id notes\" --id solo-tk --eta 30m" sessTK)"
+[ "$(cat "$W2/$LOCKNAME/sessions/sessTK" 2>/dev/null)" = solo-tk ] && PASS=$((PASS + 1)) || { echo "FAIL  a --task naming --id does not change the registered slug"; FAIL=$((FAIL + 1)); }
+run allow "identity: heartbeat --phase clear on an open lock still passes" "$(bashjson "$(mkws idc_open solo-me)" "$LS heartbeat --id solo-me --phase clear")"
+# The owner's release drops the registrations that name the slug, and only those.
+W=$(mkowned rel_reg); printf 'team-o\n' > "$W/$LOCKNAME/sessions/$STR"; printf 'solo-x\n' > "$W/$LOCKNAME/sessions/$M2"
+run deny  "release: a member's call leaves the registrations" "$(bashjson "$W" "$LS release --id team-o --sid $M1" $M1)"
+registered "$W" $STR && PASS=$((PASS + 1)) || { echo "FAIL  a refused release leaves the registrations"; FAIL=$((FAIL + 1)); }
+run allow "release: the owner's call"                 "$(bashjson "$W" "$LS release --id team-o --sid $OWN" $OWN)"
+registered "$W" $STR && { echo "FAIL  the owner's release drops a registration naming the slug"; FAIL=$((FAIL + 1)); } || PASS=$((PASS + 1))
+[ "$(cat "$W/$LOCKNAME/sessions/$M2" 2>/dev/null)" = solo-x ] && PASS=$((PASS + 1)) || { echo "FAIL  the owner's release keeps a registration naming another slug"; FAIL=$((FAIL + 1)); }
+# The release parser on an open lock learns --sid and --force.
+rel_case drop "with a valid --sid"                    "$LS release --id solo-x --sid $OWN"
+rel_case keep "with a malformed --sid (the script refuses)" "$LS release --id solo-x --sid not-a-sid"
+rel_case keep "with --sid and no value"               "$LS release --id solo-x --sid"
+rel_case keep "with --force on an open lock (the script refuses)" "$LS release --id solo-x --force"
+rel_case keep "with --sid and --force on an open lock" "$LS release --id solo-x --sid $OWN --force"
+W=$(mkws rel_dyn solo-x sessZ)
+run deny  "release: a variable --sid on an open lock" "$(bashjson "$W" "$LS release --id solo-x --sid \$CLAUDE_CODE_SESSION_ID" sessZ)"
+[ "$(cat "$W/$LOCKNAME/sessions/sessZ" 2>/dev/null)" = solo-x ] && PASS=$((PASS + 1)) || { echo "FAIL  a denied release keeps the registration"; FAIL=$((FAIL + 1)); }
+
+# --- Owned team: the force-give and the owner transfer go through the script's --check
+FR="$LS turn give --id team-o --sid $M1 --by $OWN --force"
+W=$(mkowned force_a); giveturn "$W" $M1 600 0
+printf '%s ended\n' "$NOW" > "$W/$LOCKNAME/lock.d/ended/$M1"
+run allow "force: a turn whose session ended is freed at once" "$(bashjson "$W" "$FR" $OWN)"
+logline_has "$W/$LOCKNAME" "FORCE-NOW" "the immediate force is logged"
+EXTRA_ENV="HOME=$CH2 CLAUDE_CODE_ENTRYPOINT=sdk-cli"
+run allow "force: an ended session's turn is freed in a headless session too" "$(bashjsone "$W" "$FR" $OWN bypassPermissions)"
+EXTRA_ENV="HOME=$CH2 CLAUDE_CODE_ENTRYPOINT=cli"
+run deny  "force: only the owner"                     "$(bashjson "$W" "$LS turn give --id team-o --sid $M1 --by $M2 --force" $M2)"
+run deny  "force: the owner naming another --by"      "$(bashjson "$W" "$LS turn give --id team-o --sid $M1 --by $M2 --force" $OWN)"
+run deny  "force: --tree does not go with --force"    "$(bashjson "$W" "$FR --tree clean" $OWN)"
+run deny  "force: a variable --sid"                   "$(bashjson "$W" "$LS turn give --id team-o --sid \$M --by $OWN --force" $OWN)"
+run deny  "force: a variable --by"                    "$(bashjson "$W" "$LS turn give --id team-o --sid $M1 --by \$ME --force" $OWN)"
+run deny  "force: empty session id"                   "$(bashjsone "$W" "$FR" "")"
+run allow "force --check is a read"                   "$(bashjson "$W" "$FR --check" $OWN)"
+run deny  "force --check by a member"                 "$(bashjson "$W" "$LS turn give --id team-o --sid $M1 --by $M2 --force --check" $M2)"
+run deny  "force: a compound call"                    "$(bashjson "$W" "$FR; echo ok" $OWN)"
+run deny  "force: a call behind cd"                   "$(bashjson "$W" "cd $W && $FR" $OWN)"
+run deny  "force: bash -c, by a session without the turn" "$(bashjson "$W" "bash -c '$FR'" $OWN)"
+run deny  "force: a redirect into the workspace"      "$(bashjson "$W" "$FR > out.txt" $OWN)"
+W=$(mkowned force_stale); giveturn "$W" $M1 -4000 4000 "a \"quoted\" task"
+run ask   "force: a stale turn asks"                  "$(bashjson "$W" "$FR" $OWN)"
+has_reason "Free the turn on the workspace lock" "the force ask names what is freed"
+has_reason "Held by session bbbbbbbb" "the force ask names the turn holder"
+has_reason "last turn heartbeat" "the force ask names the last heartbeat"
+logline_has "$W/$LOCKNAME" "FORCE-ASK" "the force ask is logged"
+run ask   "force: a stale turn, bash in front"        "$(bashjson "$W" "bash $FR" $OWN)"
+run ask   "force: a stale turn, auto mode asks"       "$(bashjsone "$W" "$FR" $OWN auto)"
+EXTRA_ENV="HOME=$CH2 CLAUDE_CODE_ENTRYPOINT=sdk-cli"
+run deny  "force: a stale turn in a headless session" "$(bashjson "$W" "$FR" $OWN)"
+has_reason "needs a human at the permission prompt" "the headless deny says why"
+EXTRA_ENV="HOME=$CH2 CLAUDE_CODE_ENTRYPOINT=cli"
+run deny  "force: a stale turn under bypassPermissions" "$(bashjsone "$W" "$FR" $OWN bypassPermissions)"
+W=$(mkowned force_alive); giveturn "$W" $M1 -4000 100
+run deny  "force: a turn that still beats is refused" "$(bashjson "$W" "$FR" $OWN)"
+has_reason "cannot be freed" "the refusal says the turn cannot be freed"
+W=$(mkowned force_young); giveturn "$W" $M1 600 4000
+run deny  "force: a turn within its ETA is refused"   "$(bashjson "$W" "$FR" $OWN)"
+W=$(mkowned force_other); giveturn "$W" $M2 -4000 4000
+run deny  "force: --sid names a session that does not hold the turn" "$(bashjson "$W" "$FR" $OWN)"
+W=$(mkowned force_empty); giveturn "$W" "" -4000 4000
+run ask   "force: an empty turn sid asks"             "$(bashjson "$W" "$FR" $OWN)"
+W=$(mkowned force_none)
+run deny  "force: no turn held"                       "$(bashjson "$W" "$FR" $OWN)"
+has_reason "no turn is held" "the no-turn refusal relays the script's reason"
+W=$(mkowned force_open); rm "$W/$LOCKNAME/lock.d/kind"
+run deny  "force: an open lock has no turns"          "$(bashjson "$W" "$FR" $OWN)"
+W=$(mkowned force_stale2); giveturn "$W" $M1 -4000 4000
+EXTRA_ENV="HOME=$(stubhome stub_force_two 'echo "FORCEABLE a"; echo "FORCEABLE b"') CLAUDE_CODE_ENTRYPOINT=cli"
+run deny  "force: --check prints two lines"           "$(bashjson "$W" "$FR" $OWN)"
+EXTRA_ENV="HOME=$(stubhome stub_force_odd 'echo "MAYBE a"') CLAUDE_CODE_ENTRYPOINT=cli"
+run deny  "force: --check prints an unknown verdict"  "$(bashjson "$W" "$FR" $OWN)"
+EXTRA_ENV="HOME=$(stubhome stub_force_fail 'exit 1') CLAUDE_CODE_ENTRYPOINT=cli"
+run deny  "force: --check fails"                      "$(bashjson "$W" "$FR" $OWN)"
+EXTRA_ENV="HOME=$(stubhome stub_force_slow 'sleep 15; echo "FORCEABLE late"') CLAUDE_CODE_ENTRYPOINT=cli"
+run deny  "force: --check times out"                  "$(bashjson "$W" "$FR" $OWN)"
+EXTRA_ENV="HOME=$CH2 CLAUDE_CODE_ENTRYPOINT=cli"
+# The owner transfer: the person approves at a prompt; the new session is named by its literal id.
+W=$(mkowned xfer); giveturn "$W" $M1
+XF="$LS owner transfer --id team-o --to $STR"
+run ask   "transfer: asks"                            "$(bashjson "$W" "$XF" $STR)"
+has_reason "Make session dddddddd the owner" "the transfer ask names the new owner"
+has_reason "Current owner aaaaaaaa" "the transfer ask names the current owner"
+logline_has "$W/$LOCKNAME" "TRANSFER-ASK" "the transfer ask is logged"
+run ask   "transfer: asked by a session other than the new owner" "$(bashjson "$W" "$XF" $M2)"
+run ask   "transfer: bash in front"                   "$(bashjson "$W" "bash $XF" $STR)"
+run allow "transfer --check is a read"                "$(bashjson "$W" "$XF --check" $STR)"
+run deny  "transfer: to the current owner"            "$(bashjson "$W" "$LS owner transfer --id team-o --to $OWN" $OWN)"
+has_reason "already the owner" "the refusal relays the script's reason"
+run deny  "transfer: to a member"                     "$(bashjson "$W" "$LS owner transfer --id team-o --to $M1" $M1)"
+run deny  "transfer: a variable --to"                 "$(bashjson "$W" "$LS owner transfer --id team-o --to \$CLAUDE_CODE_SESSION_ID" $STR)"
+has_reason 'echo $CLAUDE_CODE_SESSION_ID' "a variable --to is denied with the literal hint"
+run deny  "transfer: a malformed --to"                "$(bashjson "$W" "$LS owner transfer --id team-o --to nope" $STR)"
+run deny  "transfer: with --by"                       "$(bashjson "$W" "$XF --by $OWN" $STR)"
+run deny  "transfer: with --force"                    "$(bashjson "$W" "$XF --force" $STR)"
+run deny  "transfer: no --to"                         "$(bashjson "$W" "$LS owner transfer --id team-o" $STR)"
+run deny  "transfer: another action"                  "$(bashjson "$W" "$LS owner resign --id team-o" $STR)"
+run deny  "transfer: a compound call"                 "$(bashjson "$W" "$XF; echo ok" $STR)"
+run deny  "transfer: a call behind cd"                "$(bashjson "$W" "cd $W && $XF" $STR)"
+run deny  "transfer: a redirect into the workspace"   "$(bashjson "$W" "$XF > out.txt" $STR)"
+EXTRA_ENV="HOME=$CH2 CLAUDE_CODE_ENTRYPOINT=sdk-cli"
+run deny  "transfer: headless"                        "$(bashjson "$W" "$XF" $STR)"
+EXTRA_ENV="HOME=$CH2 CLAUDE_CODE_ENTRYPOINT=cli"
+run deny  "transfer: bypassPermissions"               "$(bashjsone "$W" "$XF" $STR bypassPermissions)"
+run deny  "transfer: an empty --to" "$(bashjson "$W" "$LS owner transfer --id team-o --to \"\"" $STR)"
+EXTRA_ENV=""
 
 echo "workspace-lock-guard: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
