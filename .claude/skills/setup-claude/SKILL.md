@@ -318,7 +318,6 @@ Read `templates/safe-permissions.json` for:
 - `permissions.allow` — safe permissions to ensure are present
 - `permissions.deny` — deny entries to ensure are present (security controls)
 - `permissions.ask` — commands that always prompt (added if missing, never removed)
-- the live checkout denies — not in the template: built from this checkout's real path and added only on the user's go (see **Permissions**)
 - `enabledPlugins` — plugins to ensure are enabled
 - `autoMode` and `skillOverrides` — auto mode classifier context and the skill switches (merged; see **Auto mode**)
 - `syncClaudeAiSkills`, `syncClaudeAiPlugins` — claude.ai sync switches, added when absent (see **Start context**)
@@ -441,7 +440,7 @@ with it set subagents already get an hour: mention it, and skip the subagent que
 
 Only remove these specific listed patterns. Do not remove other non-git Bash permissions (`ls`, `wc`, `pwd`, `which`, `mkdir`).
 
-**Deny entries:** Read `permissions.deny` from the template. **Add** any entry not already present in the live `deny` array (create the array if absent). **Never remove** existing live `deny` entries — they are security controls that may have been added outside this skill; report any live-only entries instead of touching them. Append in template order: a `Read(!…)` exception counts only after the rule it carves from, in the same file, so never add one without its rule or ahead of it. If the live array already has `Read(.env.*)`, put the template's `!` lines directly after it. Report any unanchored `.env` rule that comes after the `!` lines: the last matching rule wins, so it would deny `.env.example` again. `_deny_read_comment` in the template explains the secret-file rules.
+**Deny entries:** Read `permissions.deny` from the template. **Add** any entry not already present in the live `deny` array (create the array if absent). **Never remove** existing live `deny` entries — they are security controls that may have been added outside this skill; report any live-only entries instead of touching them. `_deny_read_comment` in the template explains the secret-file rules.
 
 **Ask entries:** Read `permissions.ask` from the template (`caffeinate` and `pkill -x caffeinate`, which start and stop a keep-awake power assertion, the
 github MCP write tools, and edits to any `.mcp.json` or to `~/.claude/settings.json` and `~/.claude/settings.local.json`;
@@ -450,32 +449,6 @@ already present in the live `ask` array (create it if absent); **never remove** 
 live-only ones. An ask rule prompts even in auto mode and wins over a matching allow rule, so a live allow
 entry never suppresses the prompt. Prompts are invisible to the model: after adding an entry, ask the user to
 confirm that the command prompts.
-
-**Live checkout denies (written from the real path, never from the template).** The hooks, rules, agents, skills,
-the status line, the lock script, the github MCP launcher and guard, the shell helpers and the install script run from this checkout
-through the links this skill makes, so an edit of one takes effect on the next tool call, MCP start or window reload. Agents edit in `/tmp` clones (CLAUDE.md, Git
-Conventions) and never need to touch them, so a deny on the live paths costs nothing. A clone's own path does not
-match, so work in a clone stays free.
-
-1. Resolve the live checkout: the repo root this skill runs from (`../../../` from this file), as a physical path
-   (`cd -P <root> && pwd -P`). Skip this block, and the guard hook below, with a note when that root is not a plain
-   path: only letters, digits and `/ . _ - +`, and not under a temp folder (`/tmp`, `/private/tmp`, `/var/folders`,
-   `/private/var/folders`). A throwaway clone is not the live checkout, and a quote or glob character in the path would
-   break the hook command or change what a deny matches. For a non-plain path that is not a temp folder, say plainly
-   that the github MCP must not be registered from it (the launcher refuses to start there) and that the fix is to
-   move the checkout to a plain path.
-2. Build twelve entries, each `Edit(/` + the absolute path + `)` so that it starts with `//`: `<root>/.git/**` (the
-   guard and the launcher run git there, and its config can name commands), `<root>/hooks/**`,
-   `<root>/rules/**`, `<root>/agents/**`, `<root>/skills/**`, `<root>/tools/github-mcp/**`,
-   `<root>/tools/workspace-lock/**`, `<root>/tools/statusline.sh`, `<root>/tools/shell-init.zsh`,
-   `<root>/tools/ait.zsh`, `<root>/tools/accounts.zsh`, `<root>/tools/install-copies.sh`. The template's six `~/.claude/...` link-path denies cover the linked files by their link
-   location; `accounts.zsh` and `install-copies.sh` have no link, so their live-path entries are their only deny.
-3. These are a security control computed from a path, so show the twelve entries word for word and add the missing ones
-   to the live `deny` array only on the user's explicit go typed in this run. Without it, add none and say so.
-   Additive like the template's deny entries: never remove a live entry, and report any live `Edit(//…)` entry for
-   another checkout path as a leftover instead of touching it.
-4. A `Bash` command that writes a file (`sed -i`, a redirect, `git checkout`) is not an Edit and no rule here stops it:
-   say so in the report, so the user knows what the denies do not cover.
 
 ### Plugins
 
@@ -532,8 +505,13 @@ any assertion fails. A hook skipped by the merge because it is not executable re
 of letting it through). The guard is not a `hooks/*.sh` script and is never symlinked: it runs from the live checkout
 (`tools/github-mcp/README.md`) and denies every call unless that checkout is reviewed code: on `main`, no tracked file
 changed, `HEAD` on `origin/main`, and the guard and launcher equal to their committed versions. The template holds the placeholder `<checkout>`; resolve it
-as in **Live checkout denies** (the physical path of this repo root, with the same plain-path and temp-folder
-skip rule) and never write the placeholder to the live file. Assert:
+as the physical path of this repo root (`../../../` from this file, `cd -P <root> && pwd -P`) and never write the
+placeholder to the live file. Skip the guard hook, with a note, when that root is not a plain path: only letters,
+digits and `/ . _ - +`, and not under a temp folder (`/tmp`, `/private/tmp`, `/var/folders`,
+`/private/var/folders`). A throwaway clone is not the live checkout, and a quote or glob character in the path would
+break the hook command. For a non-plain path that is not a temp folder, say plainly that the github MCP must not be
+registered from it (the launcher refuses to start there) and that the fix is to move the checkout to a plain path.
+Assert:
 
 - the live entry's matcher and command are byte-identical to the template's with `<checkout>` filled in. The additive
   merge never updates a matcher or a command, so a live entry with an older template's `mcp__github__.*`, or with
@@ -638,15 +616,20 @@ The status line command references `$HOME/.claude/statusline.sh` — this is the
 
 **Preserve all other fields** (`effortLevel`, `voiceEnabled`, custom keys, etc.) exactly as they are.
 
-**Ordering when writing:**
-1. Permissions grouped: Bash shell utilities, then MCP git tools (alphabetical), then MCP plugin tools; `ask`, then `deny`, after `allow`
-2. Plugins sorted alphabetically
-3. Hooks after plugins
-4. Status line after hooks
-5. `autoMode`, then `skillOverrides`, then `syncClaudeAiSkills` and `syncClaudeAiPlugins`, after the status line when they are new; an existing key keeps its position
-6. Other fields last
+**Ordering when writing:** the file is written in one fixed order by `tools/install-copies.sh order <file>`, never by hand.
+It only reorders: no key, entry or value is added, dropped or changed, and a key it does not know stays, after the known
+ones in its original order. The order is documented in the script header and tested in `tools/test-install-copies.sh`.
+In short: the model and cache keys, then the display, notification and `skip*` keys, then `env`, `attribution`,
+`permissions`, `autoMode`, `hooks`, the MCP keys, the plugin and skill keys; `permissions` is `allow`, `ask`, `deny`,
+each grouped (Bash, git MCP, github MCP, other MCP; `ask` and `deny` have their own groups), with a `Read(!…)`
+exception left after its rule; `hooks` events run SessionStart to SessionEnd, one entry per script, entries in
+their original order.
 
-**Stage, do not write.** Write the merged result to `~/.claude/settings.json.new-<YYYYMMDD-HHMMSS>` (the same date and time as the backup; the name does not end in `.json`, so the hook lets the agent write it), run `chmod 600` on it (the Write tool creates it with the default mode, and the file holds MCP server and env key names), then check it parses and show the user the diff against the live file:
+**Stage, do not write.** Write the merged result to `~/.claude/settings.json.new-<YYYYMMDD-HHMMSS>` (the same date and time as the backup; the name does not end in `.json`, so the hook lets the agent write it), run `chmod 600` on it (the Write tool creates it with the default mode, and the file holds MCP server and env key names), then put it in order: run `bash <root>/tools/install-copies.sh order ~/.claude/settings.json.new-<stamp>`, with the
+output redirected to `~/.claude/settings.json.new-<stamp>.ordered` (a name the hook also lets the agent write), and `mv` that
+over the staged file (the mode stays 600: `chmod 600` again). `<root>` is the repo root this skill runs from. If the
+command exits non-zero, stop and report it: never stage an unordered file. Then check it parses and show the user
+the diff against the live file (a reordered list shows as changed lines; the content is the same):
 
 ```bash
 jq empty ~/.claude/settings.json.new-<stamp> && diff <(jq -S . ~/.claude/settings.json) <(jq -S . ~/.claude/settings.json.new-<stamp>)
@@ -728,7 +711,6 @@ Permissions added: <list, or "none — already up to date">
 Permissions removed (migration): <list, or "none — already clean">
 Deny entries added: <list, or "none — already up to date"> (live-only deny entries: <list, or "none">)
 Ask entries added: <list, or "none — already up to date"> (live-only ask entries: <list, or "none">); user to confirm they prompt
-Live checkout denies: <root>; added <list> / already present / declined / skipped (root under /tmp); leftovers for other paths: <list, or "none">; not covered: Bash writes
 Hooks config: Added / Already configured / Merged
 Settings file: staged <path>, live file unchanged until the user ran the copy / applied (user confirmed) / nothing to write
 Protected checkout: marker ok / MISSING (the user runs the touch command from Step 3)

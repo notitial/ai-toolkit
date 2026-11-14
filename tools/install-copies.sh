@@ -5,6 +5,8 @@
 #   bash tools/install-copies.sh roster            what /setup-claude links: the agents, hooks, rules and skills
 #                                                  committed at HEAD, one repo path per line (never an untracked file)
 #   bash tools/install-copies.sh automode [--valued | --for-cleanup]   the setup template's autoMode lists, filled in
+#   bash tools/install-copies.sh order <file>      a settings.json in /setup-claude's fixed order (see cmd_order); prints
+#                                                  the JSON, writes nothing, drops no key and no entry
 #   bash tools/install-copies.sh accounts          the valid lines of ~/.claude/accounts.conf as name<TAB>kind<TAB>service,
 #                                                  one per line; tools/accounts.zsh reads the launchers' accounts from this
 #                                                  (the one parser), a bad line goes to stderr and is left out
@@ -452,10 +454,65 @@ cmd_automode() {
   ' "$tpl" || { fail "cannot read autoMode from $tpl"; return 1; }
 }
 
+# order <file>: the settings file as JSON in one fixed order, so a merge never scrambles it. Only order changes: no key,
+# entry or value is added, dropped or edited. Top level: model, effortLevel, autoCompactWindow, promptCacheTtl,
+# subagentPromptCacheTtl; theme, tui, voiceEnabled, statusLine, the *Notif* keys, remoteControlAtStartup, the skip* keys;
+# env, attribution, permissions, autoMode; hooks; enableAllProjectMcpServers, deniedMcpServers; enabledPlugins,
+# skillOverrides, syncClaudeAiSkills, syncClaudeAiPlugins; then any other key in its original order. permissions: allow,
+# ask, deny, then any other key. allow: Bash, mcp__git-mcp__, mcp__github__, other mcp__ (each mcp group sorted), then the
+# rest. ask: caffeinate, workspace-lock, other Bash, Edit, mcp__, the rest. deny: Bash, mcp__github__ (sorted), other
+# mcp__, Edit(~/...), other Edit, Read, the rest. A group not marked sorted keeps its original relative order, so a
+# Read(!...) exception stays after its rule. hooks: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop,
+# SessionEnd, then other events in their original order; the entries within an event keep their order.
+# Exit 1 on a missing, unreadable or invalid file (or no jq), 2 on a bad call.
+cmd_order() {
+  [ $# = 1 ] || { fail "usage: install-copies.sh order <file>"; return 2; }
+  [ -f "$1" ] || { fail "order: no such file: $1"; return 1; }
+  command -v jq >/dev/null 2>&1 || { fail "order needs jq"; return 1; }
+  jq '
+    def rank($list): . as $k | ($list | index($k)) // ($list | length);
+    def mcp: startswith("mcp__");
+    def top_rank:
+      if test("[Nn]otif") then 9
+      elif startswith("skip") then 11
+      else rank(["model","effortLevel","autoCompactWindow","promptCacheTtl","subagentPromptCacheTtl",
+        "theme","tui","voiceEnabled","statusLine","","remoteControlAtStartup","",
+        "env","attribution","permissions","autoMode","hooks","enableAllProjectMcpServers","deniedMcpServers",
+        "enabledPlugins","skillOverrides","syncClaudeAiSkills","syncClaudeAiPlugins"]) end;
+    def allow_rank:
+      if startswith("Bash") then 0 elif startswith("mcp__git-mcp__") then 1 elif startswith("mcp__github__") then 2
+      elif mcp then 3 else 4 end;
+    def ask_rank:
+      if startswith("Bash") and test("caffeinate") then 0 elif startswith("Bash") and test("workspace-lock") then 1
+      elif startswith("Bash") then 2 elif startswith("Edit") then 3 elif mcp then 4 else 5 end;
+    def deny_rank:
+      if startswith("Bash") then 0 elif startswith("mcp__github__") then 1 elif mcp then 2
+      elif startswith("Edit(~/") then 3 elif startswith("Edit") then 4 elif startswith("Read") then 5 else 6 end;
+    def is_str: type == "string";
+    def order_list(rk; sg):
+      if type == "array" and all(.[]; is_str) then
+        [to_entries[] | {i: .key, v: .value}] | sort_by([(.v | rk), (if (.v | sg) then .v else "" end), .i]) | map(.v)
+      else . end;
+    def order_keys(rk): [to_entries | to_entries[] | {i: .key, k: .value.key, v: .value.value}] | sort_by([(.k | rk), .i])
+      | map({key: .k, value: .v}) | from_entries;
+    def hook_events: order_keys(rank(["SessionStart","UserPromptSubmit","PreToolUse","PostToolUse","Stop","SessionEnd"]));
+    def perm_rank: rank(["allow","ask","deny"]);
+    order_keys(top_rank)
+    | if (.permissions | type) == "object" then
+        .permissions |= (order_keys(perm_rank)
+          | if has("allow") then .allow |= order_list(allow_rank; (startswith("mcp__"))) else . end
+          | if has("ask") then .ask |= order_list(ask_rank; false) else . end
+          | if has("deny") then .deny |= order_list(deny_rank; startswith("mcp__github__")) else . end)
+      else . end
+    | if (.hooks | type) == "object" then .hooks |= hook_events else . end
+  ' "$1" || { fail "order: cannot read $1 as JSON"; return 1; }
+}
+
 case "${1:-}" in
   status) cmd_status ;;
   roster) cmd_roster ;;
   automode) shift; cmd_automode "$@" ;;
+  order) shift; cmd_order "$@" ;;
   accounts) cmd_accounts ;;
-  *) fail "usage: install-copies.sh status | roster | accounts | automode [--valued | --for-cleanup]"; exit 2 ;;
+  *) fail "usage: install-copies.sh status | roster | accounts | automode [--valued | --for-cleanup] | order <file>"; exit 2 ;;
 esac

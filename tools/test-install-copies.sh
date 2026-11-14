@@ -584,6 +584,105 @@ expect_has "the lock script is listed" "$MODES" "tools/workspace-lock/workspace-
 expect_has "the launcher is listed" "$MODES" "tools/github-mcp/launch"
 expect_not "none of them is committed without the executable bit" "$MODES" "100644 "
 
+case_start "order: settings.json in one fixed order"
+new_case
+IN="$C/in.json"
+cat > "$IN" <<'JSON'
+{
+  "zzUnknown": {"b": 1, "a": 2},
+  "syncClaudeAiPlugins": false,
+  "enabledPlugins": {"x@y": true},
+  "hooks": {
+    "Stop": [{"hooks": [{"type": "command", "command": "stop-a"}]}],
+    "Custom": [{"hooks": [{"type": "command", "command": "custom"}]}],
+    "PreToolUse": [
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "second"}]},
+      {"matcher": "Edit", "hooks": [{"type": "command", "command": "first"}]}
+    ],
+    "SessionStart": [{"hooks": [{"type": "command", "command": "start"}]}]
+  },
+  "skipWorkflowUsageWarning": true,
+  "permissions": {
+    "defaultMode": "default",
+    "deny": [
+      "Read(//**/.env*)",
+      "Edit(//opt/other/**)",
+      "Edit(~/.zshrc)",
+      "mcp__plugin_github_github",
+      "mcp__github__push_files",
+      "mcp__github__create_branch",
+      "Bash(gh:*)",
+      "Bash(security:*)",
+      "Read(~/.netrc)",
+      "Read(**/.env.*)",
+      "Read(!.env.example)"
+    ],
+    "ask": [
+      "mcp__github__actions_run_trigger",
+      "Edit(//**/.mcp.json)",
+      "Bash(other thing)",
+      "Bash(~/.claude/tools/workspace-lock.sh clear *)",
+      "Bash(caffeinate:*)"
+    ],
+    "allow": [
+      "mcp__plugin_context7_context7__query-docs",
+      "mcp__github__get_me",
+      "mcp__github__actions_get",
+      "mcp__git-mcp__git_status",
+      "mcp__git-mcp__git_add",
+      "Bash(ls *)",
+      "Bash(wc *)"
+    ]
+  },
+  "env": {"B": "2", "A": "1"},
+  "agentPushNotifEnabled": true,
+  "model": "sonnet",
+  "theme": "auto",
+  "deniedMcpServers": [{"serverUrl": "https://x/*"}],
+  "autoMode": {"environment": ["$defaults"]},
+  "attribution": {"commit": ""},
+  "remoteControlAtStartup": true,
+  "autoCompactWindow": 500000,
+  "skipDangerousModePermissionPrompt": true,
+  "statusLine": {"type": "command", "command": "x"},
+  "effortLevel": "high",
+  "aaOtherKey": 1,
+  "enableAllProjectMcpServers": false,
+  "subagentPromptCacheTtl": "1h",
+  "promptCacheTtl": "1h"
+}
+JSON
+ic order "$IN"
+expect_rc "order exits 0" 0
+OD="$C/out.json"
+printf '%s\n' "$OUT" > "$OD"
+expect_true "the output is valid JSON" jq -e . "$OD" >/dev/null
+expect_true "only the order changes" test "$(jq -S -c 'walk(if type == "array" then sort else . end)' "$IN")" = "$(jq -S -c 'walk(if type == "array" then sort else . end)' "$OD")"
+expect_true "top-level key order, unknown keys last in their original order" test "$(jq -c 'keys_unsorted' "$OD")" = '["model","effortLevel","autoCompactWindow","promptCacheTtl","subagentPromptCacheTtl","theme","statusLine","agentPushNotifEnabled","remoteControlAtStartup","skipWorkflowUsageWarning","skipDangerousModePermissionPrompt","env","attribution","permissions","autoMode","hooks","enableAllProjectMcpServers","deniedMcpServers","enabledPlugins","syncClaudeAiPlugins","zzUnknown","aaOtherKey"]'
+expect_true "an object's own keys are left alone" test "$(jq -c '(.env, .zzUnknown) | keys_unsorted' "$OD" | tr '\n' ' ')" = '["B","A"] ["b","a"] '
+expect_true "permissions: allow, ask, deny, then other keys" test "$(jq -c '.permissions | keys_unsorted' "$OD")" = '["allow","ask","deny","defaultMode"]'
+expect_true "allow: Bash, git-mcp, github sorted, other mcp" test "$(jq -c '.permissions.allow' "$OD")" = '["Bash(ls *)","Bash(wc *)","mcp__git-mcp__git_add","mcp__git-mcp__git_status","mcp__github__actions_get","mcp__github__get_me","mcp__plugin_context7_context7__query-docs"]'
+expect_true "ask: caffeinate, lock, other Bash, Edit, mcp" test "$(jq -c '.permissions.ask' "$OD")" = '["Bash(caffeinate:*)","Bash(~/.claude/tools/workspace-lock.sh clear *)","Bash(other thing)","Edit(//**/.mcp.json)","mcp__github__actions_run_trigger"]'
+expect_true "deny: Bash, github sorted, other mcp, Edit ~/, other Edit, Read in original order" test "$(jq -c '.permissions.deny' "$OD")" = '["Bash(gh:*)","Bash(security:*)","mcp__github__create_branch","mcp__github__push_files","mcp__plugin_github_github","Edit(~/.zshrc)","Edit(//opt/other/**)","Read(//**/.env*)","Read(~/.netrc)","Read(**/.env.*)","Read(!.env.example)"]'
+expect_true "hooks: known events in order, others after" test "$(jq -c '.hooks | keys_unsorted' "$OD")" = '["SessionStart","PreToolUse","Stop","Custom"]'
+expect_true "the entries within an event keep their order" test "$(jq -c '[.hooks.PreToolUse[].hooks[0].command]' "$OD")" = '["second","first"]'
+ic order "$OD"
+expect_rc "order exits 0 on its own output" 0
+expect_true "order is idempotent" test "$OUT" = "$(cat "$OD")"
+ic order "$C/missing.json"
+expect_rc "order exits 1 on a missing file" 1
+printf '{ not json' > "$C/bad.json"
+ic order "$C/bad.json"
+expect_rc "order exits 1 on invalid JSON" 1
+ic order
+expect_rc "order exits 2 with no file" 2
+ic order "$IN" extra
+expect_rc "order exits 2 with two files" 2
+printf '{"permissions":{"deny":"x","allow":[1,"b"]},"hooks":[]}\n' > "$C/odd.json"
+ic order "$C/odd.json"
+expect_rc "order tolerates odd shapes" 0
+expect_true "odd shapes come through unchanged" test "$(printf '%s' "$OUT" | jq -S -c .)" = '{"hooks":[],"permissions":{"allow":[1,"b"],"deny":"x"}}'
+
 case_start "usage: render is gone"
 new_case
 ic render

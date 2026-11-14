@@ -289,9 +289,10 @@ you don't need (fewer scopes on the `gh` login, a passphrase on SSH keys).
   unprompted too (title, body and a draft-to-ready flip, which starts a paid review).
 - The launcher, the guard and the setting files they read are ordinary files of your user (the root-owned copies were
   retired). The template asks on every Edit of `~/.claude/settings.json` and `settings.local.json`, denies Edit on
-  `~/.claude/install.conf`, and `/setup-claude` denies Edit on the live checkout's `.git/**`, `tools/github-mcp/**`,
-  `hooks/**` and the other linked paths. A shell write is not an Edit, so none of these stops `sed -i` on `guard.sh`
-  or `launch`, a `git checkout` in the live checkout, or a write to `install.conf` that does not name it literally. A
+  `~/.claude/install.conf`, and the template denies Edit on the `~/.claude` link paths. The live checkout itself is
+  protected by `hooks/protected-paths-guard.sh` and its `.protected-checkout` marker (ADR 0017), which denies file-tool,
+  git MCP and simple Bash writes there. It reads no script or interpreter program, and a write to `install.conf` that
+  does not name it literally gets past the Edit denies. A
   change takes effect on the next github call (the guard) or the next MCP start (the launcher).
 - The reviewed-code check lives inside the files it checks, so it holds back accidents and partial edits, not a
   hijacked agent: a shell write that deletes the check from `guard.sh` or `launch` runs with no check at all. Against
@@ -300,12 +301,11 @@ you don't need (fewer scopes on the `gh` login, a passphrase on SSH keys).
   `origin/main` lacks, and it runs git so that nothing in `.git/config` (a filter, an fsmonitor, a work tree, replace
   refs, a pager, a promisor remote's lazy fetch or any transport) runs or redirects it. It cannot tell a merged commit
   from a forged one: `git update-ref refs/remotes/origin/main HEAD`, or one text write of that ref file, makes
-  `origin/main` agree, and a shell write into `.git/objects` can rewrite a commit in place. The `.git/**` Edit deny is
-  what holds the text-write route. Tested on Claude Code 2.1.319 (2026-11-06), with the deny on the real path or on a
-  symlink to it, the Edit tool was refused for the exact path, a mixed-case spelling (`.GIT/config` on a
-  case-insensitive volume), a path through a symlink to the real folder, the real path when the deny named the link,
-  and `/tmp/...` for a deny on `/private/tmp/...`. A later Claude Code version could change that, and a shell write
-  is not an Edit either way. The worst realistic case is a leaked GitHub token (writes stay denied by tool name), and it needs a
+  `origin/main` agree, and a shell write into `.git/objects` can rewrite a commit in place. The protected-paths hook
+  (ADR 0017), which covers `.git/` of a marked checkout, is what holds the text-write route. Before it, an Edit deny
+  on `.git/**` held it: tested on Claude Code 2.1.319 (2026-11-06), the Edit tool was refused for the exact path, a
+  mixed-case spelling (`.GIT/config` on a case-insensitive volume) and a path through a symlink to the real folder.
+  A shell write outside the hook's simple forms is not stopped either way. The worst realistic case is a leaked GitHub token (writes stay denied by tool name), and it needs a
   hijacked agent.
 - A check-then-run gap remains: the launcher verifies the binary's hash and then runs it, so a swap in between is not
   caught. The environment is also a lever: a changed `HOME` moves where `install.conf` and the git config are read
