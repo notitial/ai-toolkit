@@ -17,7 +17,7 @@ Additionally, Bash git permissions allow command chaining (`&&`, `||`, `;`) with
 
 ## Decision
 
-Use the MCP git server. Each git operation is a separate tool (`mcp__git-mcp__git_status`, `mcp__git-mcp__git_diff`, etc.) with validated parameters. The setup template auto-approves `git_status`, `git_diff`, `git_log`, `git_show`, `git_blame` and `git_add`; every other tool (`git_commit`, `git_push`, `git_branch`, `git_remote`, `git_tag`, `git_reset` and the rest) prompts for confirmation.
+Use the MCP git server. Each git operation is a separate tool (`mcp__git-mcp__git_status`, `mcp__git-mcp__git_diff`, etc.) with validated parameters. The setup template auto-approves the read-only tools and the writes an agent needs on its own branch (`git_add`, `git_commit`, `git_branch`, `git_checkout`, `git_fetch`, `git_pull`, `git_merge`, `git_push`, `git_stash`, `git_tag`, `git_cherry_pick`, `git_rebase`, `git_reset`). An allow rule skips only the prompt and the auto mode classifier: the PreToolUse hooks still run, and `hooks/git-mcp-guard.sh` denies force and delete pushes, pushes to `main`, `master` and `production`, hard resets, clean and worktree. Every other tool (`git_remote`, `git_clone`, `git_init`, the working-dir tools) still prompts for confirmation; `git_remote` stays off because its `set-url` mode can redirect `origin`.
 
 MCP tools are better for three reasons: granular per-tool permissions (no wildcard ambiguity), structured JSON output (no parsing errors), and no command chaining risk (no shell involved). Tighter wildcards would be fragile — every new flag combination needs a new pattern. Wrapper scripts add maintenance burden and still run through the shell.
 

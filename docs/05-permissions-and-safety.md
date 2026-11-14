@@ -155,7 +155,7 @@ Replace Bash git permissions with their MCP equivalents in `settings.json`:
 | `Bash(git stash list*)` | `mcp__git-mcp__git_stash` |
 | `Bash(git add *)` | `mcp__git-mcp__git_add` |
 
-Auto-approve read-only MCP tools and low-risk operations like `git_add` (staging). Leave write operations (`git_commit`, `git_push`, `git_reset`, `git_rebase`) for interactive prompting — they modify repository state and deserve human confirmation. `git_remote`, `git_tag` and `git_stash` prompt too: each also has write modes (`set-url`, `delete`, `drop`), and a permission rule matches the tool name, not the mode.
+Auto-approve the read-only MCP tools and the writes an agent needs on its own branch: `git_add`, `git_commit`, `git_branch`, `git_checkout`, `git_fetch`, `git_pull`, `git_merge`, `git_push`, `git_stash`, `git_tag`, `git_cherry_pick`, `git_rebase` and `git_reset`. An allow rule skips only the permission prompt and the auto mode classifier; PreToolUse hooks still run, so the irreversible cases stay blocked by `hooks/git-mcp-guard.sh` (force and delete pushes, pushes to `main`, `master` and `production`, indeterminate targets, relative paths, hard and merge resets, clean, worktree). Keep `git_remote` off the list: its `set-url` mode can point `origin` at a foreign URL, and a permission rule matches the tool name, not the mode.
 
 Install the server at user scope for global availability:
 
