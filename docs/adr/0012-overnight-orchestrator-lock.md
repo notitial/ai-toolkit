@@ -80,16 +80,16 @@ works around it on purpose, the same stance as the hooks in [ADR 0011](0011-shel
   change after `/clear`), passed as a literal value. The guard checks the caller's own id (`--by`, and `--sid` on the
   caller's own verbs) before the script runs; a member, force or transfer target is only checked for shape.
   Freeing a turn takes the owner's `turn give --force`: a healthy turn is refused, a turn past its ETA plus the
-  grace with a stale heartbeat needs a permission prompt, and one whose session a session-end hook marked `ended`
-  passes the guard without it. `owner transfer`, for an owner that lost its id, always prompts. They go through the
+  grace with a stale heartbeat needs a permission prompt, and one still held by a session marked `ended` passes the
+  guard without it. `owner transfer`, for an owner that lost its id, always prompts. They go through the
   script's read-only `--check` and, like `clear`, the guard's prompt; a headless session cannot answer one. A session-end hook, where installed,
   marks a stopped session `ended` and frees its turn but keeps its membership; it runs on a normal stop, on
   SIGTERM, SIGHUP and SIGINT and on a window close, but not after SIGKILL or a crash, so a stale turn can remain, and the prompted force
   covers it. The members, turn files and `ended/` markers
   are plain files of the same user, so a session that forges them is outside the cooperative threat model, as before.
   The protocol is in [the protocol skill](../../skills/workspace-lock-protocol/SKILL.md); a repo is armed for it by the
-  person adding the lock script to `permissions.allow` (a leading-wildcard form only in a gitignored or user settings
-  file), and no agent writes that.
+  person adding the literal absolute-path lock script entry to the repo's gitignored `.claude/settings.local.json`
+  (never a leading-wildcard allow entry, which auto-approves any command naming that path), and no agent writes that.
 
 ## Consequences
 

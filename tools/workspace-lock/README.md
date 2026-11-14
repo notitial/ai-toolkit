@@ -20,18 +20,24 @@ is committed `100755`, and `tools/install-copies.sh status` reports it if it is 
 ~/.claude/tools/workspace-lock.sh   ->   tools/workspace-lock/workspace-lock.sh
 ```
 
-Invoke it by that path with a literal `$HOME` (portable across machines/usernames), and allowlist
-the **same** form:
+Invoke it by that path with a literal `$HOME` (portable across machines/usernames):
 
 ```
 $HOME/.claude/tools/workspace-lock.sh <sub> …
-Bash($HOME/.claude/tools/workspace-lock.sh *)      # in the workspace settings.json allow list
 ```
 
-Whether the permission matcher honors literal `$HOME` is **undocumented** (it is a different
-mechanism from hook `command` `$HOME`, which is execution, not matching). If a plain `status` call
-still asks for permission, the entry did not match: add the literal absolute path as well
-(`Bash(/Users/<you>/.claude/tools/workspace-lock.sh *)`).
+**Allow entry (the person adds it; no agent or tool writes settings).** Put the literal absolute path in the repo's
+gitignored `.claude/settings.local.json`, under `permissions.allow`:
+
+```
+Bash(/Users/<you>/.claude/tools/workspace-lock.sh *)
+```
+
+A call to the script should then run without a prompt; if a `status` call still asks, the entry did not match. Do
+**not** use `Bash(*/.claude/tools/workspace-lock.sh *)` as an allow entry, anywhere: its leading wildcard
+auto-approves any command that names that path as an argument (a downloader or interpreter call, a script planted
+under `/tmp`), and in user settings it does so in every repo. It is safe only as the `permissions.ask` entry that
+`/setup-claude` installs. A literal `$HOME` rule did not match in a live test.
 
 ## Model
 
@@ -100,7 +106,7 @@ WORKSPACE_LOCK_ID` still works as a fallback (the flag wins if both are set), bu
 survives a fresh shell after compaction AND stays visible in the command string for the lock-guard
 hook to parse. **Never use the inline env-prefix form** (`WORKSPACE_LOCK_ID=x
 $HOME/.claude/tools/workspace-lock.sh …`) — the leading `VAR=` defeats the
-`Bash($HOME/.claude/tools/workspace-lock.sh *)` allowlist prefix match and the call falls back
+allow entry's prefix match and the call falls back
 to a permission prompt, which an unattended session cannot answer. When redirecting lock-script output, send it
 to `/dev/null` or a scratch path (`> /tmp/lock.log 2>&1`); any other redirect target voids the always-allow exemption
 and the call falls under normal lock rules. Keep every lock-script call a single plain command: a `|`/`;`/`&`/newline
@@ -141,7 +147,7 @@ spelled `$HOME/.claude/tools/workspace-lock.sh`, with no `$`, braces or globs in
 | `turn take --id x --sid m --eta +20m [--task t]` | A member or the owner waits for the turn (run in the background); a non-member exits 1 at once. Taking again while holding it refreshes the ETA. Prints the last hand-over and a `WARN` if it was not `clean`. |
 | `turn give --id x --sid m --tree clean\|dirty` | Hand the turn back; `--tree` is the giver's word and a `dirty` give is warned, never refused. |
 | `turn beat --id x --sid m [--eta +20m]` | Heartbeat of the turn; past its ETA a bare beat is refused. |
-| `turn give --id x --sid m --by o --force [--check]` | Owner frees a member's turn: after a **permission prompt** when the turn is past its ETA plus the grace and its heartbeat is stale, never a healthy one; `FORCEABLE-NOW` (no guard prompt) needs an `ended/<sid>` marker, which only a session-end hook writes. `--check` prints `FORCEABLE-NOW`, `FORCEABLE` or `NOT-FORCEABLE` and changes nothing. |
+| `turn give --id x --sid m --by o --force [--check]` | Owner frees a member's turn: after a **permission prompt** when the turn is past its ETA plus the grace and its heartbeat is stale, never a healthy one; `FORCEABLE-NOW` (no guard prompt) needs an `ended/<sid>` marker (only a session-end hook writes it) while that session still holds the turn; after a normal hook run the turn is already freed and there is nothing to force. `--check` prints `FORCEABLE-NOW`, `FORCEABLE` or `NOT-FORCEABLE` and changes nothing. |
 | `owner transfer --id x --to s [--check]` | Moves ownership to a new session id after the owner's was lost (`/clear` mints one), at a **permission prompt**. |
 | `heartbeat`, `release --id x --sid o` | Owner only on an owned lock; `release` is refused while a turn is held unless `--force`. |
 | `status` | Adds the kind, owner, member count, turn holder, its ETA and task, and the last hand-over. |
@@ -153,12 +159,8 @@ SIGKILL or a crash runs nothing and leaves a stale turn, which the prompted forc
 force a stale turn, transfer ownership or `clear`. The protocol text is in
 [the protocol skill](../../skills/workspace-lock-protocol/SKILL.md).
 
-**Arming a repo (the person does it).** Members need the script allowed in the repo's project settings. Add
-`Bash(~/.claude/tools/workspace-lock.sh *)` to `permissions.allow`. If a call spelled `$HOME/...` still prompts,
-the form that matched in a live test is `Bash(*/.claude/tools/workspace-lock.sh *)`; its leading wildcard matches any
-command containing that text (a script planted under `/tmp` too), so put it only in the person's own
-`.claude/settings.local.json` or user settings, never in a checked-in file. No agent or tool writes either. The user-level
-`permissions.ask` entries for `turn give *--force*` and `owner transfer *` come from `/setup-claude`.
+**Arming a repo (the person does it).** Members need the script allowed: see "Allow entry" under Install. The
+user-level `permissions.ask` entries for `turn give *--force*` and `owner transfer *` come from `/setup-claude`.
 
 ### Config (env)
 | Var | Default | Purpose |

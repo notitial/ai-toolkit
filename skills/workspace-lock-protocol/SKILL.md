@@ -37,14 +37,11 @@ their parent's session id (observed in a probe), so they work under the parent's
 - **One plain call, spelled `$HOME/.claude/tools/workspace-lock.sh`.** No pipe, chain, redirect, other path to the
   script or `VAR=x` prefix. Values (`--id`, `--sid`, `--task`) carry no `$`, braces, backticks or globs. Run
   `acquire` and `turn take` in the background: a take can wait for hours.
-- **Arming (the person does it).** The owner and members need the script allowed in the repo's project settings, or
-  every call stops at a prompt. The person adds an allow entry for it to `permissions.allow`: `Bash(~/.claude/tools/workspace-lock.sh *)`,
-  and, if a call spelled `$HOME/...` still prompts, `Bash(*/.claude/tools/workspace-lock.sh *)`. The second has a
-  leading wildcard: it matches any command containing that text, a script an agent planted under `/tmp` included,
-  so keep it in the person's own `.claude/settings.local.json` (gitignored) or user settings, never a checked-in
-  file, and add it only after the first form is seen not to match. No agent writes settings. The prompted verbs
-  below still ask: the guard asks, and the user-level `permissions.ask` entries that `/setup-claude` installs
-  back it up.
+- **Arming (the person does it).** The owner and members need the script allowed, or every call stops at a prompt.
+  The person adds the literal absolute-path allow entry to the repo's gitignored `.claude/settings.local.json`, as
+  the tool README's Install section says; never a leading-wildcard `Bash(*/.claude/...)` allow entry, which
+  auto-approves any command naming that path. No agent writes settings. The prompted verbs below still ask: the
+  guard asks, and the user-level `permissions.ask` entries that `/setup-claude` installs back it up.
 
 **Owner**
 
@@ -58,8 +55,9 @@ their parent's session id (observed in a probe), so they work under the parent's
    and `status` show the members and who holds the turn.
 5. A stuck turn: `turn give --id <slug> --sid <member sid> --by <own sid> --force`. A healthy turn is refused.
    It needs the user's click at a prompt when the turn is past its ETA plus the grace and its heartbeat is stale.
-   A session-end hook, where installed, marks a stopped member `ended`, and `--check` then reports
-   `FORCEABLE-NOW`; the user-level ask entry may still prompt. `--check` changes nothing.
+   `--check` reports `FORCEABLE-NOW` only while an `ended/<sid>` marker exists and that session still holds the
+   turn; a session-end hook, where installed, frees the turn on a normal stop, so there is then nothing to force.
+   The user-level ask entry may still prompt. `--check` changes nothing.
 6. `release --id <slug> --sid <own sid>` when no member is left and you are done. It is refused while a turn is
    held unless you pass `--force`. Only the owner heartbeats or releases.
 7. **Never `/clear` while you own a lock**: it mints a new session id and the lock keeps the old one. If it
