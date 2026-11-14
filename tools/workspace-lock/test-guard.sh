@@ -740,6 +740,7 @@ run deny  "release: a variable --sid on an open lock" "$(bashjson "$W" "$LS rele
 FR="$LS turn give --id team-o --sid $M1 --by $OWN --force"
 W=$(mkowned force_a); giveturn "$W" $M1 600 0
 printf '%s ended\n' "$NOW" > "$W/$LOCKNAME/lock.d/ended/$M1"
+EXTRA_ENV="HOME=$CH2 CLAUDE_CODE_ENTRYPOINT=cli"
 run allow "force: a turn whose session ended is freed at once" "$(bashjson "$W" "$FR" $OWN)"
 logline_has "$W/$LOCKNAME" "FORCE-NOW" "the immediate force is logged"
 EXTRA_ENV="HOME=$CH2 CLAUDE_CODE_ENTRYPOINT=sdk-cli"
