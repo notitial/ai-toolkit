@@ -314,27 +314,81 @@ in_lock_folder() {  # compared in lower case: the usual macOS file system ignore
   case "$_lp" in "$_ld"|"$_ld"/*|*/.workspace-lock|*/.workspace-lock/*) return 0 ;; esac
   return 1
 }
+# strip_heredocs <text>: the text without the bodies (and end lines) of its heredocs, which are data, not
+# words. A heredoc counts only when its <<TAG stands outside quotes and its end line exists; otherwise nothing
+# is dropped.
+strip_heredocs() {
+  printf '%s' "$1" | awk -v q="'" '
+    { line[NR] = $0 }
+    function tagof(l,   p, pre, r, d) {
+      p = index(l, "<<"); if (!p) return ""
+      pre = substr(l, 1, p - 1)
+      gsub("\"[^\"]*\"", "", pre); gsub(q "[^" q "]*" q, "", pre)
+      if (pre ~ ("[\"" q "]")) return ""
+      r = substr(l, p + 2)
+      if (substr(r, 1, 1) == "<") return ""
+      d = (substr(r, 1, 1) == "-"); sub(/^-?[ \t]*/, "", r); sub("^[\"" q "\\\\]", "", r)
+      if (!match(r, /^[A-Za-z_][A-Za-z0-9_]*/)) return ""
+      return (d ? "-" : "+") substr(r, 1, RLENGTH)
+    }
+    END {
+      i = 1
+      while (i <= NR) {
+        print line[i]
+        t = tagof(line[i]); j = 0
+        if (t != "") {
+          for (k = i + 1; k <= NR && !j; k++) {
+            e = line[k]; if (substr(t, 1, 1) == "-") sub(/^\t+/, "", e)
+            if (e == substr(t, 2)) j = k
+          }
+        }
+        i = j ? j + 1 : i + 1
+      }
+    }'
+}
+# glob_hits_lock <word>: an unquoted glob in <word> could expand to the lock folder or a path inside it. The
+# pattern is cut back one path part at a time and matched against the folder, as the shell would, except
+# that a leading * ? or [ never matches the dot of a dot folder.
+glob_hits_lock() {
+  _gp=$(abspath "$1" | LC_ALL=C tr 'A-Z' 'a-z'); _gl=$(printf '%s' "$LOCK_DIR" | LC_ALL=C tr 'A-Z' 'a-z')
+  _gdot=0; case "${_gl##*/}" in .*) _gdot=1 ;; esac
+  while [ -n "$_gp" ]; do
+    case "$_gl" in
+      $_gp) case "${_gp##*/}" in '*'*|'?'*|'['*) [ "$_gdot" = 1 ] || return 0 ;; *) return 0 ;; esac ;;
+    esac
+    case "$_gp" in */*) _gp=${_gp%/*} ;; *) break ;; esac
+  done
+  return 1
+}
 # names_lock_folder: the Bash command runs from inside the lock folder, or one of its words is a path to the
-# folder or into it (a quoted multi-word text, as in a commit message, is no path). A lone .workspace-lock/
-# as the argument of echo or printf is a .gitignore line, not a write.
+# folder or into it (a quoted multi-word text, as in a commit message, is no path). Heredoc bodies are not
+# words, and ; | ( ) split words. A word the shell expands (a variable, a brace, a glob) counts when it
+# names the folder as text or could glob to it. A .workspace-lock/ right after a leading echo or
+# printf is a .gitignore line, not a write.
 names_lock_folder() {
   in_lock_folder "$CWD" && return 0
-  _nf=""; _npv=""
+  _nf=""; _npv=""; _ni=0
   while IFS= read -r _nw; do
     [ "$_nw" != "!" ] || continue
-    _nw=${_nw#?}
-    _nprev=$_npv; _npv=$_nw
-    [ "$_nprev" != -e ] || continue            # git clean -e <pattern> excludes it
+    _nt=${_nw%"${_nw#?}"}; _nw=${_nw#?}
+    _nprev=$_npv; _npv=$_nw; _ni=$((_ni + 1))
+    case "$_nprev" in -e|-[!-]*e) continue ;; esac   # git clean -e <pattern> excludes it
     case "$_nw" in --exclude=*) continue ;; esac
     case "$_nw" in *[[:space:]]*) continue ;; esac
-    case "$_nw" in [0-9]'>'*|'>'*) _nw=${_nw#*>}; _nw=${_nw#>} ;; esac
+    case "$_nw" in *'>'*) _nw=${_nw##*>} ;; esac
     [ -n "$_nw" ] || continue
     [ -n "$_nf" ] || { _nf=$_nw; continue; }
     case "$_nw" in lock.d|lock.d/*) return 0 ;; esac
-    case "$_nf $_nw" in 'echo .workspace-lock'|'echo .workspace-lock/'|'printf .workspace-lock'|'printf .workspace-lock/') continue ;; esac
+    case "$_ni:$_nf $_nw" in '2:echo .workspace-lock'|'2:echo .workspace-lock/'|'2:printf .workspace-lock'|'2:printf .workspace-lock/') continue ;; esac
+    if [ "$_nt" = D ]; then
+      _nl=$(printf '%s' "$_nw" | LC_ALL=C tr 'A-Z' 'a-z')
+      case "$_nl" in *.workspace-lock*|*lock.d*) return 0 ;; esac
+      case "$_nw" in *'*'*|*'?'*|*'['*) glob_hits_lock "$_nw" && return 0 ;; esac
+      continue
+    fi
     in_lock_folder "$(abspath "$_nw")" && return 0
   done <<EOT
-$(qwords "$CMD")
+$(qwords "$(strip_heredocs "$CMD" | tr ';|()' '    ')")
 EOT
   return 1
 }
@@ -349,24 +403,49 @@ lock_script_segment() {
     case "${2:-}" in member|turn|owner|release|heartbeat|acquire|clear) exit 1 ;; esac
   done
 }
-# git_clean_segment: fails on a git clean that could remove the lock folder: not a dry run and not excluding it.
+# git_clean_segment: fails on a git clean that could remove the lock folder: not a dry run and not
+# excluding it. Reads the words the way git does: leading global options are skipped (those that take a
+# value consume it), a short cluster is read letter by letter (n is a dry run, e takes the rest of the word
+# or the next word as an exclude pattern), and only an exclude that is exactly the lock folder counts. A long
+# option other than --dry-run, --exclude and --force is not understood, so it protects nothing.
 git_clean_segment() {
   printf '%s\n' "$(split_command "$CMD")" | while IFS= read -r _seg; do
     set -- $(printf '%s' "$_seg" | tr -d "'\"\\\\")
     [ "${1:-}" = git ] || continue
     shift
-    while [ $# -gt 0 ]; do case "$1" in --no-pager) shift ;; -C|-c) shift 2 ;; *) break ;; esac; done
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -C|-c|--git-dir|--work-tree|--namespace|--exec-path|--super-prefix|--config-env) shift 2 ;;
+        -*) shift ;;
+        *) break ;;
+      esac
+    done
     [ "${1:-}" = clean ] || continue
     shift
     _dry=0; _exc=0; _ex=0
     for _cw in "$@"; do
-      if [ "$_ex" = 1 ]; then case "$_cw" in *workspace-lock*) _exc=1 ;; esac; _ex=0; continue; fi
+      if [ "$_ex" = 1 ]; then
+        case "$_cw" in .workspace-lock|.workspace-lock/|/.workspace-lock|/.workspace-lock/) _exc=1 ;; esac
+        _ex=0; continue
+      fi
       case "$_cw" in
         --dry-run) _dry=1 ;;
-        --exclude=*workspace-lock*) _exc=1 ;;
+        --exclude=*) case "${_cw#--exclude=}" in .workspace-lock|.workspace-lock/|/.workspace-lock|/.workspace-lock/) _exc=1 ;; esac ;;
+        --exclude) _ex=1 ;;
         --*) ;;
-        -e) _ex=1 ;;
-        -*n*) _dry=1 ;;
+        -*)
+          _cl=${_cw#-}
+          while [ -n "$_cl" ]; do
+            _c1=${_cl%"${_cl#?}"}; _cl=${_cl#?}
+            case "$_c1" in
+              n) _dry=1 ;;
+              e) case "$_cl" in
+                   '') _ex=1 ;;
+                   .workspace-lock|.workspace-lock/|/.workspace-lock|/.workspace-lock/) _exc=1 ;;
+                 esac
+                 break ;;
+            esac
+          done ;;
       esac
     done
     [ "$_dry" = 1 ] || [ "$_exc" = 1 ] || exit 1
@@ -617,6 +696,9 @@ strip_redirects() {
   _s="$1"
   while IFS= read -r _r; do
     [ -n "$_r" ] || continue
+    # Digits before > are a file descriptor only as a whole word: in team2>&1 the word is team2.
+    _pre="${_r%%>*}"
+    case "$_pre" in *[!0-9]*) _r=">${_r#*>}" ;; esac
     _t="${_r#*>}"; _t="${_t#>}"; _t="${_t#"${_t%%[![:space:]]*}"}"
     case "$_t" in
       '&'[0-9]|/dev/null) ;;
@@ -624,7 +706,7 @@ strip_redirects() {
     esac
     _s="${_s/"$_r"/ }"
   done <<EOF
-$(printf '%s' "$1" | grep -oE '[0-9]*>>?[[:space:]]*(&[0-9]|[^[:space:];|&<>()]+)')
+$(printf '%s' "$1" | grep -oE '[^[:space:];|&<>()]*>>?[[:space:]]*(&[0-9]|[^[:space:];|&<>()]+)')
 EOF
   printf '%s' "$_s"
 }
