@@ -1006,7 +1006,6 @@ read_nested() {
 judge_push() {
   local dir=$1 a rem="" ropt="" opt="" cur top skipn=0 dd=0
   shift
-  [ -n "$dir" ] && [ -d "$dir" ] || return 0
   for a in "$@"; do
     if [ "$skipn" = 1 ]; then
       skipn=0
@@ -1017,15 +1016,23 @@ judge_push() {
       case "$a" in
         --) dd=1; continue ;;
         --repo=*) ropt=${a#*=}; continue ;;
-        --repo | -o | --push-option | --receive-pack | --exec) opt=$a; skipn=1; continue ;;
+        --repo | --push-option | --receive-pack | --exec) opt=$a; skipn=1; continue ;;
+        -o | -[!-]*o) opt=-o; skipn=1; continue ;;
         -*) continue ;;
       esac
     fi
     [ -n "$rem" ] || rem=$a
   done
+  # A folder that does not exist (yet) or is unknown has no config to read: only an explicit target can be judged.
+  if [ -z "$dir" ] || [ ! -d "$dir" ]; then
+    push_target "" "" "$rem"
+    push_target "" "" "$ropt"
+    return 0
+  fi
   top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || top=$dir
   if [ -z "$rem" ] && [ -z "$ropt" ]; then
-    cur=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null)
+    cur=$(git -C "$dir" symbolic-ref -q HEAD 2>/dev/null)
+    cur=${cur#refs/heads/}
     [ -z "$cur" ] || rem=$(git -C "$dir" config --get "branch.$cur.pushRemote" 2>/dev/null)
     [ -n "$rem" ] || rem=$(git -C "$dir" config --get remote.pushDefault 2>/dev/null)
     [ -z "$cur" ] || [ -n "$rem" ] || rem=$(git -C "$dir" config --get "branch.$cur.remote" 2>/dev/null)
@@ -1040,7 +1047,7 @@ judge_push() {
 push_target() {
   local dir=$1 top=$2 rem=$3 urls url p
   [ -n "$rem" ] || return 0
-  if ! urls=$(git -C "$dir" remote get-url --push --all -- "$rem" 2>/dev/null); then
+  if [ -z "$dir" ] || ! urls=$(git -C "$dir" remote get-url --push --all -- "$rem" 2>/dev/null); then
     case "$rem" in */* | . | ..) ;; *) return 0 ;; esac
     urls=$rem
   fi
@@ -1053,6 +1060,7 @@ push_target() {
       /* | '~' | '~/'* | '$HOME' | '$HOME/'* | '${HOME}' | '${HOME}/'*) p=$url ;;
       *)
         case "${url%%/*}" in *:*) continue ;; esac
+        [ -n "$top" ] || continue
         p="$top/$url"
         ;;
     esac
@@ -1068,6 +1076,12 @@ analyse_git() {
     if [ -n "$next" ]; then
       case "$next" in
         -C)
+          case "$a" in
+            '~') a=$HOME_R ;;
+            '~/'*) a="$HOME_R/${a#\~/}" ;;
+            '$HOME') a=$HOME_R ;;
+            '$HOME/'*) a="$HOME_R/${a#\$HOME/}" ;;
+          esac
           case "$a" in
             /*) wt=$a ;;
             *) if [ -n "$wt" ]; then wt="$wt/$a"; fi ;;
@@ -1087,6 +1101,12 @@ analyse_git() {
       -C | --work-tree | --git-dir) next=$a ;;
       -C?*)
         a=${a#-C}
+        case "$a" in
+          '~') a=$HOME_R ;;
+          '~/'*) a="$HOME_R/${a#\~/}" ;;
+          '$HOME') a=$HOME_R ;;
+          '$HOME/'*) a="$HOME_R/${a#\$HOME/}" ;;
+        esac
         case "$a" in /*) wt=$a ;; *) if [ -n "$wt" ]; then wt="$wt/$a"; fi ;; esac
         ;;
       --work-tree=*) wt=${a#*=} ;;
@@ -1108,7 +1128,7 @@ analyse_git() {
     done
   fi
   if [ "$sub" = push ]; then
-    [ -n "$wt" ] && judge_push "$wt" "${subargs[@]}"
+    judge_push "$wt" "${subargs[@]}"
     return 0
   fi
   git_is_write "$sub" "${subargs[@]}" || return 0
