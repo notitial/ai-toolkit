@@ -578,7 +578,7 @@ case_start "this repository: the autoMode template holds no unfillable placehold
 TPL="$(cd "$(dirname "$SCRIPT_SRC")/.." && pwd -P)/.claude/skills/setup-claude/templates/safe-permissions.json"
 ENTRIES=$(jq -r '.autoMode | to_entries[] | select(.key | startswith("_") | not) | .value[]? | strings' "$TPL" 2>&1)
 expect_true "the template lists autoMode entries" test -n "$ENTRIES"
-LEFT=$(printf '%s\n' "$ENTRIES" | sed -e 's/<username>//g' -e 's/<host>//g' -e 's/<router\.ip>//g' | grep -E '\[[^]]*(FILL|fill)[^]]*\]|<[A-Za-z][^>]*>|\[[A-Z ]+\]')
+LEFT=$(printf '%s\n' "$ENTRIES" | sed -e 's/<username>//g' -e 's/<host>//g' -e 's/<router\.ip>//g' | grep -E -e '\[[A-Z ]+\]' -e '<[A-Za-z][^>]*>' -e '\[[^]]*[Ff][Ii][Ll][Ll][^]]*\]')
 expect_true "only <username>, <host> and <router.ip> are placeholders, nothing like [FILL IN]" test -z "$LEFT"
 
 # The scripts that run by their path are committed executable in this repository: a hook without the bit fails open, and
