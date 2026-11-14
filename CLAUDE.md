@@ -51,6 +51,7 @@ Outside the directories in that list, do not search for `package.json`, `Makefil
 The live checkout is what `/setup-claude` links into `~/.claude` (hooks, rules, skills, agents, the status line, the tool scripts) and what the github MCP launcher and guard run from, so a branch or half-done edit there goes live on the next tool call, MCP start or window reload. It stays on `main` and moves only with `git pull --ff-only` after a merge: the merge plus that pull is the install.
 
 - Code changes go in a plain clone under `/tmp`, such as `/tmp/ai-toolkit-<task>`, never a worktree. Git MCP calls carry `path` set to that clone. Never edit a tracked file in the live checkout.
+- Clone from the GitHub URL, never from the live checkout's folder: a clone of the folder has that path as its `origin`, and its push would write into the live checkout. The protected-paths guard denies such a push.
 - `.archive/` (STATE.md, handoffs) stays in the live checkout: it is gitignored, so a clone has none.
 - `/tmp` is wiped on reboot: push the branch before stopping or handing over.
 - A long-lived session may still run in the live folder, since the tool that tracks it keys it to the folder it started in; it edits in its clone.

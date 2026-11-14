@@ -9,6 +9,9 @@
 #     cannot be removed or moved (a call that creates one only widens the protection). The hook finds a root by walking up from the target's real path, so a clone made elsewhere (no marker
 #     in it) stays editable, and a non-repository folder can be protected the same way.
 #   - ~/.claude/settings*.json (any such file directly under ~/.claude).
+#   - A git push (Bash or git MCP git_push) whose target remote resolves to a local path inside a protected place:
+#     the push writes refs and objects there. A clone made from the live checkout's folder has that path as its
+#     origin. A network URL is not judged.
 #   Exceptions: <root>/.archive/** is writable; `git pull --ff-only`, `git merge --ff-only` and the git MCP
 #   git_pull with fastForwardOnly are allowed (they move a checkout to a reviewed commit and nothing else).
 #
@@ -17,8 +20,8 @@
 #
 # WHAT COUNTS AS A WRITE (reads are never denied)
 #   - Edit, Write, MultiEdit, NotebookEdit: the target's real path (symlinks followed, case-insensitive compare).
-#   - git MCP tools: every tool except the read ones (status, log, diff, show, blame, reflog, fetch, push, working
-#     directory tools, and the list/show modes of branch, tag, remote, stash, worktree). The folder is the call's
+#   - git MCP tools: every tool except the read ones (status, log, diff, show, blame, reflog, fetch, working
+#     directory tools, git_push (judged by its remote, below), and the list/show modes of branch, tag, remote, stash, worktree). The folder is the call's
 #     `path`; a missing or relative `path` is read against the session's folder.
 #   - Bash and Monitor, one simple rule: the command is split into segments (; && || | & newline, and the insides of
 #     $( ), backticks and ( )), `cd <dir>` is tracked left to right, and a segment is denied when it is a write
@@ -31,7 +34,10 @@
 #     Relative operands resolve against the tracked folder; a glob is judged by its directory prefix.
 #
 # KNOWN LIMITS (this is a guard against mistakes and the classifier is a second line, not a sandbox)
-#   Not read: the program text of an interpreter (python -c, node -e, a script file), make/npm/other tools that
+#   Not read: for a push, a remote named by a variable or by git's environment (GIT_DIR, GIT_CONFIG_*) or by `git -c remote.<name>.url=...`, a remote changed or a clone made earlier in the same command, a git MCP
+#   `git_push` with no `path`, submodule pushes, `--git-dir`
+#   with no work tree, a bare word that is no configured remote (read as a name, not a folder), a percent-encoded file:// URL, a repo with no readable config, an alias or a remote helper
+#   that maps to a local path; the program text of an interpreter (python -c, node -e, a script file), make/npm/other tools that
 #   write on their own, paths built at run time ($VAR, $(...) output), a `cd` to a variable or glob (the folder is
 #   then unknown and only absolute operands are judged), file names fed to xargs on stdin, $(...) inside a heredoc,
 #   hard links, the target of a find -exec, programs that write on their own (archive creators, compressors,
@@ -992,12 +998,95 @@ read_nested() {
   CWD=$saved
 }
 
+# judge_push <repo dir> <git push args...>: a push whose target resolves to a local path inside a protected place
+# writes refs and objects there, so it is judged like any other write. The target is the --repo option or the first
+# operand, else the repo's push remote (branch pushRemote, remote.pushDefault, branch remote, origin). A configured
+# remote is read as its push URL (rewrites applied); anything else is taken as written. A network URL (scheme://,
+# or host:path) is not judged. A relative path resolves against the repo dir.
+judge_push() {
+  local dir=$1 a rem="" ropt="" opt="" cur top skipn=0 dd=0
+  shift
+  for a in "$@"; do
+    if [ "$skipn" = 1 ]; then
+      skipn=0
+      [ "$opt" = --repo ] && ropt=$a
+      continue
+    fi
+    if [ "$dd" = 0 ]; then
+      case "$a" in
+        --) dd=1; continue ;;
+        --repo=*) ropt=${a#*=}; continue ;;
+        --repo | --push-option | --receive-pack | --exec) opt=$a; skipn=1; continue ;;
+        -o) opt=-o; skipn=1; continue ;;
+        -[!-]*o)
+          # a cluster takes the next word only when its first o is the last letter (-fo); -oVALUE carries its own
+          case "${a%o}" in *o*) ;; *) opt=-o; skipn=1 ;; esac
+          continue
+          ;;
+        -*) continue ;;
+      esac
+    fi
+    [ -n "$rem" ] || rem=$a
+  done
+  # A folder that does not exist (yet) or is unknown has no config to read: only an explicit target can be judged.
+  if [ -z "$dir" ] || [ ! -d "$dir" ]; then
+    push_target "" "" "$rem"
+    push_target "" "" "$ropt"
+    return 0
+  fi
+  top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || top=$dir
+  if [ -z "$rem" ] && [ -z "$ropt" ]; then
+    cur=$(git -C "$dir" symbolic-ref -q HEAD 2>/dev/null)
+    cur=${cur#refs/heads/}
+    [ -z "$cur" ] || rem=$(git -C "$dir" config --get "branch.$cur.pushRemote" 2>/dev/null)
+    [ -n "$rem" ] || rem=$(git -C "$dir" config --get remote.pushDefault 2>/dev/null)
+    [ -z "$cur" ] || [ -n "$rem" ] || rem=$(git -C "$dir" config --get "branch.$cur.remote" 2>/dev/null)
+    [ -n "$rem" ] || rem=origin
+  fi
+  push_target "$dir" "$top" "$rem"
+  push_target "$dir" "$top" "$ropt"
+}
+
+# push_target <repo dir> <work tree top> <remote name or url, may be empty>: judge one push target. Both the
+# --repo option and the operand are judged, since which one git uses is not worth getting wrong.
+push_target() {
+  local dir=$1 top=$2 rem=$3 urls url p
+  [ -n "$rem" ] || return 0
+  if [ -z "$dir" ] || ! urls=$(git -C "$dir" remote get-url --push --all -- "$rem" 2>/dev/null); then
+    case "$rem" in */* | . | ..) ;; *) return 0 ;; esac
+    urls=$rem
+  fi
+  while IFS= read -r url; do
+    [ -n "$url" ] || continue
+    case "$url" in
+      file://localhost/*) p=${url#file://localhost} ;;
+      file://*) p=${url#file://} ;;
+      *://*) continue ;;
+      /* | '~' | '~/'* | '$HOME' | '$HOME/'* | '${HOME}' | '${HOME}/'*) p=$url ;;
+      *)
+        case "${url%%/*}" in *:*) continue ;; esac
+        [ -n "$top" ] || continue
+        p="$top/$url"
+        ;;
+    esac
+    judge_target "$p" "git push"
+  done <<EOF
+$urls
+EOF
+}
+
 analyse_git() {
   local wt=$CWD gd="" a sub="" subargs=() next="" base
   for a in "$@"; do
     if [ -n "$next" ]; then
       case "$next" in
         -C)
+          case "$a" in
+            '~') a=$HOME_R ;;
+            '~/'*) a="$HOME_R/${a#\~/}" ;;
+            '$HOME') a=$HOME_R ;;
+            '$HOME/'*) a="$HOME_R/${a#\$HOME/}" ;;
+          esac
           case "$a" in
             /*) wt=$a ;;
             *) if [ -n "$wt" ]; then wt="$wt/$a"; fi ;;
@@ -1017,6 +1106,12 @@ analyse_git() {
       -C | --work-tree | --git-dir) next=$a ;;
       -C?*)
         a=${a#-C}
+        case "$a" in
+          '~') a=$HOME_R ;;
+          '~/'*) a="$HOME_R/${a#\~/}" ;;
+          '$HOME') a=$HOME_R ;;
+          '$HOME/'*) a="$HOME_R/${a#\$HOME/}" ;;
+        esac
         case "$a" in /*) wt=$a ;; *) if [ -n "$wt" ]; then wt="$wt/$a"; fi ;; esac
         ;;
       --work-tree=*) wt=${a#*=} ;;
@@ -1036,6 +1131,10 @@ analyse_git() {
         --file=*) judge_target "${a#*=}" "git config" ;;
       esac
     done
+  fi
+  if [ "$sub" = push ]; then
+    judge_push "$wt" "${subargs[@]}"
+    return 0
   fi
   git_is_write "$sub" "${subargs[@]}" || return 0
   case "$sub" in
@@ -1129,7 +1228,7 @@ git_tool() {
   local name=${TOOL#mcp__git-mcp__} mode path
   mode=$(ti .mode)
   case "$name" in
-    git_status | git_log | git_diff | git_show | git_blame | git_reflog | git_changelog_analyze | git_wrapup_instructions | git_fetch | git_push | git_set_working_dir | git_clear_working_dir) return 0 ;;
+    git_status | git_log | git_diff | git_show | git_blame | git_reflog | git_changelog_analyze | git_wrapup_instructions | git_fetch | git_set_working_dir | git_clear_working_dir) return 0 ;;
     git_branch) case "${mode:-list}" in list | show-current) return 0 ;; esac ;;
     git_tag) case "${mode:-list}" in list | verify) return 0 ;; esac ;;
     git_remote) case "${mode:-list}" in list | get-url) return 0 ;; esac ;;
@@ -1146,6 +1245,10 @@ git_tool() {
     /*) ;;
     *) path="$SESSION_CWD/$path" ;;
   esac
+  if [ "$name" = git_push ]; then
+    judge_push "$path" "$(ti .remote)"
+    return 0
+  fi
   case "$name" in
     git_clone | git_init) ;;
     *) path=$(git_top "$path") ;;

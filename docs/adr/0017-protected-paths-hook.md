@@ -46,6 +46,10 @@ base install.
   read ones, by the call's `path`. Bash by one simple rule: segments, a tracked `cd`, redirects and a fixed list of
   write verbs and git subcommands, with the folder git runs in judged for the git ones. Reads are never denied. The
   exact list and the limits are in the hook's header and tested in `tools/protected-paths-guard/`.
+- **A push is judged by its remote.** A push from a clone writes into whatever its remote points at, and a clone made
+  from the live checkout's folder has that folder as `origin`. A `git push` (Bash or git MCP `git_push`) whose target
+  resolves to a local path inside a protected place is denied; a network URL is not judged. A remote that cannot be
+  resolved passes (the hook header lists the gaps), so the rule in CLAUDE.md, clone from the GitHub URL, stays the first line.
 - **Exceptions.** `<root>/.archive/**` stays writable (the gitignored working area). `git pull --ff-only`, `git merge
   --ff-only` and the git MCP `git_pull` with `fastForwardOnly` are allowed in a root: they move a checkout to a
   reviewed commit, which is how a protected checkout is updated.
