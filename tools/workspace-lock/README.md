@@ -1,15 +1,15 @@
 # workspace-lock
 
 An advisory lock that **serializes the mutating work** of several independent Claude Code
-orchestrators running **unattended overnight** against **one shared working copy** on **one
+sessions (interactive, unattended or a team of workers) against **one shared working copy** on **one
 machine**. Read-only work (research, review, planning) needs no lock; only code edits, builds,
 tests, and e2e runs are serialized.
 
 It is a **pure lock mechanism**: it does **no git** and **no network**. All git work is done by
 the calling skill through MCP git tools (see [ADR 0010](../../docs/adr/0010-mcp-git-over-bash-git.md)).
 For the full pattern and rationale see
-[ADR 0012](../../docs/adr/0012-overnight-orchestrator-lock.md). An unattended run wraps
-this script into its per-run flow.
+[ADR 0012](../../docs/adr/0012-overnight-orchestrator-lock.md). A caller that runs several sessions
+wraps this script.
 
 ## Install
 
@@ -54,6 +54,8 @@ still asks for permission, the entry did not match: add the literal absolute pat
     sessions/<session_id>    # written by the guard hook: the id this session acquired with
     workspace-lock.log       # durable give-up/refuse/wedge/clear log
   ```
+  An owned team (below) adds `lock.d/{kind,owner}`, `lock.d/members/<sid>`, `lock.d/ended/<sid>`,
+  `lock.d/turn.d/` and `lock.d/last_give`; without `lock.d/kind` the lock is an open one, as before.
 - **Atomic acquire** via an exclusive create of `lock.d/claim` (bash noclobber, which opens the file
   `O_EXCL`): exactly one racer wins. `lock.d` itself is made with a plain `mkdir` whose exit status
   decides nothing: some mkdir builds (uutils coreutils 0.10, the default on Ubuntu 26.04) exit 0 when
@@ -99,14 +101,14 @@ survives a fresh shell after compaction AND stays visible in the command string 
 hook to parse. **Never use the inline env-prefix form** (`WORKSPACE_LOCK_ID=x
 $HOME/.claude/tools/workspace-lock.sh …`) — the leading `VAR=` defeats the
 `Bash($HOME/.claude/tools/workspace-lock.sh *)` allowlist prefix match and the call falls back
-to a permission prompt, which no one answers overnight. When redirecting lock-script output, send it
+to a permission prompt, which an unattended session cannot answer. When redirecting lock-script output, send it
 to `/dev/null` or a scratch path (`> /tmp/lock.log 2>&1`); any other redirect target voids the always-allow exemption
 and the call falls under normal lock rules. Keep every lock-script call a single plain command: a `|`/`;`/`&`/newline
 trailer or any substitution (`$(…)`, backticks, `<(…)`, `>(…)`) voids the exemption too.
 
 Re-acquiring a lock you already hold is safe: `acquire --id x` when `x` is the current holder
 prints `ACQUIRED (already held)`, refreshes the ETA/metadata from the new call's args, and exits 0
-— a post-compaction orchestrator that re-runs its own acquire does not deadlock on itself. The
+— a session that re-runs its own acquire does not deadlock on itself. The
 flip side: self-registration accepts **any** slug, so an id collision with the current holder is
 destructive — a second session acquiring with the holder's id reentrantly refreshes (and can
 shorten) the holder's own lease. Ids MUST be unique per run.
@@ -119,6 +121,44 @@ shorten) the holder's own lease. Ids MUST be unique per run.
 | `status` | **Read-only**: print the current state, reconciled from the authoritative `lock.d` (never creates or writes). |
 | `heartbeat --id x [--eta +2h] [--phase p]` | Update ETA/heartbeat/phase — refuses if not the holder. Past the ETA a bare heartbeat is refused: `heartbeat --eta <new>` is the **retake**. Every heartbeat **rebuilds the full locked `status.json` from the token metadata**, so a mirror stamped free by a release/re-acquire race is repaired too. |
 | `clear --id me --holder h [--check]` | Free a lock held by `h` once `WEDGE_GRACE` has passed since **both** its ETA and its last heartbeat. Compare-and-clear; never acquires; refuses an empty holder and your own lock. `--check` prints one `CLEARABLE …` / `NOT-CLEARABLE …` line and changes nothing. The guard runs `--check` and turns `CLEARABLE` into a **permission prompt**; it denies `clear` from workers, headless sessions and any non-canonical spelling. Writes `cleared/h`, logs `CLEARED`. |
+
+### Owned team
+
+An opt-in lock with an **owner** session, **members** the owner adds, and one **turn**: a session mutates only
+while it holds the turn. `acquire --owned` makes the caller the owner; without it nothing below applies.
+Identity is the session id, a 36-character lowercase UUID passed as a literal value; the guard denies a value the
+shell would expand. `--by` and the `--sid` of `acquire`, `heartbeat`, `release` and `turn take|give|beat` must be
+the calling session's own `$CLAUDE_CODE_SESSION_ID`, which the guard checks before the script runs. The `--sid` of
+`member` and `turn give --force`, and `--to` of `owner transfer`, name another session and are only checked for
+shape; `owner transfer` can be asked for by any session and is gated by its prompt. The script itself records the
+caller's word. Each call is one plain command
+spelled `$HOME/.claude/tools/workspace-lock.sh`, with no `$`, braces or globs in any value, `--task` included.
+
+| Command | Effect |
+|---|---|
+| `acquire --id x --owned --sid o [--eta +1h]` | Owner only. Another session acquiring an owned slug exits 1 at once; `--repos` with `--owned`, and `--owned` on an open lock, are refused. Run in the background. |
+| `member add\|remove --id x --sid m --by o` | Owner adds (at most 16, idempotent) or removes a member; removing frees that member's turn. `member list --id x` is read-only. |
+| `turn take --id x --sid m --eta +20m [--task t]` | A member or the owner waits for the turn (run in the background); a non-member exits 1 at once. Taking again while holding it refreshes the ETA. Prints the last hand-over and a `WARN` if it was not `clean`. |
+| `turn give --id x --sid m --tree clean\|dirty` | Hand the turn back; `--tree` is the giver's word and a `dirty` give is warned, never refused. |
+| `turn beat --id x --sid m [--eta +20m]` | Heartbeat of the turn; past its ETA a bare beat is refused. |
+| `turn give --id x --sid m --by o --force [--check]` | Owner frees a member's turn: after a **permission prompt** when the turn is past its ETA plus the grace and its heartbeat is stale, never a healthy one; `FORCEABLE-NOW` (no guard prompt) needs an `ended/<sid>` marker, which only a session-end hook writes. `--check` prints `FORCEABLE-NOW`, `FORCEABLE` or `NOT-FORCEABLE` and changes nothing. |
+| `owner transfer --id x --to s [--check]` | Moves ownership to a new session id after the owner's was lost (`/clear` mints one), at a **permission prompt**. |
+| `heartbeat`, `release --id x --sid o` | Owner only on an owned lock; `release` is refused while a turn is held unless `--force`. |
+| `status` | Adds the kind, owner, member count, turn holder, its ETA and task, and the last hand-over. |
+
+The lock's ETA gates only the owner's own turn and `clear`; a member is gated by its turn's ETA. A session-end hook,
+where one is installed, writes `ended/<sid>` and frees that session's turn; it keeps the membership, and an owner's
+end leaves the lock in place. It runs on a normal stop and on SIGTERM, SIGHUP and SIGINT; a SIGKILL or a crash
+runs nothing (a closed window is untested) and leaves a stale turn, which the prompted force covers. Headless sessions cannot answer a prompt, so they cannot
+force a stale turn, transfer ownership or `clear`. The protocol text is in
+[the protocol skill](../../skills/workspace-lock-protocol/SKILL.md).
+
+**Arming a repo (the person does it).** Members need the script allowed in the repo's project settings. Add
+`Bash(~/.claude/tools/workspace-lock.sh *)` to `permissions.allow`. If a call spelled `$HOME/...` still prompts,
+the form that matched in a live test is `Bash(*/.claude/tools/workspace-lock.sh *)`; its leading wildcard matches any
+command containing that text (a script planted under `/tmp` too), so put it only in the person's own
+`.claude/settings.local.json` or user settings, never in a checked-in file. No agent or tool writes either. The user-level
+`permissions.ask` entries for `turn give *--force*` and `owner transfer *` come from `/setup-claude`.
 
 ### Config (env)
 | Var | Default | Purpose |
@@ -191,7 +231,7 @@ protocol in a fresh interactive session.
   never free.)
 - **Won-after-parent-death.** If `acquire` runs in the background and the parent session dies *after*
   it wins the lock, nobody runs the work or releases. Mitigation: the lock always carries an ETA
-  (`--eta`, or the short `INIT_LEASE` when none is given), and the run's orchestrator heartbeats
+  (`--eta`, or the short `INIT_LEASE` when none is given), and the caller heartbeats
   each task in with that task's ETA, so a dead parent leaves a lock whose ETA expires and is visibly stale.
 - **Repo paths must not contain commas** — the `--repos` list is comma-separated. Quotes/control
   chars in field values are escaped/stripped; `WORKSPACE_LOCK_ID` is restricted to `[A-Za-z0-9._-]`.
@@ -203,5 +243,6 @@ protocol in a fresh interactive session.
 ## Tests
 
 `bash tools/workspace-lock/test-acquire.sh` (about 1.5 min) runs the acquire wait loop and `clear` for real.
+`bash tools/workspace-lock/test-turn.sh` (about 30 s) runs the owned team: members, turns, force, transfer.
 `bash tools/workspace-lock/test-guard.sh` runs the guard hook: the reads a non-holder may run, scratch writes, the
 lock-script exemption, the re-arm and the clear prompt.

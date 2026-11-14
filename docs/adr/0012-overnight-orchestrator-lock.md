@@ -1,7 +1,7 @@
 # 12. Workspace Lock
 
 **Status:** accepted
-**Date:** 2026-07-03 · **Amended:** 2026-10-26 (expiry, retake and the prompted `clear`), 2026-11-13 (arm step moved out)
+**Date:** 2026-07-03 · **Amended:** 2026-10-26 (expiry, retake and the prompted `clear`), 2026-11-13 (arm step moved out), 2026-11-14 (owned team)
 
 ## Context
 
@@ -49,8 +49,8 @@ works around it on purpose, the same stance as the hooks in [ADR 0011](0011-shel
   it and removes `lock.d` by hand; `clear` refuses an empty holder.
 - **The rule.** `rules/workspace-lock.md` is installed globally but does nothing unless the workspace is armed
   (`WORKSPACE_LOCK_DIR` set, or a held lock at or above the cwd). Where it applies, agents acquire before their first
-  mutation, heartbeat with a revised ETA during long work, and release when done. A team run shares one slug that only
-  the arming session releases; a solo session uses `solo-<first 8 characters of its session id>`.
+  mutation, heartbeat with a revised ETA during long work, and release when done. An open team shares one slug that
+  only the session that took the lock first releases; a solo session uses `solo-<first 8 characters of its session id>`.
 - **Arming.** Arming is user-triggered only, so an agent never arms itself. An arm step arms only the non-risk tasks and
   holds every risk-topic task for the user's live turn. (Amended 2026-11-13: no arm step ships in this repo any
   more. The lock, the guard and the `STATE.md` Authorizations ledger stay here; any arm step supplied elsewhere
@@ -67,6 +67,30 @@ works around it on purpose, the same stance as the hooks in [ADR 0011](0011-shel
   threat model accepts. The cleared id's next lock call fails loudly, naming who cleared it, and it gets back in only with
   `acquire --after-clear`, once the user agrees.
 
+- **Owned team (amended 2026-11-14).** `acquire --owned --sid <sid>` makes the calling session the **owner** of a
+  closed lock; without it the lock stays an open one, with the behavior above. The owner adds and removes **members**
+  (`member add|remove`, at most 16); a session that is neither never mutates, never acquires the slug and is not
+  registered by trying. One **turn** serializes the members: a session mutates only while `lock.d/turn.d/sid` is its
+  own id and the turn is within its ETA, for Bash, the file tools and git MCP alike, the owner's own edits included. A
+  member takes the turn with `turn take` (run in the background), keeps it alive with `turn beat` and hands it back
+  with `turn give --tree clean|dirty`. The tree state is the giver's word, recorded for the next member and for
+  `status`: the script does no git and a dirty hand-over only warns. Only the owner heartbeats or releases; the lock's
+  ETA gates the owner's own turn and `clear`, not the members, so an owner that waits on them cannot lock them out.
+  Identity is the session id (`$CLAUDE_CODE_SESSION_ID`; probes saw it survive compaction, resume and reload and
+  change after `/clear`), passed as a literal value. The guard checks the caller's own id (`--by`, and `--sid` on the
+  caller's own verbs) before the script runs; a member, force or transfer target is only checked for shape.
+  Freeing a turn takes the owner's `turn give --force`: a healthy turn is refused, a turn past its ETA plus the
+  grace with a stale heartbeat needs a permission prompt, and one whose session a session-end hook marked `ended`
+  passes the guard without it. `owner transfer`, for an owner that lost its id, always prompts. They go through the
+  script's read-only `--check` and, like `clear`, the guard's prompt; a headless session cannot answer one. A session-end hook, where installed,
+  marks a stopped session `ended` and frees its turn but keeps its membership; it runs on a normal stop and on
+  SIGTERM, SIGHUP and SIGINT, but not after SIGKILL or a crash, so a stale turn can remain, and the prompted force
+  covers it. The members, turn files and `ended/` markers
+  are plain files of the same user, so a session that forges them is outside the cooperative threat model, as before.
+  The protocol is in [the protocol skill](../../skills/workspace-lock-protocol/SKILL.md); a repo is armed for it by the
+  person adding the lock script to `permissions.allow` (a leading-wildcard form only in a gitignored or user settings
+  file), and no agent writes that.
+
 ## Consequences
 
 - Mutating work is serial: total wall-clock is the sum of the runs, and the machine never runs two heavy builds at once.
@@ -80,6 +104,8 @@ works around it on purpose, the same stance as the hooks in [ADR 0011](0011-shel
 - Accepted residuals: a Bash command's guardedness follows its cwd; session registrations don't expire; a cleared holder
   is stopped at its next lock call, not its next edit; hard links and symlink swaps are outside the cooperative threat
   model.
+- An owned team trades speed for safety: one member mutates at a time, a stuck turn needs the owner and sometimes
+  the user's click, and a dead owner's lock waits for `clear` or `owner transfer`.
 - Clearing a lock is a recovery the user approves, not a pattern for risk-topic actions, where a relayed approval
   carries no weight.
 - The protocol is [rules/workspace-lock.md](../../rules/workspace-lock.md); the script reference is
