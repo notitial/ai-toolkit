@@ -12,7 +12,7 @@ The front door of the orchestrator pattern: it creates the shared `.archive/<tic
 under `.archive/<ticket>/`. It leaves the Authorizations ledger empty and writes
 `**Authorization:** NONE — needs user review`. Only the user's live turn at their own arm step arms a run, and
 risk topics ([rules/workflow.md](../../rules/workflow.md), "Unattended (armed) runs") always need the user's own
-live turn.
+live turn or, for building work only, a standing go (that rule's exception 2).
 
 ## Modes
 
