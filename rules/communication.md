@@ -16,6 +16,8 @@ State assumptions and key risks (and mitigation) when relevant. Include file pat
 
 Command blocks carry no comments — one block per procedure, copy-pasteable. Put any explanation in prose before or after the block, never inside it: inline comments break paste-and-run and bury the actual command.
 
-Anything the user has to type or paste — a shell command, a slash command, a prompt for another session — gets its own block: one block per item, and a procedure whose steps must run in order stays one block. Put prose around the blocks, not inside numbered steps.
+Anything the user has to type or paste — a shell command, a slash command, a prompt for another session — goes in a block that runs as pasted. Shell commands that run together go in one block, in order, never split into several blocks to copy one at a time. A slash command or a prompt for another session gets its own block. Put prose around the blocks, not inside numbered steps.
+
+Write every command out in full, with its values filled in. Never hand over a pattern plus a table of values, or anything else the user has to assemble. A value you don't have yet: get it first from the session, file or tool that holds it. A value only the user can supply: set it once as a variable at the top of the block (`DB_HOST='<db host>'`) and use the variable in the commands below it.
 
 Every git command handed to the user names its repo: `git -C <absolute path> ...` or `cd <path> && ...`. Never a bare `git ...` with "run this in your clone" in prose: commands get pasted into whatever terminal is open, and a `reset --hard` or `clean` lands in the wrong checkout. If the path is unknown, ask first, or make the command check `git remote get-url origin` before anything destructive.
