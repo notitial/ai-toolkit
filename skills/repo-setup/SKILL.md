@@ -53,12 +53,17 @@ On a 401 or "Bad credentials" from a github MCP tool, stop and tell the user: no
      and `gh api repos/<owner/repo>/rules/branches/<default>` (the effective rules, org rulesets included)
    - `gh api orgs/<owner>/rulesets` and, for each id, `gh api orgs/<owner>/rulesets/<id> --jq '{name, enforcement, conditions, bypass_actors, rules}'` (org rulesets that apply to the repo)
    - `gh api repos/<owner/repo>/actions/permissions`
+   - `gh api repos/<owner/repo>/vulnerability-alerts` (204 = alerts on, 404 = off) and the `security_and_analysis`
+     block above for security updates, secret scanning and push protection
    - `gh secret list -R <owner/repo> | cut -f1` and `gh variable list -R <owner/repo> | cut -f1` (names only), and the
      same with `--org <owner>`: a repo-level copy of an org secret or variable name is a finding (doc step 1).
 2. **Archived repo.** If `archived` is true, report "`<owner/repo>` is archived" and stop: no file audit, no table, no
    setup. An archived repo is read-only on GitHub; there is nothing to set up.
 3. **Files**, from the default branch: `.github/workflows/` (CI jobs and their names, the secret-scan caller and its
-   pin (with the root `.pre-commit-config.yaml`, per `tools/gitleaks/`), `pr-title.yml` and its type list and limit, `deploy.yml`), `.github/pull_request_template.md`, the
+   pin (with the root `.pre-commit-config.yaml`, per `tools/gitleaks/`, against `pre-commit-config.yaml` beside
+   `defaults.md`), `pr-title.yml` and its type list, limit and `dependabot[bot]` exemption, `deploy.yml`, every job's
+   `runs-on` against the reference deployment's runner rule, job names against the `<Area> Checks` convention),
+   `.github/dependabot.yml`, `.github/pull_request_template.md`, the
    automatic PR review's workflow and command files if the file model has one (doc step 9), and the CLAUDE.md
    sections doc step 7 names. Compare each against the file model: present, missing, or different (say how).
 4. Write the result as one table: checklist step × expected (with its source) × found × gap. Save it to
@@ -93,6 +98,7 @@ one line on what it changes. Do none of them yourself: no `gh api -X` on the rep
 permission, no App install, no `gh secret set` or `gh variable set`.
 
 - Repo settings: `gh api -X PATCH repos/<owner/repo> -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false -F allow_update_branch=true -F delete_branch_on_merge=true -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY` (only the fields that are gaps).
+- Dependabot: `gh api -X PUT repos/<owner/repo>/vulnerability-alerts` (alerts on) and `gh api -X PUT repos/<owner/repo>/automated-security-fixes` (security updates on), only when off and the repo has dependencies.
 - Ruleset: point the user at the reference deployment's ruleset; offer to export the file model's ruleset
   (`gh api repos/<owner/model-repo>/rulesets/<id>`) as the starting JSON, with this repo's required-check names
   substituted, for them to review and create in the UI or with `gh api -X POST repos/<owner/repo>/rulesets --input

@@ -65,6 +65,7 @@ jobs:
 
 - A called workflow sees the caller's event, so the PR's base and head SHAs work as written. Trigger the caller on `pull_request` only: on any other event the SHAs are empty and the scan covers nothing.
 - `runs-on` is JSON, because a workflow input is a string and a runner can be one label or a list.
+- The hosted default is for public repos. Where private repos must use the organization's own runners, delete the `default:` line and add `required: true`: a caller that forgets its labels then fails at once instead of queueing on a hosted runner that never starts ([07-new-repo-setup.md](../../docs/07-new-repo-setup.md), step 3).
 
 ## The caller, per repo
 
@@ -86,12 +87,12 @@ jobs:
 ```
 
 - Pin by commit SHA, not a branch. Omit `with:` to run on `ubuntu-latest` (public repos).
-- The required-check name for a reusable workflow is `<caller job> / <called job>`: here **`Secret Scan / gitleaks`**. Add that name to the `main` ruleset ([07-new-repo-setup.md](../../docs/07-new-repo-setup.md), step 8).
+- The required-check name for a reusable workflow is `<caller job> / <called job>`: here **`Secret Scan / gitleaks`**. Keep the caller job named `Secret Scan` in every repo, so the check name is one string. Add that name to the `main` ruleset ([07-new-repo-setup.md](../../docs/07-new-repo-setup.md), step 8).
 - If the organization limits which Actions may run, allow the reusable workflow's path.
 
 ## The pre-commit hook
 
-[`.pre-commit-config.yaml`](.pre-commit-config.yaml) is the canonical copy; copy it to the repo root unchanged.
+[`.pre-commit-config.yaml`](.pre-commit-config.yaml) is the canonical copy; copy it to the repo root unchanged. A repo set up with `/repo-setup` copies [`skills/repo-setup/pre-commit-config.yaml`](../../skills/repo-setup/pre-commit-config.yaml) instead: the same gitleaks hook plus a few small checks.
 
 - Hook id `gitleaks`: pre-commit builds the pinned tag from source, so the first commit needs Go.
 - Install per clone: `brew install pre-commit`, then `pre-commit install`.
@@ -101,7 +102,7 @@ jobs:
 
 1. Pick the release and download its `gitleaks_<version>_checksums.txt` from the release page.
 2. Take the `linux_x64` tarball's sha256 from that file. Download the tarball too and hash it (`shasum -a 256`); the two must match.
-3. Change `GITLEAKS_VERSION` and `GITLEAKS_SHA256` in the reusable workflow; change `rev` in every `.pre-commit-config.yaml`.
+3. Change `GITLEAKS_VERSION` and `GITLEAKS_SHA256` in the reusable workflow; change `rev` in every `.pre-commit-config.yaml` and in the repo-setup copy, `skills/repo-setup/pre-commit-config.yaml`.
 4. Merge the workflow change, then raise each caller's commit SHA.
 
 ## False positives

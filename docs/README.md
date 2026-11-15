@@ -13,7 +13,7 @@ Start here. Documents are numbered in reading order, but each is standalone.
 
 ### Setting up a repo
 - **06** [Repo Initialization](06-repo-initialization.md) — Bootstrap prompts, AI maturity model (Level A/B/C)
-- **07** [New Repo Setup](07-new-repo-setup.md) — The GitHub-side checklist every new repo gets: settings, `main` ruleset, CI, secret scanning, PR title and description rules, PR review; run by `/repo-setup`
+- **07** [New Repo Setup](07-new-repo-setup.md) — The GitHub-side checklist every new repo gets: settings, `main` ruleset, CI, secret scanning and pre-commit hooks, PR title and description rules, PR review, Dependabot; run by `/repo-setup`
 
 ### Context
 - **08** [Context Management](08-context-management.md) — Token optimization: checkpoints, compaction, session degradation
