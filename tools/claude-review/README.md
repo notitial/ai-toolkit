@@ -12,7 +12,7 @@ copies equal to these (`tests/test_install.py` checks).
 
 | File | Install path in the target repo | SHA-256 |
 |---|---|---|
-| [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` | `96ae6648aff306c21a5206691f5922df343d16fe28400c13f9b7c897ee1bd02b` |
+| [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` | `3a8ef15c33a6636af129ea8defe6da3c389b67d668ac312b3cdcb7f8df3c8792` |
 | [claude-pr-review.md](claude-pr-review.md) | `.claude/commands/claude-pr-review.md` | `2f76a0bc11718f605a974aa9c5a70e249b7279f1ec56e51583446e7390d69407` |
 
 **Version:** v3.3 (2026-11-10): the two jobs that hold the App key, `appcheck` and `publish`, may run on a dedicated
@@ -82,6 +82,9 @@ Three modes:
 - **An incomplete review gives no verdict:** when a review pass or a verifier fails twice, the result carries the
   verified findings only, and with none `publish` rejects it, so a review that reports itself unfinished never approves. A
   review that cut the pipeline short without saying so still can (Known limitations).
+- **A re-run without a verdict keeps what was posted:** when a "Re-run all jobs" attempt of a full review ends with no
+  verdict (incomplete, stopped, every finding dropped) and an earlier attempt of that run reported findings, the
+  overview and that run's history entry stay as they were.
 - **Doesn't report:** style, nitpicks, pre-existing issues, what the compiler or linter catches, test coverage, docs.
 - **Threads it touches:** only threads the review started. A thread is judged fixed when the code handles it, or a
   reply's "not a bug" argument holds up. A claimed fix the code doesn't show stays open.
@@ -351,7 +354,7 @@ Use a throwaway PR. Each run's job summary shows
 | 3 | Open a PR with real bugs | Inline findings on the right lines, one REQUEST_CHANGES, the overview links each finding |
 | 4 | Push fixes, then comment `@claude review --comments` | App replies in each thread, threads resolved, the same overview comment edited (`result=followup`), REQUEST_CHANGES dismissed + COMMENT "Findings addressed…" |
 | 5 | Comment `@claude review` | `rereview`, APPROVE, overview history shows 3 runs |
-| 6 | Re-run `publish` of any run | "verdict already submitted"; no second review; the history entry is replaced |
+| 6 | Re-run `publish` of any run | "verdict already submitted"; no second review; the history entry is replaced (kept when this attempt ends without a verdict and an earlier one reported findings) |
 | 7 | Unset `CLAUDE_REVIEW_APP_CLIENT_ID`, comment `@claude review --comments`, set it back | `preflight` fails with "Missing: variable CLAUDE_REVIEW_APP_CLIENT_ID"; nothing else runs |
 | 8 | (if available) someone with read access comments `@claude review` | Fails at "Check the commenter can write to the repo" |
 | 9 | On a PR with a resolved finding, push a commit that brings the bug back, comment `@claude review` | The old thread is reopened with an App "Regressed:" reply, `1 reopened` in the publish line, REQUEST_CHANGES, the overview shows a **Regressions:** line; no second thread for the issue |
@@ -471,6 +474,9 @@ Don't loosen any of this when adapting the files.
 - **A follow-up keeps the last full review's overview paragraph,** which can describe findings that are now fixed.
 - **Reopens aren't in the overview's history:** a run whose only findings reopened threads shows as "issues" with no
   count.
+- **A no-verdict review hides the unchecked-findings note:** a full review that ends without a verdict is the newest
+  full entry in the history, so a `--comments` follow-up after it no longer says that body findings of the last
+  real review weren't re-checked.
 - **A failed run leaves no trace on the PR** (above).
 - **A body finding's heading shows Claude's line number** even when its line text didn't match.
 - Legacy authors (`claude[bot]` threads, the `github-actions[bot]` summary) are still trusted by the gates, for PRs

@@ -1523,19 +1523,22 @@ jobs:
                       and ("b" not in h or is_int(h["b"]) and 0 <= h["b"] <= h["n"]))
 
 
-          def merge_history(body, entry):
-              """Newest first, at most 10, one entry per run (a re-run replaces its own)."""
-              history = []
+          def read_history(body):
               m = HISTORY_MARKER.search(body or "")
-              if m:
-                  try:
-                      raw = json.loads(m.group(1))
-                  except ValueError:
-                      raw = None
-                  if isinstance(raw, list):
-                      history = [h for h in raw if valid_entry(h)]
-                  else:
-                      print("::warning::The overview's history couldn't be read: starting it again")
+              if not m:
+                  return []
+              try:
+                  raw = json.loads(m.group(1))
+              except ValueError:
+                  raw = None
+              if isinstance(raw, list):
+                  return [h for h in raw if valid_entry(h)]
+              print("::warning::The overview's history couldn't be read: starting it again")
+              return []
+
+
+          def merge_history(history, entry):
+              """Newest first, at most 10, one entry per run (a re-run replaces its own)."""
               return ([entry] + [h for h in history if h["run"] != entry["run"]])[:10]
 
 
@@ -1749,11 +1752,16 @@ jobs:
                   print(f"::warning::Reading the overview comment failed: {type(e).__name__}")
                   existing = None
               old = (existing or {}).get("body") or ""
+              history = read_history(old)
+              if decision == "none" and full and any(h["run"] == int(ctx.run_id) and h["n"] for h in history):
+                  # "Re-run all jobs" that ends without a verdict: its note would replace findings an earlier attempt posted.
+                  print("No verdict on a re-run: keeping this run's posted result")
+                  return
               st = {
                   "comment": existing, "result": result, "line": line, "resolved": resolved, "open": open_links,
                   "fallback": [],
                   "slot": overview_slot(data["overview"]) if full and not data["stopped"] else "" if full else old_slot(old),
-                  "history": merge_history(old, {"sha": ctx.head[:7], "mode": ctx.mode, "result": result, "n": n_found,
+                  "history": merge_history(history, {"sha": ctx.head[:7], "mode": ctx.mode, "result": result, "n": n_found,
                                                  "b": len(in_body), "run": int(ctx.run_id), "attempt": int(ctx.attempt)}),
               }
               if not full:
