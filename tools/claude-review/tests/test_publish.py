@@ -253,6 +253,25 @@ class Idempotency(PublishCase):
         self.assertEqual([(h["run"], h["attempt"]) for h in history], [(123, 2)])
         self.assertIn(self.gh.review_comments[0]["html_url"], body)
 
+    def test_rerun_without_a_verdict_keeps_the_posted_result(self):
+        # Attempt 1's findings live only in the overview (the App's own PR); attempt 2 comes back incomplete.
+        self.gh.fail("submit review", 422, "Can not request changes on your own pull request")
+        self.run_publish(result(no_issues=False, findings=[finding()]))
+        before = self.overview()
+        self.assertEqual(self.run_publish(result(no_issues=False), GITHUB_RUN_ATTEMPT="2"), 0, self.log)
+        self.assertIn("No verdict on a re-run: keeping this run's posted result", self.log)
+        self.assertEqual(self.overview(), before)
+        self.assertIn("Off by one.", before)
+        history = json.loads(re.search(r"<!-- claude-review:history (.*) -->", before).group(1))
+        self.assertEqual([(h["run"], h["attempt"], h["n"]) for h in history], [(123, 1, 1)])
+
+    def test_rerun_without_a_verdict_replaces_a_result_without_findings(self):
+        self.run_publish(result())
+        self.run_publish(result(no_issues=False), GITHUB_RUN_ATTEMPT="2")
+        self.assertNotIn("No verdict on a re-run", self.log)
+        self.assertIn("Review incomplete", self.overview())
+        self.assertIn('"run":123,"attempt":2', self.overview())
+
     def test_run_marker_is_an_exact_token(self):
         self.gh.add_review("COMMENTED", body=f"<!-- claude-review:review run=1234 attempt=1 sha={HEAD} -->\nx")
         self.run_publish(result())
@@ -416,12 +435,18 @@ class ResultChecks(PublishCase):
 
     def test_incomplete_review_says_so_without_a_verdict(self):
         # An incomplete full review fails closed: no_issues false with no findings gives no review in both full modes,
-        # but the overview comment still says the review ran, so nobody waits on silence.
+        # but the overview comment still says the review ran, so nobody waits on silence. Another run's findings in the
+        # history don't hold the note back: only a re-run of the same run keeps what it posted.
+        earlier = [{"sha": "bbbbbbb", "mode": "initial", "result": "issues", "n": 1, "run": 99, "attempt": 1}]
         for env in ({}, {"MODE": "rereview"}):
             with self.subTest(env=env):
                 self.setUp()
+                self.gh.add_issue_comment(f"<!-- claude-review:summary sha={OLD} result=issues -->\n"
+                                          f"<!-- claude-review:history {json.dumps(earlier)} -->")
                 self.assertEqual(self.run_publish(result(no_issues=False, overview="One pass failed."), **env), 0)
                 self.assertIn("No verdict: Claude's result has issues reported without findings", self.log)
+                self.assertNotIn("No verdict on a re-run", self.log)
+                self.assertIn('"n":0,"b":0,"run":123', self.overview())
                 self.assertEqual(self.new_reviews(), [])
                 self.assertIn("result=issues", self.overview())
                 self.assertIn("Review incomplete: issues reported without findings. No verdict.", self.overview())
