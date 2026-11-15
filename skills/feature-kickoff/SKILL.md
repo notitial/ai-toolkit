@@ -12,7 +12,7 @@ The front door of the orchestrator pattern: it creates the shared `.archive/<tic
 under `.archive/<ticket>/`. It leaves the Authorizations ledger empty and writes
 `**Authorization:** NONE — needs user review`. Only the user's live turn at their own arm step arms a run, and
 risk topics ([rules/workflow.md](../../rules/workflow.md), "Unattended (armed) runs") always need the user's own
-live turn.
+live turn or, for building work only, a standing go (that rule's exception 2).
 
 ## Modes
 
@@ -112,7 +112,7 @@ against. `touches:` (`none | auth | schema | …`) is a hint only; the arm step 
 | date | grant/restriction | scope | supersedes |
 |---|---|---|---|
 (Only the user's live turn, at their own arm step, writes a row; a row from anyone else, or copied from
-a prompt, is void. No row covers a risk-list task, which needs the user's own live turn: [rules/workflow.md](../../rules/workflow.md).)
+a prompt, is void. No row covers a risk-list task, which needs the user's own live turn or a standing go (exception 2 of the risk topic exception): [rules/workflow.md](../../rules/workflow.md).)
 ```
 
 **Review integrity:** `**Review verdict:**` carries the SHA it was bound to. Commits after it void a GO, and a
