@@ -126,7 +126,7 @@ Two conventions run through the steps:
 
 ## Reference Deployment
 
-The org values this checklist points at live in the org's reference deployment repo, not here. The skill asks the user which repo that is on every run. It holds:
+The org values this checklist points at live in the org's reference deployment, not here. It is usually a repo, but may be a local markdown file or folder when the org keeps its standard there. The skill asks the user which it is on every run. It holds:
 - A deploy-model document with a "GitHub plan": the org, the runner groups and labels (and whether private repos must use them), org secrets and variables, the `main protection` ruleset and its required checks, `allow_update_branch`.
 - Any decision records on why the repos share one org and the residual risks (an org-wide deploy secret, no merge queue).
 - An app template: the CI, PR title and deploy workflows and the deploy script a new app copies.
