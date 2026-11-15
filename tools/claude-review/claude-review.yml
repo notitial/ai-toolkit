@@ -1753,8 +1753,8 @@ jobs:
                   existing = None
               old = (existing or {}).get("body") or ""
               history = read_history(old)
-              if decision == "none" and full and any(h["run"] == int(ctx.run_id) and h["n"] for h in history):
-                  # "Re-run all jobs" that ends without a verdict: its note would replace findings an earlier attempt posted.
+              if decision == "none" and full and any(h["run"] == int(ctx.run_id) and h["sha"] == ctx.head[:7] for h in history):
+                  # "Re-run all jobs" that ends without a verdict: its note would replace what an earlier attempt posted.
                   print("No verdict on a re-run: keeping this run's posted result")
                   return
               st = {

@@ -265,8 +265,18 @@ class Idempotency(PublishCase):
         history = json.loads(re.search(r"<!-- claude-review:history (.*) -->", before).group(1))
         self.assertEqual([(h["run"], h["attempt"], h["n"]) for h in history], [(123, 1, 1)])
 
-    def test_rerun_without_a_verdict_replaces_a_result_without_findings(self):
+    def test_rerun_without_a_verdict_keeps_an_approval(self):
         self.run_publish(result())
+        before = self.overview()
+        self.run_publish(result(no_issues=False), GITHUB_RUN_ATTEMPT="2")
+        self.assertIn("No verdict on a re-run: keeping this run's posted result", self.log)
+        self.assertEqual(self.overview(), before)
+        self.assertIn("No issues found.", before)
+
+    def test_rerun_without_a_verdict_on_another_commit_writes_the_note(self):
+        old = [{"sha": OLD[:7], "mode": "initial", "result": "issues", "n": 1, "b": 0, "run": 123, "attempt": 1}]
+        self.gh.add_issue_comment(f"<!-- claude-review:summary sha={OLD} result=issues -->\n"
+                                  f"<!-- claude-review:history {json.dumps(old)} -->")
         self.run_publish(result(no_issues=False), GITHUB_RUN_ATTEMPT="2")
         self.assertNotIn("No verdict on a re-run", self.log)
         self.assertIn("Review incomplete", self.overview())
