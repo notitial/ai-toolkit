@@ -493,7 +493,7 @@ jobs:
       - name: Run the Claude code review
         id: review
         if: steps.regate.outputs.skip != 'true' && steps.collect.outputs.covered != 'true'
-        uses: anthropics/claude-code-action@f27be6b65a4652f08a2ba3cff79114829b588967  # v1.0.252
+        uses: anthropics/claude-code-action@4fa93a88de49bbef68b10eb15aabedf28ca0e1ed  # v1.0.271
         env:
           # Workaround for anthropics/claude-code-action#1499 (open as of 2026-10-19): the action
           # stops at Claude's first result, so background review agents are orphaned and nothing is
