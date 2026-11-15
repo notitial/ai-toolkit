@@ -323,6 +323,7 @@ Read `templates/safe-permissions.json` for:
 - `syncClaudeAiSkills`, `syncClaudeAiPlugins` — claude.ai sync switches, added when absent (see **Start context**)
 - `_migration.removeBashGit` — old Bash git permissions to remove (replaced by MCP git)
 - `_migration.removeOverbroad` — overbroad permissions to remove (e.g. `Bash(cat *)`, which bypasses the workspace read boundary; the Read tool covers it)
+- `_migration.removeReplacedDeny` — deny entries the template dropped because another control took over (today `Read(//**/.env*)`, replaced by the secret-detector hook); the one case where a live deny entry is removed
 
 Read `~/.claude/settings.json` (or create `{}` if missing).
 
@@ -425,9 +426,11 @@ without touching the main one.
 
 **Remove (overbroad):** Remove any permission listed in `_migration.removeOverbroad` (currently `Bash(cat *)`).
 
+**Remove (replaced deny):** Remove any entry listed in `_migration.removeReplacedDeny` from the live `deny` array (currently `Read(//**/.env*)`: it denied the example files too; `hooks/secret-detector.sh` now guards `.env` names in Read, Grep, Write and Edit and passes `.env.example`, `.env.sample`, `.env.template` and `.env.dist`). Remove it only when the staged hooks section already has the secret-detector entry with the template's full matcher (the drift assertion under **Hooks** below; a stale live matcher is replaced by explicit diff first). If that matcher is not in the staged file, keep the deny entry and report `kept <entry>: secret-detector matcher not updated`: removing it then would leave `.env` unguarded. Report each one removed. This is the only exception to "never remove" in **Deny entries** below, and it covers exactly the listed strings.
+
 Only remove these specific listed patterns. Do not remove other non-git Bash permissions (`ls`, `wc`, `pwd`, `which`, `mkdir`).
 
-**Deny entries:** Read `permissions.deny` from the template. **Add** any entry not already present in the live `deny` array (create the array if absent). **Never remove** existing live `deny` entries — they are security controls that may have been added outside this skill; report any live-only entries instead of touching them. `_deny_read_comment` in the template explains the secret-file rules.
+**Deny entries:** Read `permissions.deny` from the template. **Add** any entry not already present in the live `deny` array (create the array if absent). **Never remove** existing live `deny` entries, except those in `_migration.removeReplacedDeny` — they are security controls that may have been added outside this skill; report any live-only entries instead of touching them. `_deny_read_comment` in the template explains the secret-file rules.
 
 **Ask entries:** Read `permissions.ask` from the template (`caffeinate` and `pkill -x caffeinate`, which start and stop a keep-awake power assertion, the
 github MCP write tools, and edits to any `.mcp.json` or to `~/.claude/settings.json` and `~/.claude/settings.local.json`;

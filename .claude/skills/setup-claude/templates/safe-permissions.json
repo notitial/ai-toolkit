@@ -137,7 +137,6 @@
       "Edit(~/.claude/skills/**)",
       "Edit(~/.claude/tools/**)",
       "Edit(~/.claude/statusline.sh)",
-      "Read(//**/.env*)",
       "Read(//**/*.pem)",
       "Read(//**/*.key)",
       "Read(~/.ssh/id_*)",
@@ -152,7 +151,7 @@
       "Read(//**/*.keychain)",
       "Read(//**/*.keychain-db)"
     ],
-    "_deny_read_comment": "Secret files. A Read deny covers the Read, Grep and Glob tools (best effort), @-mentions, Edit/Write on the same path, and the file commands Claude Code recognises in Bash (cat, head, tail, sed, tee) and redirect targets; not grep -r or other programs that open files. `//` is absolute, `~/` is home. One rule, `Read(//**/.env*)`, covers .env, .envrc and every .env.<anything> at any depth. It has no exceptions on purpose: .env.example, .env.sample and the public ones some web apps commit (.env.production and the like) are unreadable too. secret-detector.sh still decides what a Write or Edit may put in them. Over-denies, accepted: *.pub beside id_*, public .pem files, Keynote .key bundles, names like .environment.",
+    "_deny_read_comment": "Secret files. A Read deny covers the Read, Grep and Glob tools (best effort), @-mentions, Edit/Write on the same path, and the file commands Claude Code recognises in Bash (cat, head, tail, sed, tee) and redirect targets; not grep -r or other programs that open files. `//` is absolute, `~/` is home. .env files are not here: a Read deny cannot make an exception, and agents must be able to read and edit the example files (.env.example, .env.sample, .env.template, .env.dist). hooks/secret-detector.sh decides instead: it denies a Write, Edit, MultiEdit or NotebookEdit of a .env file, a Read of one, and a Grep whose path or glob names one, and passes the four exact example names. It also denies a Grep that names no existing file unless the glob ends with !*.env*, or is one pattern ending in an extension (*.ts, src/**/*.{ts,tsx}) that is not env-like, or there is no glob and a type is set: the Grep tool searches hidden files and skips only gitignored ones. The hook is lexical: a symlink to a .env passes, and a folder named .env is denied. Over-denies, accepted: *.pub beside id_*, public .pem files, Keynote .key bundles, a folder named .env.",
     "_deny_order": "No rule here is an exception to another, so the order carries no meaning; the settings step writes the file in its fixed order (`install-copies.sh order`)."
   },
   "enabledPlugins": {
@@ -163,7 +162,7 @@
     "_comment": "Safety and observability hooks. Scripts installed to ~/.claude/hooks/ by Step 3. NOTE: the merge in Step 10 is additive (keyed on the event key + matcher + script path triple — the event key is part of the identity, because one script registered under several event keys with the SAME matcher would otherwise collapse into one) — it can add a missing entry but can NEVER update a changed matcher string; changed matchers must be applied to live settings by explicit diff (see SKILL.md Step 10 drift assertion).",
     "PreToolUse": [
       {
-        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|mcp__git-mcp__git_commit",
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|Read|Grep|mcp__git-mcp__git_commit",
         "hooks": [
           {
             "type": "command",
@@ -280,8 +279,8 @@
         ]
       },
       {
-        "_comment": "Output redaction (anonymize, never deny). Replaces token-shaped values in Bash and MCP output with [REDACTED:kind] via updatedToolOutput, before the model sees them. Bash: the replacement also reaches the transcript. MCP: model view only; a server's structuredContent copy in the transcript keeps the original. Fails open. Never decides, never denies.",
-        "matcher": "Bash|mcp__.*",
+        "_comment": "Output redaction (anonymize, never deny). Replaces token-shaped values in Bash, Read, Grep and MCP output with [REDACTED:kind] via updatedToolOutput, before the model sees them. Bash: the replacement also reaches the transcript. MCP: model view only; a server's structuredContent copy in the transcript keeps the original. Read and Grep: the object shape is kept, which the platform needs to accept the replacement; an Edit whose old_string spells out a redacted value will not match, so a Read of .env.example, .env.sample, .env.template or .env.dist is left alone. Fails open. Never decides, never denies.",
+        "matcher": "Bash|Read|Grep|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -368,6 +367,10 @@
     "_overbroad_comment": "Overbroad permissions replaced by dedicated tools. Bash(cat *) bypasses the workspace read boundary; the Read tool covers the need.",
     "removeOverbroad": [
       "Bash(cat *)"
+    ],
+    "_replacedDeny_comment": "Deny entries that the template dropped because another control took over. Unlike every other deny entry, these ARE removed from the live file: Read(//**/.env*) denied the example files too, and hooks/secret-detector.sh now guards .env names in Read, Grep, Write and Edit with an exception for the four example names.",
+    "removeReplacedDeny": [
+      "Read(//**/.env*)"
     ],
     "removePlugins": []
   }

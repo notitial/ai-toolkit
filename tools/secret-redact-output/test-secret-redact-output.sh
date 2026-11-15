@@ -95,6 +95,23 @@ redacts "mcp github token in text"    "$(mcp_resp "env GITHUB_TOKEN=$GH")" "$GH"
 redacts "mcp plain string response"   "$(jq -nc --arg s "$GH" '{tool_name:"mcp__x__y",tool_response:$s}')" "$GH" "[REDACTED:github-token]"
 redacts "mcp nested object"           "$(jq -nc --arg s "$GH" '{tool_name:"mcp__x__y",tool_response:{content:[{type:"text",text:$s}],isError:false}}')" "$GH" "[REDACTED:github-token]"
 
+# --- Read and Grep shapes (as captured from Claude Code 2.1.325): the object keeps its shape, only strings change
+read_resp() { jq -nc --arg s "$1" '{tool_name:"Read",tool_response:{type:"text",file:{filePath:"/x/p/config.txt",content:$s,numLines:2,startLine:1,totalLines:2}}}'; }
+grep_resp() { jq -nc --arg s "$1" '{tool_name:"Grep",tool_response:{mode:"content",numFiles:0,filenames:[],content:$s,numLines:1,totalLines:1}}'; }
+redacts "read file content"           "$(read_resp "a=1"$'\n'"GITHUB_TOKEN=$GH")" "$GH" "[REDACTED:github-token]"
+redacts "grep content lines"          "$(grep_resp "3:GITHUB_TOKEN=$GH")" "$GH" "[REDACTED:github-token]"
+for n in .env.example .env.sample .env.template .env.dist; do
+  passes "read of $n is not redacted" "$(read_resp "GITHUB_TOKEN=$GH" | jq -c --arg p "/x/p/$n" '.tool_input = {file_path: $p}')"
+done
+redacts "read of .env.local"          "$(read_resp "GITHUB_TOKEN=$GH" | jq -c '.tool_input = {file_path: "/x/p/.env.local"}')" "$GH" "[REDACTED:github-token]"
+redacts "grep over an example file"   "$(grep_resp "1:GITHUB_TOKEN=$GH" | jq -c '.tool_input = {path: "/x/p/.env.example"}')" "$GH" "[REDACTED:github-token]"
+passes "read of a plain file"        "$(read_resp "hello"$'\n'"world")"
+passes "grep with no secret"          "$(grep_resp "3:hello")"
+rshape=$(upd "$(read_resp "x $GH")" | jq -c '[keys, (.file | keys)]')
+if [ "$rshape" = '[["file","type"],["content","filePath","numLines","startLine","totalLines"]]' ]; then ok; else bad "read shape changed: $rshape"; fi
+gshape=$(upd "$(grep_resp "x $GH")" | jq -c 'keys')
+if [ "$gshape" = '["content","filenames","mode","numFiles","numLines","totalLines"]' ]; then ok; else bad "grep shape changed: $gshape"; fi
+
 # --- Bash output shape: exactly the four fields, even when the input carried a fifth
 shape=$(upd "$(bash_resp "x $GH")" | jq -c 'keys')
 if [ "$shape" = '["interrupted","isImage","stderr","stdout"]' ]; then ok; else bad "bash shape: $shape"; fi

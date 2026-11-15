@@ -152,6 +152,43 @@ expect deny "Edit of .envrc"           '{"tool_name":"Edit","tool_input":{"file_
 expect pass "Write to .env.example"    '{"tool_name":"Write","tool_input":{"file_path":"/x/.env.example","content":"A=1"}}'
 expect pass "Write to environment.md"  '{"tool_name":"Write","tool_input":{"file_path":"/x/environment.md","content":"A=1"}}'
 
+# Read and Grep: a .env name is denied, the four exact example names pass. Grep is checked by path and by glob, and a
+# Grep that names no existing file needs a glob or type that keeps .env out. The hook runs in $T/work, so the files
+# a Grep names exist there.
+for n in .env.example .env.sample .env.template .env.dist main.ts; do : > "$T/work/$n"; done
+for n in .env .env.local .env.production .env.staging2 prod.env .envrc .ENV; do
+  expect deny "Read $n"       "$(jq -nc --arg p "/x/p/$n" '{tool_name: "Read", tool_input: {file_path: $p}}')"
+  expect deny "Grep path $n"  "$(jq -nc --arg p "/x/p/$n" '{tool_name: "Grep", tool_input: {pattern: "A", path: $p}}')"
+  expect deny "Grep glob $n"  "$(jq -nc --arg g "$n" '{tool_name: "Grep", tool_input: {pattern: "A", path: ".", glob: $g, type: "py"}}')"
+done
+for n in .env.example .env.sample .env.template .env.dist; do
+  expect pass "Read $n"       "$(jq -nc --arg p "/x/p/$n" '{tool_name: "Read", tool_input: {file_path: $p}}')"
+  expect pass "Grep path $n"  "$(jq -nc --arg p "$n" '{tool_name: "Grep", tool_input: {pattern: "A", path: $p}}')"
+done
+expect deny "Read relative .env"        '{"tool_name":"Read","tool_input":{"file_path":".env"}}'
+expect deny "Grep glob **/.env.*"       '{"tool_name":"Grep","tool_input":{"pattern":"A","glob":"**/.env.*"}}'
+expect deny "Grep glob *.env"           '{"tool_name":"Grep","tool_input":{"pattern":"A","glob":"*.env"}}'
+expect deny "Grep glob list with .env"  '{"tool_name":"Grep","tool_input":{"pattern":"A","path":".","glob":"!*.ts .env"}}'
+expect deny "Grep glob list, comma"     '{"tool_name":"Grep","tool_input":{"pattern":"A","path":".","glob":"*.ts,.env.local"}}'
+expect pass "Read environment.md"       '{"tool_name":"Read","tool_input":{"file_path":"/x/environment.md"}}'
+expect pass "Read an ordinary file"     '{"tool_name":"Read","tool_input":{"file_path":"/x/p/src/main.ts"}}'
+expect pass "Grep of a named file"      '{"tool_name":"Grep","tool_input":{"pattern":"A","path":"main.ts"}}'
+expect deny "Grep of a missing path"    '{"tool_name":"Grep","tool_input":{"pattern":"A","path":"/x/p"}}'
+expect deny "Grep of ~"                 '{"tool_name":"Grep","tool_input":{"pattern":"A","path":"~"}}'
+expect deny "folder Grep, no glob, no type"   '{"tool_name":"Grep","tool_input":{"pattern":"A","path":"."}}'
+expect deny "Grep with only a pattern"        '{"tool_name":"Grep","tool_input":{"pattern":"A"}}'
+for g in '*' '**/*' '.*' 'config/*' 'src/**' '*/*' '**/**/*' '*.production' '*.local' '*.staging' '*.{env,ts}' '{.env,x}' 'staging*' '*rc' '!*.ts' '!*.env* *' '*.ts *'; do
+  expect deny "folder Grep, glob $g" "$(jq -nc --arg g "$g" '{tool_name: "Grep", tool_input: {pattern: "A", path: ".", glob: $g}}')"
+done
+expect deny "folder Grep, glob * with type"      '{"tool_name":"Grep","tool_input":{"pattern":"A","path":".","glob":"*","type":"py"}}'
+expect deny "folder Grep, glob !*.ts with type"  '{"tool_name":"Grep","tool_input":{"pattern":"A","path":".","glob":"!*.ts","type":"py"}}'
+expect deny "folder Grep, glob list with .env and type" '{"tool_name":"Grep","tool_input":{"pattern":"A","path":".","glob":"!*.ts .env","type":"py"}}'
+for g in '*.ts' '**/*.ts' 'src/**/*.ts' '*.{ts,tsx}' '**/*.{ts,tsx}' '*.md' '!*.env*' '*.ts !*.env*' '*.ts,!*.env*'; do
+  expect pass "folder Grep, glob $g" "$(jq -nc --arg g "$g" '{tool_name: "Grep", tool_input: {pattern: "A", path: ".", glob: $g}}')"
+done
+expect pass "folder Grep, type py"            '{"tool_name":"Grep","tool_input":{"pattern":"A","path":".","type":"py"}}'
+expect pass "no-path Grep, glob !*.env*"      '{"tool_name":"Grep","tool_input":{"pattern":"A","glob":"!*.env*"}}'
+
 # A JWT is a secret wherever it appears, a curl URL included.
 check deny "jwt in a curl url"              "curl -sS \"https://example.invalid/file?token=$JWT\""
 
