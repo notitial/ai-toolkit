@@ -176,7 +176,7 @@ fi
 # The hook scripts the repo ships, minus any name that is a real (non-link) file in a config dir: that one is the user's.
 HOOK_NAMES=$({
   for f in "$ROOT"/hooks/*.sh; do [ -e "$f" ] && basename "$f"; done
-  jq -r '[.hooks[]? | arrays | .[] | .hooks[]? | .command | strings | select(contains("/.claude/hooks/"))] | .[] | split("/") | last' "$TEMPLATE"
+  jq -r '[.hooks[]? | arrays | .[] | .hooks[]? | .command | strings | select(contains("/.claude/hooks/"))] | .[] | capture("/[.]claude/hooks/(?<n>[^\" ]+)").n' "$TEMPLATE"
 } | sort -u | while IFS= read -r n; do
   mine=0
   while IFS= read -r cfg; do
@@ -198,10 +198,13 @@ def sec_env: ["ENABLE_CLAUDEAI_MCP_SERVERS"];
 def guard_cmd:
   (type == "string") and (
     . == "/usr/local/libexec/mcp-github/guard.sh" or . == $guard or . == ("/bin/bash -p '"'"'" + $guard + "'"'"' || exit 2"));
-# A hook command of the toolkit: the script path alone or with arguments, optionally under bash, never a chained command.
+# A hook command of the toolkit: the script path alone or with arguments, optionally under bash, never a chained command,
+# or the fail-closed wrapper of a hook (`/bin/bash -p "$HOME/.claude/hooks/<name>" || exit 2`, protected-paths-guard.sh):
+# it goes with the link, since a wrapper left behind would block every call once its script is gone.
 def toolkit_cmd:
   (type == "string") and (
     (guard_cmd and $rmguard == 1)
+    or (. as $s | any($names[]; . as $n | $s == ("/bin/bash -p \"$HOME/.claude/hooks/" + $n + "\" || exit 2")))
     or (sub("^bash +"; "") as $c
         | ($c | split(" ")[0] // "") as $w
         | (($c | test("&&|;|\\|")) | not)

@@ -264,6 +264,12 @@ expect_re "an entry at another path does not count" "$OUT" '^MISSING +hooks/h\.s
 jq -n '{hooks: {_comment: "a note", SessionStart: [{matcher: "startup", hooks: [{type: "command", command: "$HOME/.claude/hooks/h.sh"}]}]}}' > "$H/.claude/settings.json"
 ic status
 expect_not "any event counts here, and a note under hooks is skipped" "$OUT" "hooks/h.sh is not wired"
+jq -n '{hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: "/bin/bash -p \"$HOME/.claude/hooks/h.sh\" || exit 2"}]}]}}' > "$H/.claude/settings.json"
+ic status
+expect_not "the fail-closed wrapper counts as wired" "$OUT" "hooks/h.sh is not wired"
+jq -n '{hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: "/bin/bash -p \"$HOME/.claude/hooks/other.sh\" || exit 2"}]}]}}' > "$H/.claude/settings.json"
+ic status
+expect_re "a wrapper around another script does not count" "$OUT" '^MISSING +hooks/h\.sh is not wired'
 printf 'not json\n' > "$H/.claude/settings.json"
 ic status
 expect_re "an invalid settings file wires nothing" "$OUT" '^MISSING +hooks/h\.sh is not wired'
@@ -405,6 +411,20 @@ expect_rc "status exits 1" 1
 expect_re "CONFLICT for the link pointing elsewhere" "$OUT" '^CONFLICT +\.claude/agents/a\.md \(not a link to agents/a\.md\)'
 expect_re "UNLINKED for the new hook" "$OUT" '^UNLINKED +\.claude/hooks/new\.sh'
 expect_has "links summary" "$OUT" "links     6 linked, 1 unlinked, 1 conflicting"
+
+case_start "status 6b: protected-paths-guard.sh is wired only by its fail-closed command"
+new_case
+setup_current
+commit_main hooks/protected-paths-guard.sh '#!/bin/sh'
+chmod 755 "$R/hooks/protected-paths-guard.sh"
+ln -s "$R/hooks/protected-paths-guard.sh" "$H/.claude/hooks/protected-paths-guard.sh"
+jq -n '{hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: "$HOME/.claude/hooks/h.sh"}, {type: "command", command: "$HOME/.claude/hooks/protected-paths-guard.sh"}]}]}}' > "$H/.claude/settings.json"
+ic status
+expect_re "the bare command is STALE for it" "$OUT" '^STALE +hooks/protected-paths-guard\.sh runs as the bare path'
+jq -n '{hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: "$HOME/.claude/hooks/h.sh"}, {type: "command", command: "/bin/bash -p \"$HOME/.claude/hooks/protected-paths-guard.sh\" || exit 2"}]}]}}' > "$H/.claude/settings.json"
+ic status
+expect_not "the wrapped command is wired" "$OUT" "protected-paths-guard.sh runs as the bare path"
+expect_not "and not MISSING" "$OUT" "protected-paths-guard.sh is not wired"
 
 case_start "status 7: a regular file or a dangling link where a link belongs is a conflict"
 new_case

@@ -284,11 +284,15 @@ jq '.hooks.PreToolUse += [
       {matcher: "B", hooks: [{type: "command", command: "$HOME/.claude/hooks/secret-detector.sh && my-thing"}]},
       {matcher: "C", hooks: [{type: "command", command: "bash $HOME/.claude/hooks/secret-redact-output.sh --flag"}]},
       {matcher: "E", hooks: [{type: "prompt", prompt: "x"}]},
-      {matcher: "F", hooks: [{type: "command", command: "$HOME/.claude/hooks/gh-block.sh"}]}]' "$C/settings.json" > "$C/s.tmp" && mv "$C/s.tmp" "$C/settings.json"
+      {matcher: "F", hooks: [{type: "command", command: "$HOME/.claude/hooks/gh-block.sh"}]},
+      {matcher: "G", hooks: [{type: "command", command: "/bin/bash -p \"$HOME/.claude/hooks/protected-paths-guard.sh\" || exit 2"}]},
+      {matcher: "H", hooks: [{type: "command", command: "/bin/bash -p \"$HOME/.claude/hooks/mine.sh\" || exit 2"}]}]' "$C/settings.json" > "$C/s.tmp" && mv "$C/s.tmp" "$C/settings.json"
 run --apply
 check "hooks: a hook with no command does not stop the clean-up" '[ $RC -eq 0 ] && ! grep -q "filter failed" "$T/out" && has "[.hooks.PreToolUse[] | select(.matcher == \"F\")] | length == 0"'
 check "hooks: the hook with no command is kept" 'has "[.hooks.PreToolUse[] | select(.matcher == \"E\")] | length == 1"'
 check "hooks: the user's own real script with a toolkit name is kept" 'has "[.hooks.PreToolUse[] | select(.matcher == \"A\")] | length == 1"'
+check "hooks: the fail-closed wrapper of a toolkit hook goes with its link" 'has "[.hooks.PreToolUse[] | select(.matcher == \"G\")] | length == 0"'
+check "hooks: a wrapper around the user's own script is kept" 'has "[.hooks.PreToolUse[] | select(.matcher == \"H\")] | length == 1"'
 check "hooks: a chained command is kept" 'has "[.hooks.PreToolUse[] | select(.matcher == \"B\")] | length == 1"'
 check "hooks: a bash-prefixed toolkit hook with arguments is removed" 'has "[.hooks.PreToolUse[] | select(.matcher == \"C\")] | length == 0"'
 

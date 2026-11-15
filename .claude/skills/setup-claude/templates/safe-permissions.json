@@ -255,12 +255,12 @@
         ]
       },
       {
-        "_comment": "Hard-denies writes to any folder that holds a .protected-checkout file (made by the person with touch, never committed) and to ~/.claude/settings*.json. Never asks. Does nothing in a folder without the marker. The settings files are protected whether or not any marker exists.",
+        "_comment": "Hard-denies writes to any folder that holds a .protected-checkout file (made by the person with touch, never committed) and to ~/.claude/settings*.json. Never asks. Does nothing in a folder without the marker. The settings files are protected whether or not any marker exists. The command runs the guard through bash, quoted, with `|| exit 2`, like the github MCP guard: a guard that cannot run (missing link, bash error) blocks the call instead of letting it through. A normal deny or pass exits 0, so its JSON still reaches Claude Code.",
         "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Monitor|mcp__git-mcp__.*",
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/hooks/protected-paths-guard.sh",
+            "command": "/bin/bash -p \"$HOME/.claude/hooks/protected-paths-guard.sh\" || exit 2",
             "timeout": 10
           }
         ]
