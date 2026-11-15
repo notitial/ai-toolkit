@@ -62,7 +62,7 @@ On a 401 or "Bad credentials" from a github MCP tool, stop and tell the user: no
 3. **Files**, from the default branch: `.github/workflows/` (CI jobs and their names, the secret-scan caller and its
    pin (with the root `.pre-commit-config.yaml`, per `tools/gitleaks/`, against `pre-commit-config.yaml` beside
    `defaults.md`), `pr-title.yml` and its type list, limit and `dependabot[bot]` exemption, `deploy.yml`, every job's
-   `runs-on` against the reference deployment's runner rule, job names against the `<Area> Checks` convention),
+   `runs-on` against the reference deployment's runner rule (the review kit's `appcheck` and `publish` excepted, doc step 3), job names against the `<Area> Checks` convention),
    `.github/dependabot.yml`, `.github/pull_request_template.md`, the
    automatic PR review's workflow and command files if the file model has one (doc step 9), and the CLAUDE.md
    sections doc step 7 names. Compare each against the file model: present, missing, or different (say how).

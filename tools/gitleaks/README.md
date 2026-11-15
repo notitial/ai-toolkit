@@ -65,7 +65,7 @@ jobs:
 
 - A called workflow sees the caller's event, so the PR's base and head SHAs work as written. Trigger the caller on `pull_request` only: on any other event the SHAs are empty and the scan covers nothing.
 - `runs-on` is JSON, because a workflow input is a string and a runner can be one label or a list.
-- The hosted default is for public repos. Where private repos must use the organization's own runners, delete the `default:` line and add `required: true`: a caller that forgets its labels then fails at once instead of queueing on a hosted runner that never starts ([07-new-repo-setup.md](../../docs/07-new-repo-setup.md), step 3).
+- The hosted default suits an organization whose repos all run hosted. Where private repos must use the organization's own runners, delete the `default:` line and add `required: true`: a caller that forgets its labels then fails at once instead of queueing on a hosted runner that never starts ([07-new-repo-setup.md](../../docs/07-new-repo-setup.md), step 3). Every caller must then pass `runs-on`, public repos too (`runs-on: '"ubuntu-latest"'`): change each caller before you raise its pin.
 
 ## The caller, per repo
 
@@ -86,7 +86,7 @@ jobs:
       runs-on: '["<label>","<label>"]'
 ```
 
-- Pin by commit SHA, not a branch. Omit `with:` to run on `ubuntu-latest` (public repos).
+- Pin by commit SHA, not a branch. While the input has its hosted default, omit `with:` to run on `ubuntu-latest` (public repos); once the input is required, always pass it.
 - The required-check name for a reusable workflow is `<caller job> / <called job>`: here **`Secret Scan / gitleaks`**. Keep the caller job named `Secret Scan` in every repo, so the check name is one string. Add that name to the `main` ruleset ([07-new-repo-setup.md](../../docs/07-new-repo-setup.md), step 8).
 - If the organization limits which Actions may run, allow the reusable workflow's path.
 

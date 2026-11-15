@@ -50,7 +50,7 @@ Two conventions run through the steps:
 - Copy `ci.yml` from the app template. One job per package, each running that package's typecheck, lint and test; the job names become required checks in step 8, so name them before writing the ruleset.
 - Name each job `<Area> Checks`, the convention above.
 - Conventions every workflow follows: `permissions: {}` at the top and per-job grants; actions pinned by full SHA with a tag comment; `timeout-minutes` on every job; `persist-credentials: false` on checkout; a `concurrency` group; CI on the CI runner labels, never a deploy runner.
-- **Runners.** When the reference deployment says a private repo runs on the org's own runners, every job in the repo takes its labels from there: CI, the PR title check, the secret scan, the review, a generated-files check, anything. No job uses a hosted label, and none falls back to one (`|| 'ubuntu-latest'`): a hosted job in such a repo may never start, and a required check it carries then blocks every merge. A reusable workflow takes `runs-on` as an input with no hosted default (`required: true`; see [tools/gitleaks/](../tools/gitleaks/README.md)), and the caller passes the labels. Public repos, and the kit's own defaults, use `ubuntu-latest`.
+- **Runners.** When the reference deployment says a private repo runs on the org's own runners, every job in the repo takes its labels from there: CI, the PR title check, the secret scan, a generated-files check, the review kit's `preflight` and `review`, anything. No job uses a hosted label, and none falls back to one (`|| 'ubuntu-latest'`): a hosted job in such a repo may never start, and a required check it carries then blocks every merge. A reusable workflow takes `runs-on` as an input with no hosted default (`required: true`), and every caller passes the labels (see [tools/gitleaks/](../tools/gitleaks/README.md)). **One exception: the review kit's `appcheck` and `publish` jobs**, which hold the reviewer App's key. They never run on the CI runners: they take their runner from the repo variable `CLAUDE_REVIEW_KEY_RUNS_ON` (a dedicated pool) and otherwise stay on `ubuntu-latest`, so they carry the kit's hosted fallback unedited (step 9; [tools/claude-review/](../tools/claude-review/README.md)). Public repos, and the kit's own defaults, use `ubuntu-latest`.
 
 ### 4. Secret scanning and pre-commit hooks
 
@@ -66,7 +66,7 @@ Two conventions run through the steps:
   | `actionlint` | a bad workflow expression fails only on GitHub, after the push | no: the workflow run itself fails at once |
 
   Left out on purpose: `detect-private-key` (gitleaks has a private-key rule), `check-json` (a bad JSON file fails the first test or build that reads it), `shellcheck` (add it in a repo with shell scripts, from a pinned release of a shellcheck package; it needs a clean baseline first), and anything that rewrites files (`black`, `prettier`, `end-of-file-fixer`): formatters belong to each repo's lint job. Add a hook to the config only with its CI twin, or a reason it needs none.
-- **Optional: no hosted `runs-on`.** In a repo that must use its own runners (step 3), a local hook fails a hosted label before the push. The kit bakes in no labels: the pattern below matches only GitHub's hosted image names, so it also catches a hosted fallback inside an expression. It is early feedback like every hook.
+- **Optional: no hosted `runs-on`.** In a repo that must use its own runners (step 3), a local hook fails a hosted label before the push. The kit bakes in no labels: the pattern below matches only GitHub's hosted image names, so it also catches a hosted fallback inside an expression. It skips `claude-review.yml`, whose key jobs keep their hosted fallback (step 3). It is early feedback like every hook.
 
   ```yaml
   - repo: local
@@ -75,7 +75,7 @@ Two conventions run through the steps:
         name: no GitHub-hosted runs-on
         language: pygrep
         entry: 'runs-on:.*\b(ubuntu|macos|windows)-'
-        files: ^\.github/workflows/.*\.ya?ml$
+        files: ^\.github/workflows/(?!claude-review\.yml$).*\.ya?ml$
   ```
 - The agent-side layer is global, not per repo: `hooks/secret-detector.sh` blocks a secret in an edit or a commit, and `hooks/secret-redact-output.sh` redacts one in tool output (both installed by `/setup-claude`).
 
