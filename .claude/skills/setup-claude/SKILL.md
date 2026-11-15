@@ -534,9 +534,11 @@ bash tools/install-copies.sh status
 Any `STALE github` or `MISSING github` line is a failure. Report `DRIFT: github MCP guard missing` /
 `command differs`, and never edit or copy the guard yourself.
 
-The other hook commands reference `$HOME/.claude/hooks/<script>.sh` — these are the scripts installed in Step 3.
+The other hook commands reference `$HOME/.claude/hooks/<script>.sh` — these are the scripts installed in Step 3. The one exception besides the github guard is `protected-paths-guard.sh`, whose command is `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2` (same reason: a guard that cannot start blocks the call).
 
 **`protected-paths-guard.sh` is the one control that also protects this skill's own work:** once it is wired, an unwired or stale entry is `DRIFT` like any other, and a checkout without its marker is reported under Step 3's **Protected checkout**.
+
+**Its command is compared too (assert; fail loud):** the live entry under `PreToolUse` that references `protected-paths-guard.sh` must have a `command` byte-identical to the template's, not only the same matcher. The additive merge keys on (event, matcher, script path), read as the `.claude/hooks/<name>.sh` text anywhere in the command (inside the wrapper's quotes too), so a live entry that still carries the older bare `$HOME/.claude/hooks/protected-paths-guard.sh` command looks present and nothing replaces it, although that form lets a call through when the guard cannot start. Report `DRIFT: protected-paths-guard command differs on PreToolUse — live: <live>, template: <template>`, show the user the before/after, and replace the command in the live entry on their go, in place (never add a second entry beside it). Like every settings change, it goes through the staged copy.
 
 ### Auto mode
 

@@ -611,5 +611,41 @@ else
   echo "skip: audit case (no audit-logger.sh beside the hook)"
 fi
 
+# ---- the settings command is fail-closed: a guard that cannot run blocks (exit 2), a deny or pass still exits 0 ----
+TPL="$HERE/../../.claude/skills/setup-claude/templates/safe-permissions.json"
+CMD=$(jq -r '[.hooks.PreToolUse[]?.hooks[]?.command | select(type == "string" and test("protected-paths-guard[.]sh"))] | first // empty' "$TPL" 2>/dev/null)
+mkhome() {  # mkhome <name> <install: link|crash|none>: a HOME whose hooks/protected-paths-guard.sh is the guard, a crashing stub, or absent
+  mkdir -p "$T/$1/.claude/hooks"
+  case $2 in
+    link) ln -s "$T/hooks/protected-paths-guard.sh" "$T/$1/.claude/hooks/protected-paths-guard.sh" ;;
+    crash) printf '#!/bin/bash\nexit 1\n' >"$T/$1/.claude/hooks/protected-paths-guard.sh" ;;
+  esac
+}
+runcmd() {  # runcmd <home name> <stdin json>: sets RC and OUT from the template's command run under sh
+  OUT=$(printf '%s' "$2" | HOME="$T/$1" /bin/sh -c "$CMD" 2>/dev/null)
+  RC=$?
+}
+check() {  # check <label> <want rc> <want deny: yes|no>
+  local got=no
+  [ "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)" = deny ] && got=yes
+  if [ "$RC" = "$2" ] && [ "$got" = "$3" ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: $1: rc $RC (want $2), deny $got (want $3)"; fi
+}
+if [ -z "$CMD" ]; then
+  FAIL=$((FAIL + 1)); echo "FAIL: the template has no protected-paths-guard.sh hook command"
+else
+  mkhome hw link
+  runcmd hw "$(call Write "{\"file_path\":\"$LIVE/tools/a.ts\"}" "$CLONE")"
+  check "settings command: a deny still reaches Claude Code with exit 0" 0 yes
+  runcmd hw "$(call Write "{\"file_path\":\"$CLONE/tools/a.ts\"}" "$CLONE")"
+  check "settings command: a pass exits 0 with no deny" 0 no
+  [ -z "$OUT" ] && PASS=$((PASS + 1)) || { FAIL=$((FAIL + 1)); echo "FAIL: settings command: a pass prints nothing: $OUT"; }
+  mkhome hm none
+  runcmd hm "$(call Write "{\"file_path\":\"$CLONE/tools/a.ts\"}" "$CLONE")"
+  check "settings command: a missing hook link blocks with exit 2" 2 no
+  mkhome hc crash
+  runcmd hc "$(call Write "{\"file_path\":\"$CLONE/tools/a.ts\"}" "$CLONE")"
+  check "settings command: a hook that exits non-zero blocks with exit 2" 2 no
+fi
+
 echo "protected-paths-guard: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

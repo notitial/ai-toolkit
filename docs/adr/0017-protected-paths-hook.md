@@ -56,7 +56,8 @@ base install.
 - **Targets are judged, not the session's folder.** A session that stands in a protected folder and works in a clone
   under `/tmp` is not blocked. The folder only decides a relative operand with no `cd` before it.
 - **The setup.** `/setup-claude` links the hook (it is in the roster), wires it (a template entry, covered by the drift
-  assertion) and tells the user to make the marker for this checkout. Because the hook now denies the agent's writes to
+  assertion; its command is `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`, so a guard that cannot
+  start blocks the call instead of letting it through, and a stale bare command is reported as drift) and tells the user to make the marker for this checkout. Because the hook now denies the agent's writes to
   the settings files, Step 10 stages the merged settings in a file beside the live one and gives the user a copy
   command; the agent never writes the live file.
 

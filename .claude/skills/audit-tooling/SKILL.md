@@ -69,7 +69,7 @@ For each hook in `hooks/`:
 | 2.1 | Executable flag | File has a bash shebang and the working-tree mode is executable (`ls -l`). The index mode is not readable from the tree: CI `Install Checks` is the real check, so say "index mode not verified" in Detail |
 | 2.2 | Reads JSON from stdin | Script uses `cat` or similar to capture stdin, then parses with `jq` |
 | 2.3 | Uses structured JSON output | Deny decisions use `hookSpecificOutput.permissionDecision: "deny"` format. N/A for a hook that never denies (it only logs, redacts, restores or notifies) |
-| 2.4 | Exit 0 always | Script never exits non-zero — uses JSON output for decisions, not exit codes. This audits `hooks/*.sh` only: the github guard's `|| exit 2` sits in a settings hook command, covered by 5.5, not here |
+| 2.4 | Exit 0 always | Script never exits non-zero — uses JSON output for decisions, not exit codes. This audits `hooks/*.sh` only: the `|| exit 2` of the github guard and of protected-paths-guard sits in a settings hook command, covered by 5.5, not here |
 | 2.5 | Pattern coverage reasonable | Secret detector: covers AWS, GitHub, OpenAI/Stripe, PEM keys, JWT, Slack, .env files, Keychain secret reads (`security find-*-password -w/-g`, `dump-keychain -d`). Destructive blocker: covers rm -rf, DROP/DELETE/TRUNCATE, git force push/reset/clean, dd, mkfs |
 | 2.6 | No false positives on safe input | Run a mental walkthrough: would `echo "hello world"` or `git status` trigger a deny? |
 | 2.7 | Grep handles special patterns | Patterns starting with dashes use `--` end-of-options marker |
@@ -125,7 +125,7 @@ Check `templates/safe-permissions.json`:
 | 5.2 | Permissions use specific patterns | No `Bash(*)` or overly broad wildcards |
 | 5.3 | MCP git tools present | `mcp__git-mcp__*` permissions exist for git operations |
 | 5.4 | No Bash git in allow list | Bash git permissions only appear in `_migration.removeBashGit`, not in `permissions.allow` |
-| 5.5 | Hooks reference existing scripts | Each hook `command` path (e.g., `$HOME/.claude/hooks/secret-detector.sh`) corresponds to a script in `hooks/`. One intended exception: the github guard, `/bin/bash -p '<live checkout>/tools/github-mcp/guard.sh' || exit 2` (check that the file exists at the path the hook names; never repoint it at `hooks/`) |
+| 5.5 | Hooks reference existing scripts | Each hook `command` path (e.g., `$HOME/.claude/hooks/secret-detector.sh`) corresponds to a script in `hooks/`. Two intended forms: the github guard, `/bin/bash -p '<live checkout>/tools/github-mcp/guard.sh' || exit 2` (check that the file exists at the path the hook names; never repoint it at `hooks/`), and `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2` (the path inside the quotes is the script) |
 | 5.6 | Migration list consistent | Every Bash pattern in `removeBashGit` has a corresponding MCP permission in `allow` (or is intentionally prompt-only like `git branch`) |
 | 5.7 | Plugins are current | `enabledPlugins` list does not include plugins that are in `_migration.removePlugins`. N/A when `removePlugins` is empty (nothing to test). `_migration` as a whole is a one-machine upgrade path: note it in Detail, do not remove it here |
 
