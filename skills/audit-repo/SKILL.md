@@ -36,10 +36,10 @@ files through the github MCP (`get_file_contents`) from the default branch.
    `skills/audit-repo/references/checklist.md` from ai-toolkit's `main` (git MCP `git_show` with `path`), not the
    working tree.
 3. Ask once, in one AskUserQuestion, for what `defaults.md` marks **ask** and never fill it from memory: the
-   reference deployment (the repo that holds the org's runner labels, org secret and variable names, and ruleset
-   contents), the file model (an existing repo whose workflows and PR template to copy), whether the repo is an app
+   reference deployment (a repo or a local doc; the form and what to do when it cannot be read are in `defaults.md`),
+   the file model (an existing repo whose workflows and PR template to copy), whether the repo is an app
    (deploy workflow), whether it has CI, whether it uses the automatic Claude review, and any deliberate exception
-   with its reason. Read the reference deployment through the github MCP and take the runner rule, the ruleset and the
+   with its reason. Read the reference deployment in the form given and take the runner rule, the ruleset and the
    org names from there.
 4. If the reference deployment and the file model disagree, report both and ask which binds.
 

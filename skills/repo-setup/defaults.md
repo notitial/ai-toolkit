@@ -29,8 +29,10 @@ decision changes.
 
 Ask the user once per run, in one AskUserQuestion:
 
-- The reference deployment: the repo that holds the org's runner labels, org secret and variable names, ruleset
-  contents and the app template.
+- The reference deployment: the source that holds the org's runner labels, org secret and variable names, ruleset
+  contents and the app template. It is a GitHub repo (`<owner/repo>`, read through the github MCP) or an absolute
+  path to a local markdown file or folder (read with the Read tool). If it cannot be read (a 404, a missing file),
+  stop and ask for another; never guess its values.
 - The file model: the existing repo whose workflows, PR template and CLAUDE.md sections the new one copies.
 - The PR title type list, when the reference deployment and the file model disagree with each other or with the list above.
 - Whether the repo is an app (deploy workflow) or not.
