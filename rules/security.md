@@ -8,8 +8,10 @@
 - Use least-privilege access
 - A `[REDACTED:...]` marker in tool output is not a value: never write it into a file or a command, never try to recover what it hides (base64, xxd, splitting, another tool). If a task needs the value, ask the user
 - On a 401 or "Bad credentials" from a github MCP tool, stop and tell the user: no `gh` fallback, no retry
-- The `gh` CLI is blocked for agents (`hooks/gh-block.sh`). Read GitHub through the github MCP tools. When a task
-  needs something they can't do (a PR body edit, `gh pr ready`, repo or org settings, a write the guard denies),
+- The `gh` CLI is blocked for agents (`hooks/gh-block.sh`). Read GitHub through the github MCP tools. Edit a PR's
+  title or body and mark a PR ready yourself, with `update_pull_request` (`draft: false`; the guard asks the user
+  first): never hand the user `gh pr ready` or `gh pr edit`. When a task
+  needs something they can't do (repo or org settings, a write the guard denies),
   stop and give the user the exact `gh` commands in a markdown code block to run themselves, then carry on from
   the output they paste back. In that block: say what each command does and mark the writes; never include a
   command that prints, exports or uses a token or secret (`gh auth token`, `--show-token`), and never ask for such
