@@ -15,12 +15,12 @@ decision changes.
 | `delete_branch_on_merge` | on |
 | PR title types | `docs`, `feat`, `fix`, `chore`, `test`, `ci`, `refactor`; the repo's `pr-title.yml` binds, this is its starting value |
 | PR title length limit | 45; `dependabot[bot]` is exempt from the length check only, not the format |
-| Check names | `<Area> Checks` for a job the repo defines (CI jobs, `PR Title Checks`); `Secret Scan / gitleaks` for the reusable secret scan |
+| Check names | `<Area> Checks` for a job the repo defines (CI jobs; `PR Title Checks` for a self-contained title check); `Secret Scan / gitleaks` and `PR Title / check` for the shared reusable workflows, whose names GitHub builds as `<caller job> / <called job>` |
 | Runners | `ubuntu-latest`; where the reference deployment says private repos use the org's own runners, every job uses its labels and none has a hosted fallback |
 | Claude review jobs as required checks | never |
 | Secret scan | gitleaks: `.pre-commit-config.yaml` plus a `secret-scan.yml` caller of the org's reusable workflow (`tools/gitleaks/`) |
 | Pre-commit hooks | `pre-commit-config.yaml` beside this file: `gitleaks`, `check-merge-conflict`, `check-added-large-files`, `check-yaml`, `actionlint` |
-| Ruleset `main protection` | deletion and non-fast-forward blocked; linear history; signed commits; pull request required, 0 approvals, squash only; admin role bypasses in pull-request mode; required checks = the repo's CI jobs, `Secret Scan / gitleaks`, `PR Title Checks` |
+| Ruleset `main protection` | deletion and non-fast-forward blocked; linear history; signed commits; pull request required, 0 approvals, squash only; admin role bypasses in pull-request mode; required checks = the repo's CI jobs, `Secret Scan / gitleaks`, the PR title check (`PR Title / check`) |
 | Repo-level copies of org secret or variable names | never |
 | GitHub secret scanning and push protection | on in public repos, off in private ones (a paid add-on; gitleaks covers it) |
 | Dependabot | `dependabot.yml` (`github-actions` plus each package ecosystem, weekly, grouped minor and patch, prefix `ci` or `chore`); alerts and security updates on |
