@@ -14,7 +14,7 @@ The checklist every new repo in a GitHub org gets on day one, with what each ste
 Do the steps in order: later ones assume earlier ones (the ruleset names the CI job names; the review install depends on the ruleset's required checks).
 
 Two conventions run through the steps:
-- **Check names.** A job a repo defines itself is named `<Area> Checks` (`Web Checks`, `API Checks`, `PR Title Checks`). The name follows from the area, so the ruleset can name a check before its job exists (add it to the ruleset once the job has run on `main`, step 8). The one exception is a reusable workflow, whose check name GitHub builds as `<caller job> / <called job>`: `Secret Scan / gitleaks` (step 4).
+- **Check names.** A job a repo defines itself is named `<Area> Checks` (`Web Checks`, `API Checks`). The name follows from the area, so the ruleset can name a check before its job exists (add it to the ruleset once the job has run on `main`, step 8). The exception is a shared reusable workflow, whose check name GitHub builds as `<caller job> / <called job>`: `Secret Scan / gitleaks` (step 4) and `PR Title / check` (step 5). The name is whatever the workflow really produces; read it from a PR's check list before writing it into a ruleset.
 - **Runners.** The kit's own defaults are GitHub-hosted (`ubuntu-latest`). If the reference deployment says the org's private repos run on its own runners, every job in those repos uses its labels (step 3); public repos stay hosted.
 
 | # | Step | Kind | Source of the values |
@@ -81,7 +81,7 @@ Two conventions run through the steps:
 
 ### 5. PR title check
 
-- Copy `pr-title.yml`: a plain-bash regex, no third-party action, the title passed through `env`, never interpolated. It enforces `<type>: <description>` with the type list and length limit it defines. Name the job `PR Title Checks` (the check-name convention above), on the repo's own runners if step 3 says so.
+- Copy `pr-title.yml`: a plain-bash regex, no third-party action, the title passed through `env`, never interpolated. It enforces `<type>: <description>` with the type list and length limit it defines. Where the reference deployment has a shared reusable title workflow, call it from `pr-title.yml` with a caller job named `PR Title`: the check is **`PR Title / check`**, and the runners are passed in. A repo with a self-contained copy names its job `PR Title Checks` (the convention above) and runs it on the repo's own runners if step 3 says so.
 - The type list is `docs`, `feat`, `fix`, `chore`, `test`, `ci`, `refactor`. `pr-title.yml` is the one copy that binds; [defaults.md](../skills/repo-setup/defaults.md) records the list for a repo with no file model to copy it from.
 - The length limit is 45, not 50: GitHub appends ` (#N)` to the squash commit title, and the commit title must stay at or under about 50. **`dependabot[bot]` is exempt from the length check, and only from it:** its titles carry a package name, a version range and a directory that can't be shortened, and its format (`chore: ...` or `ci: ...`, from its `commit-message.prefix`) is still checked.
 - Write the same type list into the repo's CLAUDE.md (step 7) and the PR template's checklist (step 6). Why: three copies that disagree is the drift this checklist exists to stop; the workflow is the one that binds.
@@ -100,7 +100,7 @@ Two conventions run through the steps:
 ### 8. Ruleset `main protection`
 
 - One ruleset on `main` per repo, with the rules and bypass the reference deployment lists: deletion and non-fast-forward (force push) blocked, linear history, signed commits, pull request required with **0 approvals** and squash as the only merge method, and required status checks; the repo-admin role bypasses in pull-request-only mode, so an admin still goes through a PR. Why: it is the only control between an agent's branch and `main`, and in a merge-is-deploy repo, production.
-- **Required checks:** the repo's CI jobs (step 3), `Secret Scan / gitleaks` and `PR Title Checks`. A check that never reports blocks every merge, so add each name only once its job has run on `main`. A repo with no CI jobs still requires the other two. The checks don't require an up-to-date branch, so a stale branch is brought current by hand (step 2).
+- **Required checks:** the repo's CI jobs (step 3), `Secret Scan / gitleaks` and the PR title check (`PR Title / check`, or `PR Title Checks` for a self-contained copy). A check that never reports blocks every merge, so add each name only once its job has run on `main`. Renaming a required job (an old `Check PR Title` to `PR Title / check`) is the one case that runs the other way: the owner swaps the old name for the new in the ruleset before the rename's PR merges, since the old name would never report. A repo with no CI jobs still requires the other two. The checks don't require an up-to-date branch, so a stale branch is brought current by hand (step 2).
 - **Never require a review bot's jobs.** Its verdict is a signal, and a bot's approval must never satisfy a required review ([ADR 0013](adr/0013-app-owned-pr-review.md)).
 - A repo with required checks can't merge a `[skip ci]` PR: the required checks never report.
 
