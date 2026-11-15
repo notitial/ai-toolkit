@@ -103,11 +103,16 @@ Do none of them yourself.
 
 Order: repo settings, then Dependabot (alerts, security updates), then secret scanning where it applies, then
 review-kit variables and secrets (names only; a secret is set by `gh secret set <NAME> -R <owner/repo>` with no value
-on the line, so gh asks for it), then the ruleset last: a required check is added only after its job has run on the
-default branch; a renamed check is swapped in before the rename's PR is merged (Step 5). Offer the file model's
-ruleset as starting JSON (`gh api repos/<owner/model-repo>/rulesets/<id>`) with this repo's check names substituted,
-for the user to review and create with `gh api -X POST repos/<owner/repo>/rulesets --input <file>`. Never add the
-Claude review jobs as required checks.
+on the line, so gh asks for it. The one exception is the App's private key, a multi-line PEM that gh's one-line prompt
+would cut to its first line: print `gh secret set CLAUDE_REVIEW_APP_KEY -R <owner/repo> < <path to the .pem>`, the
+file form the review kit's README uses), then the ruleset last: a required check is added only after its job has run on the
+default branch; a renamed check is swapped in before the rename's PR is merged (Step 5). Where the repo has no
+`main protection` ruleset (L5 missing), offer the file model's ruleset as starting JSON
+(`gh api repos/<owner/model-repo>/rulesets/<id>`) with this repo's check names substituted, for the user to review
+and create with `gh api -X POST repos/<owner/repo>/rulesets --input <file>`. Where one exists and differs (L6–L10, a
+renamed check), never POST a second: print a fetch of it (`gh api repos/<owner/repo>/rulesets/<id> > <file>`), the
+edits to make in that file, and `gh api -X PUT repos/<owner/repo>/rulesets/<id> --input <file>`. Never add the Claude
+review jobs as required checks.
 
 ## Step 7: Re-audit
 

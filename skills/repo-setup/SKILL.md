@@ -30,15 +30,10 @@ branch.
 
 1. This SKILL.md is symlinked from ai-toolkit: `readlink -f ~/.claude/skills/repo-setup/SKILL.md`, then walk up two
    levels to the toolkit's root. If the link is broken, ask for the ai-toolkit path.
-2. Read `docs/07-new-repo-setup.md` and `skills/repo-setup/defaults.md` from ai-toolkit's `main` (git MCP `git_show`
-   with `path`), not the working tree.
-3. Resolve the values `defaults.md` marks **ask**: the reference deployment (the repo that holds the org's runner
-   labels, org secret and variable names, ruleset contents and the app template), and the existing repo to use as
-   the file model. Ask the user for each in one AskUserQuestion; never guess them from memory or from this skill.
-   Read the reference deployment through the github MCP and take the runner labels, org secret and variable names,
-   the ruleset's rules and the required-check names from there.
-4. If the reference deployment's template and the file model disagree (a type list, a length), report both and ask
-   which binds.
+2. Run Step 1 of `<ai-toolkit>/skills/audit-repo/SKILL.md` in full (read it from ai-toolkit's `main`, git MCP
+   `git_show` with `path`, not the working tree). It reads `docs/07-new-repo-setup.md`, `defaults.md`, the pre-commit
+   config and the checklist, and asks the one AskUserQuestion: the reference deployment, the file model, whether the
+   repo is an app, has CI, uses the review, and any exception. Never guess these from memory or from this skill.
 
 On a 401 or "Bad credentials" from a github MCP tool, stop and tell the user: no `gh` fallback, no retry.
 
@@ -47,7 +42,7 @@ On a 401 or "Bad credentials" from a github MCP tool, stop and tell the user: no
 Run the audit as `/audit-repo` does, Steps 2–4 of `<ai-toolkit>/skills/audit-repo/SKILL.md` (read it from ai-toolkit's
 `main`): the live-state reads in one block for the user, the file reads, and the table judged against
 `skills/audit-repo/references/checklist.md`. That skill owns the list of reads and the items; this one does not repeat
-them. An archived repo ends the run there. The sources from Step 1 are the ones it uses; do not ask for them again.
+them. An archived repo ends the run there. Step 1's reads and answers are the ones it uses; do not ask for them again.
 
 **An audit-mode run ends here.**
 
