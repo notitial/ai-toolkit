@@ -4,7 +4,7 @@
 #   --apply             do it (without it, nothing is changed: the report is the dry run)
 #   --purge-ask         also remove the items classed ASK (user-authored or history: the ETA log)
 #   --keep-ambiguous    leave permission allow entries, plugins and autoMode context lines the template also lists,
-#                       and a promptCacheTtl or subagentPromptCacheTtl of "1h" (the opt-in /setup-claude asks about)
+#                       and a promptCacheTtl or subagentPromptCacheTtl of "1h" (promptCacheTtl is the /setup-claude default)
 #   --remove-guard-hook also remove the github MCP guard hook (kept by default: without it a still-registered server
 #                       runs unguarded; /cleanup-claude asks the user before passing this)
 #   --include-security  also remove the security entries the template lists: permission ask and deny, deniedMcpServers,
@@ -219,8 +219,9 @@ def toolkit_cmd:
     .env |= with_entries(select(.key as $k | ((tl.env | has($k)) and ($sec == 1 or (sec_env | index($k) | not))) | not)) | prune("env")
   else . end)
 | rm_eq("attribution") | rm_eq("autoCompactWindow")
-# The cache TTL keys are not in the template: /setup-claude writes "1h" only when the user says yes. The value alone
-# marks them, so they are ambiguous like an allow entry the user may have set themselves.
+# The cache TTL keys are not enforced like the keys above: /setup-claude adds promptCacheTtl "1h" only when absent and
+# keeps a live value. The value alone marks them, so they are ambiguous like an allow entry the user may have set
+# themselves.
 | (if $amb == 1 then
     (if .promptCacheTtl == "1h" then del(.promptCacheTtl) else . end)
     | (if .subagentPromptCacheTtl == "1h" then del(.subagentPromptCacheTtl) else . end)
