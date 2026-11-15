@@ -95,6 +95,32 @@ redacts "mcp github token in text"    "$(mcp_resp "env GITHUB_TOKEN=$GH")" "$GH"
 redacts "mcp plain string response"   "$(jq -nc --arg s "$GH" '{tool_name:"mcp__x__y",tool_response:$s}')" "$GH" "[REDACTED:github-token]"
 redacts "mcp nested object"           "$(jq -nc --arg s "$GH" '{tool_name:"mcp__x__y",tool_response:{content:[{type:"text",text:$s}],isError:false}}')" "$GH" "[REDACTED:github-token]"
 
+# --- Read and Grep shapes (as captured from Claude Code 2.1.325): the object keeps its shape, only strings change
+read_resp() { jq -nc --arg s "$1" '{tool_name:"Read",tool_response:{type:"text",file:{filePath:"/x/p/config.txt",content:$s,numLines:2,startLine:1,totalLines:2}}}'; }
+grep_resp() { jq -nc --arg s "$1" '{tool_name:"Grep",tool_response:{mode:"content",numFiles:0,filenames:[],content:$s,numLines:1,totalLines:1}}'; }
+redacts "read file content"           "$(read_resp "a=1"$'\n'"GITHUB_TOKEN=$GH")" "$GH" "[REDACTED:github-token]"
+redacts "grep content lines"          "$(grep_resp "3:GITHUB_TOKEN=$GH")" "$GH" "[REDACTED:github-token]"
+for n in .env.example .env.sample .env.template .env.dist; do
+  passes "read of $n is not redacted" "$(read_resp "GITHUB_TOKEN=$GH" | jq -c --arg p "/x/p/$n" '.tool_input = {file_path: $p}')"
+done
+redacts "read of .env.local"          "$(read_resp "GITHUB_TOKEN=$GH" | jq -c '.tool_input = {file_path: "/x/p/.env.local"}')" "$GH" "[REDACTED:github-token]"
+redacts "grep over an example file"   "$(grep_resp "1:GITHUB_TOKEN=$GH" | jq -c '.tool_input = {path: "/x/p/.env.example"}')" "$GH" "[REDACTED:github-token]"
+for line in 'password_hash = hashlib.sha256(salt).hexdigest''0123456789' 'secret_key = "abcdef0123''456789abcdef"' 'api_key: str = settings.API_KEY_''0123456789ab' "Authorization: Bas""ic Zm9v""OmJh""cjEy""MzQ1Ng==" 'url = "https://user:hunt''er2hunter2@example.test/x"' 'hooks/secret-detector.sh:292'; do
+  passes "read keeps code line: $line" "$(read_resp "$line")"
+  passes "grep keeps code line: $line" "$(grep_resp "4:$line")"
+done
+redacts "read still redacts a pem block"  "$(read_resp "x"$'\n'"$PEM_HEAD"$'\n'"MIIBVgIBADAN""BgkqhkiG9w0BAQEFAASC"$'\n'"$PEM_END")" "MIIBVgIBADAN""BgkqhkiG9w0BAQEFAASC" "[REDACTED:private-key]"
+redacts "grep still redacts an aws key"   "$(grep_resp "2:id = $AWS")" "$AWS" "[REDACTED:aws-key]"
+redacts "read still redacts an sk- key"   "$(read_resp "k=$OAI")" "$OAI" "[REDACTED:api-key]"
+SKV="abcdef0123""456789abcdef"
+redacts "bash still gets the generic rule" "$(bash_resp "secret_key = \"$SKV\"")" "$SKV" "[REDACTED:value]"
+passes "read of a plain file"       "$(read_resp "hello"$'\n'"world")"
+passes "grep with no secret"          "$(grep_resp "3:hello")"
+rshape=$(upd "$(read_resp "x $GH")" | jq -c '[keys, (.file | keys)]')
+if [ "$rshape" = '[["file","type"],["content","filePath","numLines","startLine","totalLines"]]' ]; then ok; else bad "read shape changed: $rshape"; fi
+gshape=$(upd "$(grep_resp "x $GH")" | jq -c 'keys')
+if [ "$gshape" = '["content","filenames","mode","numFiles","numLines","totalLines"]' ]; then ok; else bad "grep shape changed: $gshape"; fi
+
 # --- Bash output shape: exactly the four fields, even when the input carried a fifth
 shape=$(upd "$(bash_resp "x $GH")" | jq -c 'keys')
 if [ "$shape" = '["interrupted","isImage","stderr","stdout"]' ]; then ok; else bad "bash shape: $shape"; fi

@@ -1,8 +1,11 @@
 #!/bin/bash
 # Pre-tool-use hook: blocks Bash/Write/Edit/MultiEdit/NotebookEdit/git_commit calls that carry a secret, read or
 # write a .env file, search recursively over a tree that holds .env files, or (Bash only) print a macOS Keychain
-# secret (see keychain_read below).
-# Configured in ~/.claude/settings.json for PreToolUse on Bash|Write|Edit|MultiEdit|NotebookEdit|mcp__git-mcp__git_commit.
+# secret (see keychain_read below). The Read and Grep tools are checked for .env files: a Read of one, a Grep whose
+# path or glob names one, and a Grep that names no file unless it keeps .env out (see folder_grep_ok).
+# Configured in ~/.claude/settings.json for PreToolUse on
+# Bash|Write|Edit|MultiEdit|NotebookEdit|Read|Grep|mcp__git-mcp__git_commit.
+# An exact example file name (.env.example, .env.sample, .env.template, .env.dist) may be read, searched and written.
 #
 # Reads JSON from stdin and prints a deny decision, or nothing to allow. Exit 0 always.
 
@@ -47,6 +50,7 @@ TOOL_NAME=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null || tr
 # The text to scan, and the file written, per tool.
 CONTENT=""
 FILE_PATH=""
+GLOB=""
 field() { printf '%s' "$INPUT" | jq -r "$1" 2>/dev/null || true; }
 case "$TOOL_NAME" in
   Bash)         CONTENT=$(field '.tool_input.command // empty') ;;
@@ -57,12 +61,14 @@ case "$TOOL_NAME" in
     CONTENT=$(field '[.tool_input.edits[]? | .new_string? | strings] | join("\n")')
     FILE_PATH=$(field '.tool_input.file_path // empty')
     ;;
+  Read)         FILE_PATH=$(field '.tool_input.file_path // empty') ;;
+  Grep)         FILE_PATH=$(field '.tool_input.path // empty'); GLOB=$(field '.tool_input.glob // empty') ;;
   mcp__git-mcp__git_commit) CONTENT=$(field '.tool_input.message // empty') ;;
   *) exit 0 ;;
 esac
 
 # Nothing to scan. An empty write to a .env file still has a path, so it reaches the path check below.
-if [ -z "$CONTENT" ] && [ -z "$FILE_PATH" ]; then
+if [ -z "$CONTENT" ] && [ -z "$FILE_PATH" ] && [ -z "$GLOB" ] && [ "$TOOL_NAME" != Grep ]; then
   exit 0
 fi
 
@@ -278,12 +284,41 @@ EOF_SEGS
   fi
 fi
 
-# Write/Edit/MultiEdit/NotebookEdit on a .env file. An exact example file name is allowed.
-if [ -n "$FILE_PATH" ]; then
-  if ! match_in -qiE '^\.env\.(example|sample|template|dist)$' "${FILE_PATH##*/}" \
-    && match_in -qiE '(^|/)'"$ENVTOK"'$' "$FILE_PATH"; then
-    deny "blocked .env write (Write/Edit/MultiEdit/NotebookEdit)" "Attempting to write to a .env file. These files contain secrets and should not be modified by agents."
-  fi
+# A file tool naming a .env file: Write, Edit, MultiEdit and NotebookEdit by file path, Read by file path, Grep by
+# path or glob (a glob that starts with ! excludes files, so it reads none). A .env file is any name that starts
+# with .env (.env~, .env-prod, .env copy) or ends in .env, as the removed Read(//**/.env*) rule treated it. An exact
+# example file name is allowed. A glob may start the name with * (*.env).
+env_named() {  # env_named <path or glob>
+  ! match_in -qiE '^\.env\.(example|sample|template|dist)$' "${1##*/}" \
+    && match_in -qiE '(^|[/*])('"$ENVTOK"'|\.env[^/]*)$' "$1"
+}
+env_named_glob() {  # a Grep glob holds several globs, split at spaces and commas; any one that is no exclusion may name a .env
+  local p rc=1
+  set -f
+  for p in ${1//,/ }; do
+    [ "${p#!}" = "$p" ] && env_named "$p" && { rc=0; break; }
+  done
+  set +f
+  return $rc
+}
+if { [ -n "$FILE_PATH" ] && env_named "$FILE_PATH"; } \
+  || { [ -n "$GLOB" ] && env_named_glob "$GLOB"; }; then
+  case "$TOOL_NAME" in
+    Read|Grep) deny "blocked .env read (Read/Grep)" "Attempting to read a .env file which likely contains secrets. Use environment variables directly or ask the user for the specific values needed. Example files (.env.example, .env.sample, .env.template, .env.dist) may be read." ;;
+    *) deny "blocked .env write (Write/Edit/MultiEdit/NotebookEdit)" "Attempting to write to a .env file. These files contain secrets and should not be modified by agents." ;;
+  esac
+fi
+
+# A Grep that does not name an existing file searches hidden files and skips only gitignored ones, so it reads a
+# .env the project has not ignored. Allowed only when the glob ends with the !*.env* exclusion (rg lets the last
+# glob win, so `*.ts !*.env*` works) or when there is no glob and a type is set (no rg type matches a .env file).
+# No glob is trusted by its shape: *.bak matches .env.bak.
+folder_grep_ok() {
+  [[ $GLOB == *'!*.env*' ]] && return 0
+  [ -z "$GLOB" ] && [ -n "$(field '.tool_input.type // empty')" ]
+}
+if [ "$TOOL_NAME" = Grep ] && ! [ -f "$FILE_PATH" ] && ! folder_grep_ok; then
+  deny "blocked folder Grep that may read .env" "A Grep over a folder may read .env files that are not gitignored. Add glob \"!*.env*\", set type (for example \"py\") with no glob, add the exclusion to the end of the glob (for example \"*.ts !*.env*\"), or name the file to search."
 fi
 
 exit 0
