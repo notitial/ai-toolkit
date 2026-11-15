@@ -285,11 +285,12 @@ EOF_SEGS
 fi
 
 # A file tool naming a .env file: Write, Edit, MultiEdit and NotebookEdit by file path, Read by file path, Grep by
-# path or glob (a glob that starts with ! excludes files, so it reads none). An exact example file name is allowed.
-# A glob may start the name with * (*.env).
+# path or glob (a glob that starts with ! excludes files, so it reads none). A .env file is any name that starts
+# with .env (.env~, .env-prod, .env copy) or ends in .env, as the removed Read(//**/.env*) rule treated it. An exact
+# example file name is allowed. A glob may start the name with * (*.env).
 env_named() {  # env_named <path or glob>
   ! match_in -qiE '^\.env\.(example|sample|template|dist)$' "${1##*/}" \
-    && match_in -qiE '(^|[/*])'"$ENVTOK"'$' "$1"
+    && match_in -qiE '(^|[/*])('"$ENVTOK"'|\.env[^/]*)$' "$1"
 }
 env_named_glob() {  # a Grep glob holds several globs, split at spaces and commas; any one that is no exclusion may name a .env
   local p rc=1
@@ -309,23 +310,15 @@ if { [ -n "$FILE_PATH" ] && env_named "$FILE_PATH"; } \
 fi
 
 # A Grep that does not name an existing file searches hidden files and skips only gitignored ones, so it reads a
-# .env the project has not ignored. Allowed when the glob ends with the !*.env* exclusion (rg lets the last glob
-# win); when there is no glob and a type is set (no rg type matches a .env file); or when the glob is one pattern
-# that ends in an extension such as *.ts, **/*.ts, src/*.{ts,tsx}, and no extension is env-like (a name such as
-# .env.production matches *.production). Any other glob, * or config/* included, may match a .env: denied.
+# .env the project has not ignored. Allowed only when the glob ends with the !*.env* exclusion (rg lets the last
+# glob win, so `*.ts !*.env*` works) or when there is no glob and a type is set (no rg type matches a .env file).
+# No glob is trusted by its shape: *.bak matches .env.bak.
 folder_grep_ok() {
   [[ $GLOB == *'!*.env*' ]] && return 0
-  [ -z "$GLOB" ] && [ -n "$(field '.tool_input.type // empty')" ] && return 0
-  local re='^[A-Za-z0-9_./*-]*\*\.(\{[A-Za-z0-9,]+\}|[A-Za-z0-9]+)$' e
-  [[ $GLOB =~ $re ]] || return 1
-  e=${GLOB##*.}; e=${e#\{}; e=${e%\}}
-  for e in ${e//,/ }; do
-    case $e in env|envrc|local|development|production|staging|prod|dev|test|ci) return 1 ;; esac
-  done
-  return 0
+  [ -z "$GLOB" ] && [ -n "$(field '.tool_input.type // empty')" ]
 }
 if [ "$TOOL_NAME" = Grep ] && ! [ -f "$FILE_PATH" ] && ! folder_grep_ok; then
-  deny "blocked folder Grep that may read .env" "A Grep over a folder may read .env files that are not gitignored. Add glob \"!*.env*\", set type (for example \"py\") with no glob, use one glob that ends in an extension (for example \"*.ts\"), or name the file to search."
+  deny "blocked folder Grep that may read .env" "A Grep over a folder may read .env files that are not gitignored. Add glob \"!*.env*\", set type (for example \"py\") with no glob, add the exclusion to the end of the glob (for example \"*.ts !*.env*\"), or name the file to search."
 fi
 
 exit 0

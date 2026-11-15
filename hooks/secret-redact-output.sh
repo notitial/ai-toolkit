@@ -17,10 +17,12 @@
 #
 # Read and Grep: their tool_response is an object ({type, file:{content,...}} for Read, {mode, content, ...} for
 # Grep), and every string in it is redacted with the object's shape kept, which the platform needs to accept the
-# replacement (checked live, Claude Code 2.1.325: the model saw the redacted text). A token-shaped value in a file is
-# therefore redacted in what Read shows; an Edit whose old_string spells that value out will not match, and a Write
-# of the whole file would put the marker into it. A Read of an example file (.env.example, .env.sample,
-# .env.template, .env.dist) is left alone for that reason: its values are placeholders by design.
+# replacement (checked live, Claude Code 2.1.325: the model saw the redacted text). Only the fixed-prefix token
+# rules and PEM blocks run on them (prefix_rules); the generic key=value, bearer, cookie and URL-password rules do
+# not, since they rewrite ordinary source lines. A token in a file is therefore redacted in what Read shows; an Edit
+# whose old_string spells that value out will not match, and a Write of the whole file would put the marker into
+# it. A Read of an example file (.env.example, .env.sample, .env.template, .env.dist) is left alone for that
+# reason: its values are placeholders by design.
 #
 # Patterns use oniguruma (jq). Keep the token shapes in step with secret-detector.sh and audit-logger.sh redact().
 
@@ -60,6 +62,9 @@ def rules: [
     ["(?i)(?<k>(?<![A-Za-z0-9])--?(?:password|passwd|token|secret|api-?key)(?:=|[ \\t]+))(?![-/~.$\\[{(<])(?=[^\\s\"'\\\\<>,;&]{0,512}[0-9])(?=[^\\s\"'\\\\<>,;&]{0,512}[A-Za-z])[^\\s\"'\\\\<>,;&]{8,512}", "value", ["pass", "token", "secret", "api"]],
     ["(?i)(?<!next)(?<!next[_-])(?<!page)(?<!page[_-])(?<!continuation)(?<!continuation[_-])(?<!sync)(?<!sync[_-])(?<!resume)(?<!resume[_-])(?<k>(?:token|secret|password|passwd|(?<=[_-])(?:pass|key)|api[_-]?key|access[_-]?key|private[_-]?key|credential)[A-Za-z0-9_.-]{0,40}[\\\\\"']{0,3}[ \\t]*[:=][ \\t]*[\\\\\"']{0,3})(?=[^\\s\"'\\\\<>,;&]{0,512}[0-9])(?=[^\\s\"'\\\\<>,;&]{0,512}[A-Za-z])(?![/~.$\\[{(<])(?![a-z][a-z0-9+.-]*://)[^\\s\"'\\\\<>,;&]{16,512}", "value", ["token", "secret", "pass", "key", "credential"]]
   ];
+# Read and Grep show source code, where a generic key=value rule rewrites ordinary lines (password_hash = ...) and
+# breaks an Edit's old_string. They get only the rules with a fixed token prefix, plus PEM blocks (see redact()).
+def prefix_rules: rules | map(select((.[1] | IN("github-token", "google-refresh-token", "google-client-secret", "google-access-token", "gitlab-token", "anthropic-key", "stripe-key", "aws-key", "google-key", "slack-token", "jwt")) or .[2] == ["sk-"]));
 def live($R): ascii_downcase as $low | [$R[] | select(any(.[2][]; . as $x | $low | contains($x)))];
 def redact1($R): live($R) as $L | reduce $L[] as $r (.; gsub($r[0]; (.k // "") + "[REDACTED:" + $r[1] + "]"));
 def pem:
@@ -90,8 +95,8 @@ def redact($R):
   if type == "string"
   then pem | [match("(?s).{0,2047}\n|[^\n]+"; "g") | .string | if length > 2048 then long_line($R) else redact1($R) end] | join("")
   else . end;
-rules as $R
-| . as $in
+. as $in
+| (if ($in.tool_name | IN("Read", "Grep")) then prefix_rules else rules end) as $R
 | $in.tool_response as $r
 | ($in.tool_name == "Bash") as $bash
 | (($in.tool_name == "Read") and (($in.tool_input.file_path // "") | test("(^|/)\\.env\\.(example|sample|template|dist)$"; "i"))) as $example

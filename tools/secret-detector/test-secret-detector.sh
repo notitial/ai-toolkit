@@ -166,6 +166,12 @@ for n in .env.example .env.sample .env.template .env.dist; do
   expect pass "Grep path $n"  "$(jq -nc --arg p "$n" '{tool_name: "Grep", tool_input: {pattern: "A", path: $p}}')"
 done
 expect deny "Read relative .env"        '{"tool_name":"Read","tool_input":{"file_path":".env"}}'
+# Variants that only start with .env (editor backups, copies) are secret too; so is a Write to one.
+for n in '.env~' '.env.local~' '.env-prod' '.env_old' '.env copy' '.env.bak' '.env.example~' '.env.example.bak' '.environment'; do
+  expect deny "Read $n"       "$(jq -nc --arg p "/x/p/$n" '{tool_name: "Read", tool_input: {file_path: $p}}')"
+  expect deny "Grep path $n"  "$(jq -nc --arg p "/x/p/$n" '{tool_name: "Grep", tool_input: {pattern: "A", path: $p}}')"
+  expect deny "Write to $n"   "$(jq -nc --arg p "/x/p/$n" '{tool_name: "Write", tool_input: {file_path: $p, content: "A=1"}}')"
+done
 expect deny "Grep glob **/.env.*"       '{"tool_name":"Grep","tool_input":{"pattern":"A","glob":"**/.env.*"}}'
 expect deny "Grep glob *.env"           '{"tool_name":"Grep","tool_input":{"pattern":"A","glob":"*.env"}}'
 expect deny "Grep glob list with .env"  '{"tool_name":"Grep","tool_input":{"pattern":"A","path":".","glob":"!*.ts .env"}}'
@@ -177,13 +183,13 @@ expect deny "Grep of a missing path"    '{"tool_name":"Grep","tool_input":{"patt
 expect deny "Grep of ~"                 '{"tool_name":"Grep","tool_input":{"pattern":"A","path":"~"}}'
 expect deny "folder Grep, no glob, no type"   '{"tool_name":"Grep","tool_input":{"pattern":"A","path":"."}}'
 expect deny "Grep with only a pattern"        '{"tool_name":"Grep","tool_input":{"pattern":"A"}}'
-for g in '*' '**/*' '.*' 'config/*' 'src/**' '*/*' '**/**/*' '*.production' '*.local' '*.staging' '*.{env,ts}' '{.env,x}' 'staging*' '*rc' '!*.ts' '!*.env* *' '*.ts *'; do
+for g in '*' '**/*' '.*' 'config/*' 'src/**' '*/*' '**/**/*' '*.production' '*.local' '*.staging' '*.{env,ts}' '{.env,x}' 'staging*' '*rc' '!*.ts' '!*.env* *' '*.ts *' '*.ts' '**/*.ts' 'src/**/*.ts' '*.{ts,tsx}' '*.md' '*.bak' '*.keys' '*.old' '*.uat'; do
   expect deny "folder Grep, glob $g" "$(jq -nc --arg g "$g" '{tool_name: "Grep", tool_input: {pattern: "A", path: ".", glob: $g}}')"
 done
 expect deny "folder Grep, glob * with type"      '{"tool_name":"Grep","tool_input":{"pattern":"A","path":".","glob":"*","type":"py"}}'
 expect deny "folder Grep, glob !*.ts with type"  '{"tool_name":"Grep","tool_input":{"pattern":"A","path":".","glob":"!*.ts","type":"py"}}'
 expect deny "folder Grep, glob list with .env and type" '{"tool_name":"Grep","tool_input":{"pattern":"A","path":".","glob":"!*.ts .env","type":"py"}}'
-for g in '*.ts' '**/*.ts' 'src/**/*.ts' '*.{ts,tsx}' '**/*.{ts,tsx}' '*.md' '!*.env*' '*.ts !*.env*' '*.ts,!*.env*'; do
+for g in '!*.env*' '*.ts !*.env*' '*.ts,!*.env*' '**/*.{ts,tsx} !*.env*' '* !*.env*'; do
   expect pass "folder Grep, glob $g" "$(jq -nc --arg g "$g" '{tool_name: "Grep", tool_input: {pattern: "A", path: ".", glob: $g}}')"
 done
 expect pass "folder Grep, type py"            '{"tool_name":"Grep","tool_input":{"pattern":"A","path":".","type":"py"}}'

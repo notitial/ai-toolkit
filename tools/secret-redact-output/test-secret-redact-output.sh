@@ -105,7 +105,15 @@ for n in .env.example .env.sample .env.template .env.dist; do
 done
 redacts "read of .env.local"          "$(read_resp "GITHUB_TOKEN=$GH" | jq -c '.tool_input = {file_path: "/x/p/.env.local"}')" "$GH" "[REDACTED:github-token]"
 redacts "grep over an example file"   "$(grep_resp "1:GITHUB_TOKEN=$GH" | jq -c '.tool_input = {path: "/x/p/.env.example"}')" "$GH" "[REDACTED:github-token]"
-passes "read of a plain file"        "$(read_resp "hello"$'\n'"world")"
+for line in 'password_hash = hashlib.sha256(salt).hexdigest0123456789' 'secret_key = "abcdef0123456789abcdef"' 'api_key: str = settings.API_KEY_0123456789ab' 'Authorization: Basic dXNlcjpwYXNzd29yZDEyMzQ1Ng==' 'url = "https://user:hunter2hunter2@example.test/x"' 'hooks/secret-detector.sh:292'; do
+  passes "read keeps code line: $line" "$(read_resp "$line")"
+  passes "grep keeps code line: $line" "$(grep_resp "4:$line")"
+done
+redacts "read still redacts a pem block"  "$(read_resp "x"$'\n'"$PEM_HEAD"$'\n'"MIIBVgIBADANBgkqhkiG9w0BAQEFAASC"$'\n'"$PEM_END")" "MIIBVgIBADANBgkqhkiG9w0BAQEFAASC" "[REDACTED:private-key]"
+redacts "grep still redacts an aws key"   "$(grep_resp "2:id = $AWS")" "$AWS" "[REDACTED:aws-key]"
+redacts "read still redacts an sk- key"   "$(read_resp "k=$OAI")" "$OAI" "[REDACTED:api-key]"
+redacts "bash still gets the generic rule" "$(bash_resp 'secret_key = "abcdef0123456789abcdef"')" "abcdef0123456789abcdef" "[REDACTED:value]"
+passes "read of a plain file"       "$(read_resp "hello"$'\n'"world")"
 passes "grep with no secret"          "$(grep_resp "3:hello")"
 rshape=$(upd "$(read_resp "x $GH")" | jq -c '[keys, (.file | keys)]')
 if [ "$rshape" = '[["file","type"],["content","filePath","numLines","startLine","totalLines"]]' ]; then ok; else bad "read shape changed: $rshape"; fi
