@@ -29,6 +29,7 @@
     }
   ],
   "permissions": {
+    "_allow_comment": "git-mcp: the tools an agent needs on its own branch (stage, commit, branch, checkout, fetch, pull, merge, push, stash, tag, cherry-pick, rebase, reset, and the read-only ones) are allowed, so the auto mode classifier does not judge them. The controls that remain are hooks, which run before and regardless of an allow rule: hooks/git-mcp-guard.sh denies a missing or relative repo path on every allowed write tool, and on push a force or delete push, a push to main, master or production, an indeterminate target and a remote that is not configured in the repo (a URL or path), plus a hard or merge reset, clean and worktree; hooks/protected-paths-guard.sh denies a push into a protected checkout; the workspace-lock guard applies too. The secret detector reads only the commit message of git_commit, not the staged files or the pushed commits, so a credential in a file not written through Write or Edit is caught only by the secret scan on the PR (rotate it if that fires). git_checkout can discard uncommitted work, and branch and tag deletion and stash drop are not checked beyond the path. If the git-mcp-guard hook were missing, a push would go through unprompted, so keep it healthy. Not listed on purpose: git_remote (set-url can point origin at a foreign URL, and a name rule cannot split list from set-url), git_clone, git_init and the working-dir tools. Opening a PR and the other github writes have no rule on purpose: see the ask comment below.",
     "allow": [
       "Bash(ls *)",
       "Bash(wc *)",
@@ -39,10 +40,25 @@
 
       "mcp__git-mcp__git_add",
       "mcp__git-mcp__git_blame",
+      "mcp__git-mcp__git_branch",
+      "mcp__git-mcp__git_changelog_analyze",
+      "mcp__git-mcp__git_checkout",
+      "mcp__git-mcp__git_cherry_pick",
+      "mcp__git-mcp__git_commit",
       "mcp__git-mcp__git_diff",
+      "mcp__git-mcp__git_fetch",
       "mcp__git-mcp__git_log",
+      "mcp__git-mcp__git_merge",
+      "mcp__git-mcp__git_pull",
+      "mcp__git-mcp__git_push",
+      "mcp__git-mcp__git_rebase",
+      "mcp__git-mcp__git_reflog",
+      "mcp__git-mcp__git_reset",
       "mcp__git-mcp__git_show",
+      "mcp__git-mcp__git_stash",
       "mcp__git-mcp__git_status",
+      "mcp__git-mcp__git_tag",
+      "mcp__git-mcp__git_wrapup_instructions",
 
       "mcp__github__get_me",
       "mcp__github__pull_request_read",
@@ -197,7 +213,7 @@
         ]
       },
       {
-        "matcher": "mcp__git-mcp__git_push|mcp__git-mcp__git_reset|mcp__git-mcp__git_clean|mcp__git-mcp__git_worktree",
+        "matcher": "mcp__git-mcp__git_add|mcp__git-mcp__git_branch|mcp__git-mcp__git_checkout|mcp__git-mcp__git_cherry_pick|mcp__git-mcp__git_clean|mcp__git-mcp__git_commit|mcp__git-mcp__git_fetch|mcp__git-mcp__git_merge|mcp__git-mcp__git_pull|mcp__git-mcp__git_push|mcp__git-mcp__git_rebase|mcp__git-mcp__git_reset|mcp__git-mcp__git_stash|mcp__git-mcp__git_tag|mcp__git-mcp__git_worktree",
         "hooks": [
           {
             "type": "command",

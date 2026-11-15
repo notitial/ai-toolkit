@@ -112,7 +112,30 @@ expect deny "worktree add"           "$(tool mcp__git-mcp__git_worktree '{"path"
 expect deny "worktree list"          "$(tool mcp__git-mcp__git_worktree '{"path":"/x","mode":"list"}')"
 
 expect pass "git_status is not guarded"  "$(tool mcp__git-mcp__git_status '{"path":"/x"}')"
-expect pass "git_commit is not guarded"  "$(tool mcp__git-mcp__git_commit '{"path":"/x","message":"m"}')"
+
+# Every allowed write tool needs an absolute path (the server resolves a relative or missing one against its own cwd).
+for t in add branch checkout cherry_pick commit fetch merge pull rebase stash tag reset; do
+  expect pass "git_$t with an absolute path"   "$(tool "mcp__git-mcp__git_$t" '{"path":"/x"}')"
+  expect deny "git_$t with no path"            "$(tool "mcp__git-mcp__git_$t" '{"message":"m"}')"
+  expect deny "git_$t with a dot path"         "$(tool "mcp__git-mcp__git_$t" '{"path":"."}')"
+  expect deny "git_$t with an empty path"      "$(tool "mcp__git-mcp__git_$t" '{"path":""}')"
+  expect deny "git_$t with a relative path"    "$(tool "mcp__git-mcp__git_$t" '{"path":"sub/dir"}')"
+  expect deny "git_$t with a tilde path"       "$(tool "mcp__git-mcp__git_$t" '{"path":"~/repo"}')"
+  expect deny "git_$t with a numeric path"     "$(tool "mcp__git-mcp__git_$t" '{"path":5}')"
+done
+
+# The push remote: a configured remote name only; anything else (URL, path, option, unknown name) is denied.
+push pass "configured remote name"               "{\"path\":\"$T/remote\",\"branch\":\"feature\",\"remote\":\"origin\"}"
+push pass "remote left out"                      "{\"path\":\"$T/remote\",\"branch\":\"feature\"}"
+push deny "remote is an https URL"               "{\"path\":\"$T/remote\",\"branch\":\"feature\",\"remote\":\"https://example.invalid/x.git\"}"
+push deny "remote is an scp-style URL"           "{\"path\":\"$T/remote\",\"branch\":\"feature\",\"remote\":\"git@example.invalid:x/y.git\"}"
+push deny "remote is a path"                     "{\"path\":\"$T/remote\",\"branch\":\"feature\",\"remote\":\"/tmp/elsewhere\"}"
+push deny "remote is a relative path"            "{\"path\":\"$T/remote\",\"branch\":\"feature\",\"remote\":\"../other\"}"
+push deny "remote is an option"                  "{\"path\":\"$T/remote\",\"branch\":\"feature\",\"remote\":\"--mirror\"}"
+push deny "remote name that is not configured"   "{\"path\":\"$T/remote\",\"branch\":\"feature\",\"remote\":\"upstream\"}"
+push deny "remote is not a string"               "{\"path\":\"$T/remote\",\"branch\":\"feature\",\"remote\":[\"origin\"]}"
+push deny "a remote on a repo with no remotes"   "{\"path\":\"$T/feat\",\"branch\":\"feature\",\"remote\":\"origin\"}"
+push pass "dry run with a URL remote is harmless" '{"dryRun":true,"remote":"https://example.invalid/x.git"}'
 expect pass "Bash is not guarded"        '{"tool_name":"Bash","tool_input":{"command":"git push --force"}}'
 
 expect deny "empty input"                ''

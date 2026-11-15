@@ -431,10 +431,10 @@ with it set subagents already get an hour: mention it, and skip the subagent que
 | `Bash(git log*)` | `mcp__git-mcp__git_log` |
 | `Bash(git show*)` | `mcp__git-mcp__git_show` |
 | `Bash(git remote -v*)` | `mcp__git-mcp__git_remote` (prompts — not auto-approved) |
-| `Bash(git tag*)` | `mcp__git-mcp__git_tag` (prompts — not auto-approved) |
-| `Bash(git stash list*)` | `mcp__git-mcp__git_stash` (prompts — not auto-approved) |
+| `Bash(git tag*)` | `mcp__git-mcp__git_tag` |
+| `Bash(git stash list*)` | `mcp__git-mcp__git_stash` |
 | `Bash(git add *)` | `mcp__git-mcp__git_add` |
-| `Bash(git branch*)` | (prompts — not auto-approved) |
+| `Bash(git branch*)` | `mcp__git-mcp__git_branch` |
 
 **Remove (overbroad):** Remove any permission listed in `_migration.removeOverbroad` (currently `Bash(cat *)`).
 

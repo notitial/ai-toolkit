@@ -1,7 +1,12 @@
 #!/bin/bash
 # Pre-tool-use hook: guards the MCP git write tools against irreversible operations.
 # Configured in ~/.claude/settings.json for PreToolUse with matcher:
-#   mcp__git-mcp__git_push|mcp__git-mcp__git_reset|mcp__git-mcp__git_clean|mcp__git-mcp__git_worktree
+#   mcp__git-mcp__git_add|mcp__git-mcp__git_branch|mcp__git-mcp__git_checkout|mcp__git-mcp__git_cherry_pick|mcp__git-mcp__git_clean|mcp__git-mcp__git_commit|mcp__git-mcp__git_fetch|mcp__git-mcp__git_merge|mcp__git-mcp__git_pull|mcp__git-mcp__git_push|mcp__git-mcp__git_rebase|mcp__git-mcp__git_reset|mcp__git-mcp__git_stash|mcp__git-mcp__git_tag|mcp__git-mcp__git_worktree
+#   (the settings template spells each tool out; the allowed write tools are in it so this hook sees them)
+#
+# Every allowed write tool must carry an absolute `path`: the git MCP server has one global cwd, and a missing or
+# relative path is resolved against that cwd, which may not be the folder the other hooks checked. git_push also
+# needs its `remote` to be a remote configured in the repo, so a URL cannot be pushed to without a prompt.
 #
 # FAIL-CLOSED: unlike the convenience hooks (git-mcp-redirect, audit-logger,
 # secret-detector, destructive-blocker), this hook blocks when its dependencies
@@ -14,9 +19,10 @@
 #
 # Out of scope (deliberate): this guard blocks remote/history-destroying or
 # unrecoverable operations only. git_rebase / amend publish rewritten history
-# only via a force-push (blocked here); git_checkout discards and git_branch
-# deletion are reflog-recoverable, and their Bash forms remain covered by
-# destructive-blocker.sh.
+# only via a force-push (blocked here); git_checkout (which can discard uncommitted
+# changes), git_branch deletion, git_tag deletion and git_stash drop are allowed
+# unprompted in the settings template and checked here only for the path; their
+# Bash forms remain covered by destructive-blocker.sh.
 #
 # Reads JSON from stdin. Returns JSON deny decision; exit 0 always.
 # No `set -e` — it would break the exit-0-always contract.
@@ -76,7 +82,22 @@ if [ -z "$TOOL_NAME" ]; then
   deny "could not determine the git operation from input (empty or malformed stdin) — blocked (fail-closed)."
 fi
 
+# The repo path of a write tool must be absolute — checked BEFORE any git invocation so this hook never
+# resolves against its own cwd (the git MCP server has one global cwd and concurrent agents race on it, and
+# resolves a relative path such as ./ or a subfolder against that cwd, not this one).
+require_abs_path() {
+  case "$(jqin '.tool_input.path // empty')" in
+    /*) ;;
+    *) deny "pass an absolute repo path — the git MCP has one global cwd and concurrent agents race on it." ;;
+  esac
+}
+
 case "$TOOL_NAME" in
+  mcp__git-mcp__git_add|mcp__git-mcp__git_branch|mcp__git-mcp__git_checkout|mcp__git-mcp__git_cherry_pick|mcp__git-mcp__git_commit|mcp__git-mcp__git_fetch|mcp__git-mcp__git_merge|mcp__git-mcp__git_pull|mcp__git-mcp__git_rebase|mcp__git-mcp__git_stash|mcp__git-mcp__git_tag)
+    require_abs_path
+    exit 0
+    ;;
+
   mcp__git-mcp__git_push)
     # 1. Dry runs are always safe.
     [ "$(jqin '.tool_input.dryRun // false')" = "true" ] && exit 0
@@ -88,15 +109,9 @@ case "$TOOL_NAME" in
       deny "force/delete push blocked; a human runs these."
     fi
 
-    # 3. Require an absolute repo path — checked BEFORE any git invocation so
-    #    this hook never resolves against its own cwd (the git MCP server has
-    #    one global cwd and concurrent agents race on it, and resolves a
-    #    relative path such as ./ or a subfolder against that cwd, not this one).
+    # 3. Require an absolute repo path (see require_abs_path).
+    require_abs_path
     PATH_ARG=$(jqin '.tool_input.path // empty')
-    case "$PATH_ARG" in
-      /*) ;;
-      *) deny "pass an absolute repo path — the git MCP has one global cwd and concurrent agents race on it." ;;
-    esac
 
     # Ground truth for remote-prefix stripping: the repo's actual remote names.
     # A blind prefix strip can't distinguish origin/main (remote-qualified main)
@@ -114,6 +129,18 @@ case "$TOOL_NAME" in
       done <<< "$REMOTES"
       printf '%s' "$r"
     }
+
+    # 3b. The remote, when given, must be one of the repo's configured remotes (exact name). A URL, a path or
+    #     anything else would push the repo's commits to a host nobody approved. Left out, git uses the branch's
+    #     configured remote or origin. A non-string value fails the match and is denied.
+    REMOTE_ARG=$(jqin '.tool_input.remote // empty')
+    if [ -n "$REMOTE_ARG" ]; then
+      REMOTE_OK=0
+      while IFS= read -r rem; do
+        [ -n "$rem" ] && [ "$rem" = "$REMOTE_ARG" ] && REMOTE_OK=1
+      done <<< "$REMOTES"
+      [ "$REMOTE_OK" = 1 ] || deny "push remote '$REMOTE_ARG' is not a remote configured in this repo — only a configured remote name is pushed to without a prompt."
+    fi
 
     # 4. Explicit protected-branch targets — normalized (refs/heads/main,
     #    heads/main) AND remote-prefix-stripped against the real remote list
@@ -147,6 +174,7 @@ case "$TOOL_NAME" in
     ;;
 
   mcp__git-mcp__git_reset)
+    require_abs_path
     MODE=$(jqin '.tool_input.mode // empty')
     case "$MODE" in
       hard|merge) deny "git reset --$MODE discards work; blocked — a human runs these." ;;
