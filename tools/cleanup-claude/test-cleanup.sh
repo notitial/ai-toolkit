@@ -296,6 +296,21 @@ check "hooks: a wrapper around the user's own script is kept" 'has "[.hooks.PreT
 check "hooks: a chained command is kept" 'has "[.hooks.PreToolUse[] | select(.matcher == \"B\")] | length == 1"'
 check "hooks: a bash-prefixed toolkit hook with arguments is removed" 'has "[.hooks.PreToolUse[] | select(.matcher == \"C\")] | length == 0"'
 
+
+# ---- a wrapper whose settings rewrite fails keeps the hook link (the missing script would block every call)
+mkhome
+ln -s "$ROOT/hooks/protected-paths-guard.sh" "$C/hooks/protected-paths-guard.sh"
+jq '.hooks.PreToolUse += [{matcher: "G", hooks: [{type: "command", command: "/bin/bash -p \"$HOME/.claude/hooks/protected-paths-guard.sh\" || exit 2"}]}]' "$C/settings.json" > "$C/s.tmp" && mv "$C/s.tmp" "$C/settings.json"
+chmod 555 "$C"
+run --apply
+chmod 755 "$C"
+check "wrapper: a failed settings rewrite keeps the guard's link" '[ -L "$C/hooks/protected-paths-guard.sh" ] && grep -q "KEEP .*protected-paths-guard.sh.*fail-closed wrapper" "$T/out"'
+check "wrapper: the other hook links still go" '[ ! -L "$C/hooks/gh-block.sh" ]'
+mkhome
+ln -s "$ROOT/hooks/protected-paths-guard.sh" "$C/hooks/protected-paths-guard.sh"
+jq '.hooks.PreToolUse += [{matcher: "G", hooks: [{type: "command", command: "/bin/bash -p \"$HOME/.claude/hooks/protected-paths-guard.sh\" || exit 2"}]}]' "$C/settings.json" > "$C/s.tmp" && mv "$C/s.tmp" "$C/settings.json"
+run --apply
+check "wrapper: a successful rewrite removes the entry and the link" '[ ! -L "$C/hooks/protected-paths-guard.sh" ] && has "[.hooks.PreToolUse[] | select(.matcher == \"G\")] | length == 0"'
 # ---- autoMode: only the template lines go, \$defaults stays; a list of nothing else is dropped
 mkhome
 jq --slurpfile t "$TEMPLATE" '.autoMode = {environment: $t[0].autoMode.environment}' "$C/settings.json" > "$C/s.tmp" && mv "$C/s.tmp" "$C/settings.json"

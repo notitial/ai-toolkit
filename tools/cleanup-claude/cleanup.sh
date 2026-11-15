@@ -136,11 +136,15 @@ EOF
 # ---- 1. links into the checkout (only ever unlinked: a path that is not a link is left alone)
 echo "== links into the checkout"
 LINKS=$(toolkit_links)
+DEFER_HOOKS=""
 if [ -n "$LINKS" ]; then
   while IFS= read -r l; do
     if [ -L "$l" ] && link_is_toolkit "$l" && allowed "$l"; then
       N_REMOVE=$((N_REMOVE + 1))
-      if [ "$APPLY" = 1 ]; then rm -- "$l" || { N_FAIL=$((N_FAIL + 1)); say FAIL "$l"; continue; }; fi
+      case $l in
+        */hooks/*) [ "$APPLY" = 1 ] && DEFER_HOOKS="$DEFER_HOOKS$l"$'\n' ;;  # unlinked after the settings pass (section 2)
+        *) if [ "$APPLY" = 1 ]; then rm -- "$l" || { N_FAIL=$((N_FAIL + 1)); say FAIL "$l"; continue; }; fi ;;
+      esac
       say REMOVE "$l  (link into the checkout)"
     else
       say SKIP "$l (not a toolkit link; left alone)"
@@ -338,6 +342,26 @@ while IFS= read -r cfg; do
   fi
 done <<EOF
 $CFGS
+EOF
+
+# The hook links of section 1, unlinked now: a settings file that still holds `<hook>" || exit 2` (the fail-closed
+# wrapper; its rewrite failed or was skipped) would block every call once the script is gone, so its link stays.
+while IFS= read -r l; do
+  [ -n "$l" ] || continue
+  held=""
+  while IFS= read -r cfg; do
+    [ -n "$cfg" ] || continue
+    [ -f "$cfg/settings.json" ] && grep -Fq -- "${l##*/}"'\" || exit 2' "$cfg/settings.json" 2>/dev/null && held="$cfg/settings.json"
+  done <<EOF
+$CFGS
+EOF
+  if [ -n "$held" ]; then
+    say KEEP "$l: $held still runs it with the fail-closed wrapper, and a missing script would block every call; fix the settings file, then run this again"
+    continue
+  fi
+  rm -- "$l" || { N_FAIL=$((N_FAIL + 1)); say FAIL "$l"; }
+done <<EOF
+$DEFER_HOOKS
 EOF
 
 # ---- 3. shell rc lines: whole lines that only source the toolkit; anything riskier is printed for the user
