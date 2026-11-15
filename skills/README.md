@@ -14,7 +14,11 @@ Creates and manages Architecture Decision Records. Scaffolds `docs/adr/` on firs
 
 ### [/repo-setup](repo-setup/SKILL.md)
 
-Audits a named repo against the repo-setup checklist ([docs/07](../docs/07-new-repo-setup.md)): a read-only audit of each step (files through the github MCP, settings and rulesets from `gh` reads the user runs); an archived repo is reported and the run stops. In `setup` mode it then writes the missing files on a branch and opens a PR, on the user's go. Every repo setting, ruleset, App or secret change is printed as `gh` commands for the user; the skill changes none itself. Decided values live in [repo-setup/defaults.md](repo-setup/defaults.md); the rest is asked. `/repo-setup <owner/repo>` audits, `/repo-setup setup <owner/repo>` audits then fixes.
+Sets up a new repo against the repo-setup checklist ([docs/07](../docs/07-new-repo-setup.md)): audits it (the audit is [/audit-repo](audit-repo/SKILL.md)'s Steps 2–4), then on the user's go writes the missing files on a branch and opens a PR. Every repo setting, ruleset, App or secret change is printed as `gh` commands for the user; the skill changes none itself. Decided values live in [repo-setup/defaults.md](repo-setup/defaults.md), with the default [pre-commit config](repo-setup/pre-commit-config.yaml); the rest is asked. `/repo-setup <owner/repo>` audits only, `/repo-setup setup <owner/repo>` audits then fixes.
+
+### [/audit-repo](audit-repo/SKILL.md)
+
+Reviews an existing repo against the same standard and closes what it can. It reads the repo's files and live GitHub state (a block of `gh` GETs the user runs, plus the github MCP), judges each item of [audit-repo/references/checklist.md](audit-repo/references/checklist.md) as present, missing or different, and saves the table. File gaps (workflows, pre-commit config, `dependabot.yml`, PR template, CLAUDE.md conventions) it fixes on a branch and opens as a PR, on the user's go. Live gaps (ruleset, merge settings, required checks, Dependabot alerts and security updates, the review kit's variables, secrets and App) it never writes: it prints the exact `gh` command for each, one step at a time, for the owner to run. `/audit-repo <owner/repo>`.
 
 ### [/add-claude-review](add-claude-review/SKILL.md)
 

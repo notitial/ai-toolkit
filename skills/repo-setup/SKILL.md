@@ -1,5 +1,5 @@
 ---
-description: "Audit a named GitHub repo against ai-toolkit's repo-setup checklist (docs/07-new-repo-setup.md), or set it up: audit what it has against each step, read-only; in setup mode, on the user's go, write the missing files on a branch and open the PR, and print every repo setting, ruleset, App or secret step as gh commands for the user to run. Never changes a GitHub setting itself. '/repo-setup <owner/repo>' audits; '/repo-setup setup <owner/repo>' audits then fixes."
+description: "Set up a new GitHub repo against ai-toolkit's repo-setup checklist (docs/07-new-repo-setup.md): audit what it has, then on the user's go write the missing files on a branch and open the PR, and print every repo setting, ruleset, App or secret step as gh commands for the user to run. Never changes a GitHub setting itself. '/repo-setup setup <owner/repo>' sets up; '/repo-setup <owner/repo>' only audits. To review a repo that already exists and has drifted, run /audit-repo."
 disable-model-invocation: true
 ---
 
@@ -16,7 +16,8 @@ secret value; secret and variable reads are names only.
 
 ## Modes
 
-- **audit** (default): Steps 1–2, then stop. Read-only; nothing is written to the repo or to GitHub.
+- **audit** (default): Steps 1–2, then stop. Read-only; nothing is written to the repo or to GitHub. For an existing
+  repo, `/audit-repo` is the fuller run: the same audit, with the fixes and the commands one step at a time.
 - **setup**: audit first, then Steps 3–6.
 
 ## Input
@@ -43,32 +44,10 @@ On a 401 or "Bad credentials" from a github MCP tool, stop and tell the user: no
 
 ## Step 2: Audit (read-only)
 
-1. **Settings read, first.** Agents can't run `gh` (`hooks/gh-block.sh`): put every read below in **one** markdown
-   code block for the user, with output to `~/` (a scratchpad path exists only on this machine, and the user may run
-   it on another), and Read it once they say where it is. All reads; nothing that prints a token or a secret value.
-   Never add `gh auth switch`, `login` or `logout`: if the reads come back 404, the user's `gh` account can't see
-   the org. Say so and ask which machine or account to use; don't change one.
-   - `gh api repos/<owner/repo> --jq '{private, archived, default_branch, allow_squash_merge, allow_merge_commit, allow_rebase_merge, delete_branch_on_merge, allow_update_branch, squash_merge_commit_title, squash_merge_commit_message, sec: .security_and_analysis}'`
-   - Each ruleset in full (the list endpoint omits the rules): `for id in $(gh api repos/<owner/repo>/rulesets --jq '.[].id'); do gh api repos/<owner/repo>/rulesets/$id --jq '{name, enforcement, conditions, bypass_actors, rules}'; done`,
-     and `gh api repos/<owner/repo>/rules/branches/<default>` (the effective rules, org rulesets included)
-   - `gh api orgs/<owner>/rulesets` and, for each id, `gh api orgs/<owner>/rulesets/<id> --jq '{name, enforcement, conditions, bypass_actors, rules}'` (org rulesets that apply to the repo)
-   - `gh api repos/<owner/repo>/actions/permissions`
-   - `gh api repos/<owner/repo>/vulnerability-alerts` (204 = alerts on, 404 = off) and the `security_and_analysis`
-     block above for security updates, secret scanning and push protection
-   - `gh secret list -R <owner/repo> | cut -f1` and `gh variable list -R <owner/repo> | cut -f1` (names only), and the
-     same with `--org <owner>`: a repo-level copy of an org secret or variable name is a finding (doc step 1).
-2. **Archived repo.** If `archived` is true, report "`<owner/repo>` is archived" and stop: no file audit, no table, no
-   setup. An archived repo is read-only on GitHub; there is nothing to set up.
-3. **Files**, from the default branch: `.github/workflows/` (CI jobs and their names, the secret-scan caller and its
-   pin (with the root `.pre-commit-config.yaml`, per `tools/gitleaks/`, against `pre-commit-config.yaml` beside
-   `defaults.md`), `pr-title.yml` and its type list, limit and `dependabot[bot]` exemption, `deploy.yml`, every job's
-   `runs-on` against the reference deployment's runner rule, job names against the `<Area> Checks` convention),
-   `.github/dependabot.yml`, `.github/pull_request_template.md`, the
-   automatic PR review's workflow and command files if the file model has one (doc step 9), and the CLAUDE.md
-   sections doc step 7 names. Compare each against the file model: present, missing, or different (say how).
-4. Write the result as one table: checklist step × expected (with its source) × found × gap. Save it to
-   `.archive/repo-setup/<repo>-audit-<date>.md` in the ai-toolkit checkout (gitignored), and show it. Steps the doc
-   marks "Open" are reported with their current value, not as gaps.
+Run the audit as `/audit-repo` does, Steps 2–4 of `<ai-toolkit>/skills/audit-repo/SKILL.md` (read it from ai-toolkit's
+`main`): the live-state reads in one block for the user, the file reads, and the table judged against
+`skills/audit-repo/references/checklist.md`. That skill owns the list of reads and the items; this one does not repeat
+them. An archived repo ends the run there. The sources from Step 1 are the ones it uses; do not ask for them again.
 
 **An audit-mode run ends here.**
 
