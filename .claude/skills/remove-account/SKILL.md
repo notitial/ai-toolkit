@@ -16,7 +16,7 @@ Undoes `/add-account`: an account is a line in `~/.claude/accounts.conf`, a Keyc
 ## One account
 
 1. Read `~/.claude/accounts.conf` and remove that account's line, only that line. Note its service.
-2. Give the user the commands to run themselves: `security delete-generic-password -s <service>` (only if no other line uses that service), and `rm -r ~/.vscode-accounts/<name>` if that folder exists (it holds links to the main VS Code settings, which `rm -r` does not follow, and the account's own window state).
+2. Give the user the commands to run themselves: `security delete-generic-password -s <service>` (only if no other line uses that service), and `rm -r ~/.vscode-accounts/<name>` if that folder exists (it holds links to the main VS Code settings, tabs and file history, which `rm -r` does not follow, and the account's own window state).
 3. Tell the user to open a new terminal: `claude-<name>` and `code-<name>` live on in shells opened before.
 4. Verify, from the checkout: `bash tools/install-copies.sh status` no longer lists the account.
 

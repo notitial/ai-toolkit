@@ -11,10 +11,18 @@
 #   claude-<name> [args]   runs `claude [args]` with CLAUDE_CODE_OAUTH_TOKEN (oauth) or ANTHROPIC_API_KEY (apikey) set
 #   code-<name> [args]     the same for `code --user-data-dir ~/.vscode-accounts/<name> [args]`: its own VS Code instance
 #                          beside your main one. Its User/ folder links to the main settings.json, keybindings.json,
-#                          snippets/ and mcp.json (these are links: a change made in the account's window goes through
-#                          them into the main folder, and the MCP servers of mcp.json start with the account's secret
-#                          in their environment; the launcher itself writes only under ~/.vscode-accounts/<name>);
-#                          extensions are shared, since VS Code keeps them in ~/.vscode/extensions whatever the data dir.
+#                          snippets/, mcp.json, tasks.json, prompts/, workspaceStorage/ (the open tabs and layout of each
+#                          folder, so reopening a folder in another account's window brings them back) and History/
+#                          (local file history), whichever of them the main folder has. These are links: a change made in
+#                          the account's window goes through them into the main folder, and the MCP servers of mcp.json
+#                          start with the account's secret in their environment; the launcher itself writes only under
+#                          ~/.vscode-accounts/<name>. Never linked: globalStorage/ (sign-ins), Backups/ and the rest of
+#                          the data folder. An existing real file or folder is never replaced; a real workspaceStorage/
+#                          or History/ is reported on each start. Extensions are shared, since VS Code keeps them in
+#                          ~/.vscode/extensions whatever the data dir.
+#                          Limit: the same folder open in two VS Code apps at once means the last window closed wins, and
+#                          an app left running (windowless) restores its own last state, not a newer one from the other
+#                          app: quit it (Cmd+Q) before reopening the folder elsewhere.
 # Arguments pass straight through. The secret is read in a subshell, goes into that one variable and then `exec`
 # replaces the subshell: your shell never holds it and nothing prints it. The program and everything it starts (the
 # Bash tool, hooks, MCP servers, extensions) inherit it, as with any environment variable. Only that variable is set:
@@ -52,15 +60,21 @@ _ait_acct_run() {
   )
 }
 
-# _ait_acct_prep_code <dir>: the account's VS Code user folder, with links to the main settings. Writes only under <dir>.
+# _ait_acct_prep_code <dir>: the account's VS Code user folder, with links to the main one. Writes only under <dir>.
+# Never replaces anything the account already has. A real workspaceStorage or History there is reported, not touched.
 _ait_acct_prep_code() {
   emulate -L zsh
   local dir=$1 src="$HOME/Library/Application Support/Code/User" f
   if [[ -L ${dir:h} || -L $dir || -L $dir/User ]]; then print -u2 "accounts: ${dir:h}, $dir or its User folder is a symlink; refusing"; return 1; fi
   mkdir -p -m 700 "${dir:h}" "$dir" "$dir/User" || return 1
-  for f in settings.json keybindings.json snippets mcp.json; do
+  for f in settings.json keybindings.json snippets mcp.json tasks.json prompts workspaceStorage History; do
     [[ -e $src/$f ]] || continue
-    [[ -e $dir/User/$f || -L $dir/User/$f ]] && continue
+    if [[ -e $dir/User/$f || -L $dir/User/$f ]]; then
+      if [[ $f == (workspaceStorage|History) && ! -L $dir/User/$f ]]; then
+        print -u2 "accounts: $dir/User/$f is the account's own folder, not the main one; to share it, quit the account's VS Code, move it aside and start it again"
+      fi
+      continue
+    fi
     ln -s "$src/$f" "$dir/User/$f" || print -u2 "accounts: could not link $f"
   done
   return 0
