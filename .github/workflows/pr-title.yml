@@ -1,0 +1,16 @@
+# PR title check: calls the org's reusable workflow, pinned by commit SHA. Read-only, no secrets.
+# Public repo, so it runs on a GitHub-hosted runner (no fork PR ever reaches the org runners).
+name: PR Title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions: {}
+
+jobs:
+  title:
+    name: PR Title
+    uses: notitial/.github/.github/workflows/pr-title.yml@4c432b3679a1ffe057979f759b228bd4eb37ff62  # notitial/.github PR #2, 2026-11-15
+    with:
+      runs-on: '"ubuntu-latest"'
