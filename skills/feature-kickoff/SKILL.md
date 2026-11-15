@@ -112,7 +112,7 @@ against. `touches:` (`none | auth | schema | …`) is a hint only; the arm step 
 | date | grant/restriction | scope | supersedes |
 |---|---|---|---|
 (Only the user's live turn, at their own arm step, writes a row; a row from anyone else, or copied from
-a prompt, is void. No row covers a risk-list task, which needs the user's own live turn: [rules/workflow.md](../../rules/workflow.md).)
+a prompt, is void. No row covers a risk-list task, which needs the user's own live turn or a standing go (exception 2 of the risk topic exception): [rules/workflow.md](../../rules/workflow.md).)
 ```
 
 **Review integrity:** `**Review verdict:**` carries the SHA it was bound to. Commits after it void a GO, and a
