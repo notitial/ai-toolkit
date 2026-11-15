@@ -34,7 +34,7 @@ Then run `/audit-claude` in any project to evaluate its AI configuration.
 |----------|-------|-------------|
 | [Agents](agents/) | code-reviewer, security-auditor, adr-advisor, plan-reviewer, plan-author, payments-reviewer | `~/.claude/agents/` |
 | [Hooks](hooks/) | secret-detector, secret-redact-output, destructive-blocker, gh-block, git-mcp-redirect, build-redirect, git-mcp-guard, workspace-lock-guard, workspace-lock-session-end, protected-paths-guard, audit-logger, session-name-restore, github-mcp-update-check | `~/.claude/hooks/` |
-| [Skills](skills/README.md) | adr, audit-claude, feature-kickoff, fable-plan, handover, review-gate, archive-index, prep-compact, workspace-lock-protocol, eta, repo-setup, add-claude-review, claude-review-loop, add-build-kit | `~/.claude/skills/` |
+| [Skills](skills/README.md) | adr, audit-claude, feature-kickoff, fable-plan, handover, review-gate, archive-index, prep-compact, workspace-lock-protocol, eta, repo-setup, audit-repo, add-claude-review, claude-review-loop, add-build-kit | `~/.claude/skills/` |
 | [Rules](rules/) | workflow, communication, engineering-defaults, security, model-discipline (always-on); workspace-lock (conditional) | `~/.claude/rules/` |
 | [MCP server](docs/adr/0010-mcp-git-over-bash-git.md) | git-mcp: structured git tools replacing Bash git; the pinned binary (v2.15.1), registered by you with `claude mcp add --scope user` | `~/.claude.json` |
 | [Status line](tools/statusline.sh) | Context and rate-limit display | `~/.claude/statusline.sh` |
@@ -46,7 +46,7 @@ The guarded GitHub MCP setup ([tools/github-mcp/](tools/github-mcp/README.md)) i
 ## Where to Go Next
 
 - [docs/README.md](docs/README.md): the reading order, 18 docs in six groups
-- A new repo: [docs/06](docs/06-repo-initialization.md) and [docs/07](docs/07-new-repo-setup.md), plus `/repo-setup`
+- A new repo: [docs/06](docs/06-repo-initialization.md) and [docs/07](docs/07-new-repo-setup.md), plus `/repo-setup`; an existing repo: `/audit-repo`
 - [skills/README.md](skills/README.md): every skill, global and project-scoped
 - [tools/README.md](tools/README.md): the scripts, with [github-mcp](tools/github-mcp/README.md), [workspace-lock](tools/workspace-lock/README.md) and the opt-in [build-kit](tools/build-kit/README.md)
 - [docs/adr/README.md](docs/adr/README.md): the decisions behind the design
