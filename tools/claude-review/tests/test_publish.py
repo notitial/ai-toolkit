@@ -408,16 +408,32 @@ class ResultChecks(PublishCase):
                 self.assert_nothing_posted()
 
     def test_contradictions(self):
-        # An incomplete full review fails closed: no_issues false with no findings is rejected in both full modes,
-        # so nothing is posted and nothing approves.
-        for res, env in ((result(no_issues=False), {}), (result(no_issues=False), {"MODE": "rereview"}),
-                         (result(no_issues=False, stopped=True), {"MODE": "rereview"})):
-            with self.subTest(res=str(res)[:40], env=env):
+        # A stop outside an initial review is rejected: nothing is posted and nothing approves.
+        self.run_publish(result(no_issues=False, stopped=True), MODE="rereview")
+        self.assertIn("No verdict: Claude's result has", self.log)
+        self.assert_nothing_posted()
+        self.assertEqual(self.new_reviews(), [])
+
+    def test_incomplete_review_says_so_without_a_verdict(self):
+        # An incomplete full review fails closed: no_issues false with no findings gives no review in both full modes,
+        # but the overview comment still says the review ran, so nobody waits on silence.
+        for env in ({}, {"MODE": "rereview"}):
+            with self.subTest(env=env):
                 self.setUp()
-                self.run_publish(res, **env)
-                self.assertIn("No verdict: Claude's result has", self.log)
-                self.assert_nothing_posted()
+                self.assertEqual(self.run_publish(result(no_issues=False, overview="One pass failed."), **env), 0)
+                self.assertIn("No verdict: Claude's result has issues reported without findings", self.log)
                 self.assertEqual(self.new_reviews(), [])
+                self.assertIn("result=issues", self.overview())
+                self.assertIn("Review incomplete: issues reported without findings. No verdict.", self.overview())
+                self.assertIn("One pass failed.", self.overview())
+
+    def test_incomplete_review_leaves_threads_alone(self):
+        tid = self.open_app_thread()
+        res = result(no_issues=False, threads=[{"thread_id": tid, "verdict": "resolved", "reply": "Fixed."}])
+        self.run_publish(res, MODE="rereview")
+        self.assertEqual(len(self.gh.threads[tid]["comments"]), 1)
+        self.assertEqual(self.new_reviews(), [])
+        self.assertIn("Review incomplete", self.overview())
 
     def test_head_moved(self):
         self.gh.head = OLD

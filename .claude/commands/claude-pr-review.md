@@ -63,10 +63,10 @@ What each mode returns:
 | `initial` or `rereview`, review incomplete (section 6) | `false` | `false` | the verified findings so far, possibly `[]` | as for the mode | 2 or 3 sentences naming the failed part |
 | `followup` | `false` | `false` | `[]` | one per `open` thread | `""` |
 
-`publish` rejects the whole result, and nothing is posted, when any of these hold, so check them before you return:
+`publish` rejects the whole result, and posts no verdict, when any of these hold, so check them before you return:
 - a key other than the five, a missing key, or a value outside the schema's types, enums, lengths or counts;
 - `stopped: true` in `rereview` or `followup`, or `stopped: true` with findings;
-- in `initial` or `rereview`, not stopped, `no_issues: false` with `findings: []`. Return that only for an incomplete review with no verified finding (section 6), where the rejection is the intended outcome.
+- in `initial` or `rereview`, not stopped, `no_issues: false` with `findings: []`. Return that only for an incomplete review with no verified finding (section 6), where the missing verdict is the intended outcome: `publish` posts only an overview note saying the review was incomplete.
 
 There is no severity field. Severity is the order of `findings`: most severe first, and the cap keeps the most severe. A `body` may name the severity in words.
 
@@ -111,7 +111,7 @@ There is no severity field. Severity is the order of `findings`: most severe fir
 A PR's size never changes the process. A one-line PR gets the same passes and the same verification as a large one. Do not merge passes, skip verification, or do a subagent's work yourself to save effort.
 
 If a subagent fails or returns nothing usable, launch it once more with the same brief. What happens when it fails again depends on the subagent:
-- **A review pass or a verifier:** the review is incomplete, and an incomplete review must never be reported as clean, because a clean result approves the PR. Finish the stages that can finish, then return `no_issues: false` with the verified findings you have. If you have none, return `findings: []` anyway: `publish` then rejects the result, so nothing is posted and no verdict is given. That is the intended outcome, since an unfinished review never earns an approval. Name the pass that failed in the overview, or say that a verifier failed.
+- **A review pass or a verifier:** the review is incomplete, and an incomplete review must never be reported as clean, because a clean result approves the PR. Finish the stages that can finish, then return `no_issues: false` with the verified findings you have. If you have none, return `findings: []` anyway: `publish` then gives no verdict and writes only an overview note saying the review was incomplete. That is the intended outcome, since an unfinished review never earns an approval. Name the pass that failed in the overview, or say that a verifier failed.
 - **Triage or guidance:** carry on without it, and say in the overview what was missing. Without guidance, the written-rules pass finds the `CLAUDE.md` files itself.
 - **A thread judge:** see section 9.
 

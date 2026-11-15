@@ -1007,12 +1007,15 @@ jobs:
               return (data, None) if ok else (None, "the wrong shape")
 
 
+          INCOMPLETE = "issues reported without findings"
+
+
           def contradiction(mode, data):
               """Why a well-formed result can't be used in this mode, or None."""
               if data["stopped"] and (mode != "initial" or data["findings"]):
                   return "a stop outside an initial review, or a stop with findings"
               if mode != "followup" and not data["stopped"] and not data["no_issues"] and not data["findings"]:
-                  return "issues reported without findings"
+                  return INCOMPLETE
               return None
 
 
@@ -1635,7 +1638,7 @@ jobs:
                   print(f"The review job's result is '{review_result or 'none'}': no verdict")
                   return
 
-              data, retry = None, []
+              data, retry, incomplete = None, [], False
               if ctx.env.get("HAS_RESULT") == "true":
                   data, why = load_result(ctx.env.get("RESULT_FILE", ""))
                   if why == "missing":
@@ -1646,7 +1649,9 @@ jobs:
                   why = why or contradiction(ctx.mode, data)
                   if why:
                       print(f"No verdict: Claude's result is {why}" if data is None else f"No verdict: Claude's result has {why}")
-                      return
+                      if why != INCOMPLETE:
+                          return
+                      incomplete = True   # say the review ran: carry on to the overview, with no verdict
               else:
                   retry = parse_ids(ctx.env.get("RETRY_IDS", ""))
                   if retry is None:
@@ -1677,7 +1682,7 @@ jobs:
 
               # Replies, then resolve: resolve keys on the reply's marker.
               to_resolve = list(retry)
-              if data is not None and data["threads"] and ctx.mode != "initial":
+              if data is not None and data["threads"] and ctx.mode != "initial" and not incomplete:
                   to_resolve += reply_in_threads(ctx, data["threads"])
               if to_resolve:
                   resolve_threads(ctx, to_resolve)
@@ -1718,6 +1723,8 @@ jobs:
 
               if data is not None and data["stopped"]:
                   decision, result, line = "none", "stopped", "Review stopped (eligibility): nothing to review. No verdict."
+              elif incomplete:
+                  decision, result, line = "none", "issues", "Review incomplete: issues reported without findings. No verdict."
               elif full:
                   if n_found:
                       decision, result, line = "changes+findings", "issues", f"{n_found} finding{'s' if n_found != 1 else ''}."

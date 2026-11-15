@@ -12,8 +12,8 @@ copies equal to these (`tests/test_install.py` checks).
 
 | File | Install path in the target repo | SHA-256 |
 |---|---|---|
-| [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` | `77a79f6b35733974260188b7c5e9c2f46dc28f8835513a61034017c9b93d992d` |
-| [claude-pr-review.md](claude-pr-review.md) | `.claude/commands/claude-pr-review.md` | `bc2a803832478c6fc811e94ca419c5b424bd162e402d84dce5acd5309c193f01` |
+| [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` | `96ae6648aff306c21a5206691f5922df343d16fe28400c13f9b7c897ee1bd02b` |
+| [claude-pr-review.md](claude-pr-review.md) | `.claude/commands/claude-pr-review.md` | `2f76a0bc11718f605a974aa9c5a70e249b7279f1ec56e51583446e7390d69407` |
 
 **Version:** v3.3 (2026-11-10): the two jobs that hold the App key, `appcheck` and `publish`, may run on a dedicated
 self-hosted pool instead of GitHub-hosted runners, chosen by the optional repo variable `CLAUDE_REVIEW_KEY_RUNS_ON`
@@ -396,7 +396,7 @@ A thread a person starts must never get a reply or be resolved.
 - **Green but nothing posted:** did `preflight` skip it (already reviewed, fork, draft)? Did "Save the result" warn
   "no structured result"? What does `publish` print ("No verdict: …", "No-op: …")?
 - **"No verdict: Claude's result has issues reported without findings":** a review pass or a verifier failed twice,
-  so the review didn't finish (the command fails closed). Comment `@claude review` to run it again.
+  so the review didn't finish (the command fails closed). The overview comment says "Review incomplete" and no review is posted. Comment `@claude review` to run it again.
 - **Fails in under a second, `$0`, "did not return structured_output":** the Claude credential is out of usage or
   invalid. Re-run the failed jobs once it's back.
 - **`appcheck` fails:** the key doesn't match the Client ID, the App isn't installed on the repo, or
