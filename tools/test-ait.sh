@@ -147,6 +147,9 @@ mkdir -p "$MAIN/snippets"
 printf '{"main":true}\n' > "$MAIN/settings.json"
 printf '[]\n' > "$MAIN/keybindings.json"
 printf '{}\n' > "$MAIN/snippets/a.code-snippets"
+printf '{}\n' > "$MAIN/tasks.json"
+mkdir -p "$MAIN/prompts" "$MAIN/workspaceStorage/abc" "$MAIN/History/h1" "$MAIN/globalStorage" "$MAIN/Backups"
+printf 'p\n' > "$MAIN/prompts/a.prompt.md"; printf '{}\n' > "$MAIN/workspaceStorage/abc/state.vscdb"; printf '{}\n' > "$MAIN/History/h1/entries.json"
 
 # za <zsh code>: accounts.zsh loaded (after ZA_PRE, when set), the fakes first on PATH (or ZA_PATH), no auth variable
 # inherited. Every output is kept in all.out, which must never hold a secret.
@@ -248,7 +251,7 @@ expect_has "a clean account is made" "$out" "code-fine: function"
 cat > "$ACCTS" <<'EOF'
 work oauth svc-work
 EOF
-before=$(cd "$MAIN" && find . | LC_ALL=C sort; cat settings.json keybindings.json snippets/a.code-snippets)
+before=$(cd "$MAIN" && find . | LC_ALL=C sort; cat settings.json keybindings.json tasks.json snippets/a.code-snippets prompts/a.prompt.md workspaceStorage/abc/state.vscdb History/h1/entries.json)
 rm -f "$T/rec.code"
 out=$(za 'code-work /some/dir; echo "rc=$?"')
 rec=$(cat "$T/rec.code" 2>/dev/null)
@@ -257,12 +260,13 @@ expect_has "code-work ran code" "$out" "fake code ran"
 want=$(printf 'prog=code\narg=--user-data-dir\narg=%s\narg=/some/dir\noauth=SECRET-svc-work-VALUE\napikey=UNSET' "$UD")
 [ "$rec" = "$want" ] && ok || bad "code-work: arguments and variables: got: $rec"
 [ -d "$UD/User" ] && ok || bad "code-work: no User folder"
-for f in settings.json keybindings.json snippets; do
+for f in settings.json keybindings.json snippets tasks.json prompts workspaceStorage History; do
   [ -L "$UD/User/$f" ] && [ "$(readlink "$UD/User/$f")" = "$MAIN/$f" ] && ok || bad "code-work: $f is not a link to the main one"
 done
 [ ! -e "$UD/User/mcp.json" ] && [ ! -L "$UD/User/mcp.json" ] && ok || bad "code-work: mcp.json linked although the main one has none"
-[ "$(find "$UD/User" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" = 3 ] && ok || bad "code-work: something besides the three links in User"
-after=$(cd "$MAIN" && find . | LC_ALL=C sort; cat settings.json keybindings.json snippets/a.code-snippets)
+[ "$(find "$UD/User" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" = 7 ] && ok || bad "code-work: something besides the seven links in User"
+[ ! -e "$UD/User/globalStorage" ] && [ ! -e "$UD/User/Backups" ] && ok || bad "code-work: globalStorage or Backups linked (sign-ins and unsaved files must stay per account)"
+after=$(cd "$MAIN" && find . | LC_ALL=C sort; cat settings.json keybindings.json tasks.json snippets/a.code-snippets prompts/a.prompt.md workspaceStorage/abc/state.vscdb History/h1/entries.json)
 [ "$before" = "$after" ] && ok || bad "code-work changed the main User folder"
 # a later launch links what has appeared since, and never replaces a file the account already has
 printf '{"servers":{}}\n' > "$MAIN/mcp.json"
@@ -270,6 +274,12 @@ rm "$UD/User/keybindings.json"; printf '[1]\n' > "$UD/User/keybindings.json"
 za 'code-work' > /dev/null
 [ -L "$UD/User/mcp.json" ] && ok || bad "code-work: mcp.json not linked once it exists"
 [ ! -L "$UD/User/keybindings.json" ] && [ "$(cat "$UD/User/keybindings.json")" = "[1]" ] && ok || bad "code-work replaced the account's own keybindings.json"
+# a real workspaceStorage or History the account already has stays, and is reported; nothing is linked over it
+rm "$UD/User/workspaceStorage" "$UD/User/History"; mkdir -p "$UD/User/workspaceStorage/own" "$UD/User/History"
+out=$(za 'code-work')
+expect_has "a real workspaceStorage is reported" "$out" "$UD/User/workspaceStorage is the account's own folder"
+expect_has "a real History is reported" "$out" "$UD/User/History is the account's own folder"
+[ ! -L "$UD/User/workspaceStorage" ] && [ -d "$UD/User/workspaceStorage/own" ] && [ ! -L "$UD/User/History" ] && [ ! -e "$MAIN/workspaceStorage/own" ] && ok || bad "code-work replaced or wrote through the account's own workspaceStorage or History"
 # a user-data dir that is a link is refused: it could lead into the main folder
 mkdir -p "$T/elsewhere"; ln -s "$T/elsewhere" "$T/home/.vscode-accounts/evil"
 printf 'evil oauth svc-work\n' > "$ACCTS"
