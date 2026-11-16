@@ -191,7 +191,7 @@ def summarize(stream_lines):
 
 def claude_command(settings, ctx, prompt, model):
     cmd = ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--no-session-persistence",
-           "--strict-mcp-config", "--setting-sources", "project", "--settings", '{"disableAllHooks":true}',
+           "--strict-mcp-config", "--permission-mode", "default", "--setting-sources", "project", "--settings", '{"disableAllHooks":true}',
            "--allowedTools", settings["allowed"], "--disallowedTools", settings["disallowed"],
            "--add-dir", str(ctx), "--json-schema", settings["schema"]]
     return cmd + (["--model", model] if model else [])

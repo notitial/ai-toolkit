@@ -66,6 +66,8 @@
 #   - reads: the checkout (but not its .git, which holds the job's token while Claude runs) and the review folder
 #     (--add-dir) only, with token-bearing paths denied outright. Never deny the runner work dir (/_work/job on some
 #     runners, /tmp/runner/work on others).
+#   - mode: --permission-mode default, so a tool call outside the allow list is refused, never approved by the
+#     auto-mode safety review the action starts a session with a prompt in (v1.0.273 on).
 #   - settings: only the repo's own (from main), never user-level ones a previous job could have left on the runner.
 #     The repo's hooks are switched off.
 #   - posting: none. Its findings, verdicts and overview are data that `publish` checks and sanitizes (no links,
@@ -516,7 +518,11 @@ jobs:
           # this headless run never gets. /root isn't denied: on a runner that runs as root, Claude Code keeps its own
           # saved tool output there. --setting-sources project loads only the repo's settings (restored from main),
           # never user-level ones left on the runner, and --settings switches the repo's hooks off.
+          # --permission-mode default: since v1.0.273 the action starts a session that has a prompt in auto mode, where a
+          # tool call no allow rule covers can be approved by a safety review instead of refused. default keeps
+          # --allowedTools a strict list, as the paragraph above describes.
           claude_args: |
+            --permission-mode default
             --setting-sources project
             --settings '{"disableAllHooks":true}'
             --allowedTools "${{ env.TOOLS }}"
@@ -593,7 +599,7 @@ jobs:
                  mode: $mode,
                  event: $event,
                  head_sha: ($head | if test("^[0-9a-f]{40}$") then . else null end),
-                 reviewer: "claude-pr-review@v3.3",
+                 reviewer: "claude-pr-review@v3.4",
                  action: "anthropics/claude-code-action@4d75e5f390ee76b2e09c1980ecc99ff3a2e088c8",
                  total_cost_usd: ((.total_cost_usd | numbers) // null),
                  duration_ms: ((.duration_ms | numbers) // null),

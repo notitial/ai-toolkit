@@ -142,6 +142,7 @@ class Command(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
         self.assertEqual(cmd[cmd.index("--allowedTools") + 1], "Agent,Task")
         self.assertEqual(cmd[cmd.index("--add-dir") + 1], "/ctx")
+        self.assertEqual(cmd[cmd.index("--permission-mode") + 1], "default")
         self.assertNotIn("Bash", cmd[cmd.index("--allowedTools") + 1])
 
 

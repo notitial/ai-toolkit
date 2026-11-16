@@ -12,10 +12,13 @@ copies equal to these (`tests/test_install.py` checks).
 
 | File | Install path in the target repo | SHA-256 |
 |---|---|---|
-| [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` | `0447686058778fecb8ec0cb0a59bf783da7b7d37d5d7b870235312ada9edd1c3` |
+| [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` | `8d6201c5814e1665a7ef80300080471f572354ee5ce81a60482e0e06dc3738c2` |
 | [claude-pr-review.md](claude-pr-review.md) | `.claude/commands/claude-pr-review.md` | `2f76a0bc11718f605a974aa9c5a70e249b7279f1ec56e51583446e7390d69407` |
 
-**Version:** v3.3 (2026-11-10): the two jobs that hold the App key, `appcheck` and `publish`, may run on a dedicated
+**Version:** v3.4 (2026-11-17): the review step runs with `--permission-mode default`. Since `claude-code-action` v1.0.273 a
+session that has a prompt starts in auto mode, where a tool call no allow rule covers can be approved by a safety
+review; `default` refuses it, so `--allowedTools` stays a strict list. The deny list, review command, findings format and
+modes are unchanged. v3.3 (2026-11-10): the two jobs that hold the App key, `appcheck` and `publish`, may run on a dedicated
 self-hosted pool instead of GitHub-hosted runners, chosen by the optional repo variable `CLAUDE_REVIEW_KEY_RUNS_ON`
 (unset: `ubuntu-latest`, as before), so those two jobs need no file edit; the review command, findings
 format and modes are unchanged. The key pool first ran live on 2026-11-10, on a private repo: `appcheck` and
@@ -492,7 +495,7 @@ Don't loosen any of this when adapting the files.
 
 - Keep `RESULT_SCHEMA` in the workflow byte-identical with the schema in the command's "The result" section (a test
   checks).
-- Keep the cost record's `reviewer` string (`claude-pr-review@v3.3`) equal to the version above (a test checks).
+- Keep the cost record's `reviewer` string (`claude-pr-review@v3.4`) equal to the version above (a test checks).
 - Run `tests/` after any change to the inline scripts.
 - `REVIEW.md` (repo root) is the repo's own file, not part of the kit: edit it freely.
 - A new version updates both files here first, with new SHAs in the table above, then this repo's installed copies in
