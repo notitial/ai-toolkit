@@ -52,6 +52,8 @@ class Workflow(unittest.TestCase):
                      "mcp__github_inline_comment__*", "Read(./.git/**)"):
             self.assertIn(tool, deny)
         self.assertIn("--settings '{\"disableAllHooks\":true}'", args)
+        # The action starts a session with a prompt in auto mode (v1.0.273 on); default keeps --allowedTools strict.
+        self.assertIn("--permission-mode default", [ln.strip() for ln in args.splitlines()])
         self.assertNotIn("classify_inline_comments", step["with"])
         self.assertNotIn("--comment", step["with"]["prompt"])
         self.assertEqual(review["permissions"], {"contents": "read", "pull-requests": "read", "issues": "read"})
