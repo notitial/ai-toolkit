@@ -125,6 +125,14 @@ for t in status log diff show blame reflog changelog_analyze remote clone init; 
   expect deny "git_$t with a numeric path"     "$(tool "mcp__git-mcp__git_$t" '{"path":5}')"
 done
 
+# Odd path values: anything that is not a string starting with a slash is denied.
+for v in true false null '["/x"]' '{"a":1}' '" /x"'; do
+  expect deny "git_status with path $v"        "$(tool mcp__git-mcp__git_status "{\"path\":$v}")"
+done
+expect pass "git_status with a double-slash path" "$(tool mcp__git-mcp__git_status '{"path":"//x"}')"
+expect deny "a tool the guard does not know, no path" "$(tool mcp__git-mcp__git_future_tool '{}')"
+expect pass "a tool the guard does not know, with a path" "$(tool mcp__git-mcp__git_future_tool '{"path":"/x"}')"
+
 # The working-dir tools move the server's one global cwd: always denied, even with a path.
 for t in set_working_dir clear_working_dir; do
   expect deny "git_$t"                         "$(tool "mcp__git-mcp__git_$t" '{"path":"/x","confirm":"yes"}')"

@@ -5,7 +5,7 @@
 #   mcp__git-mcp__.*
 #   (the whole server, so a tool added later is seen too; the settings template carries the same matcher)
 #
-# Every git MCP tool that takes a `path` (all but git_wrapup_instructions) must carry an absolute one, reads included:
+# Every git MCP tool (all but git_wrapup_instructions, which takes no path) must carry an absolute `path`, reads included:
 # the git MCP server keeps one working directory per process, and a missing or relative path is resolved against it,
 # which may not be the folder the other hooks checked, and which another session's git_set_working_dir may have moved.
 # git_set_working_dir and git_clear_working_dir are always denied for the same reason: the agent passes `path` on each
@@ -96,14 +96,15 @@ require_abs_path() {
   esac
 }
 
-# The tools that take a `path` (read from the server's tool schemas), reads and writes alike, and the two tools that
-# move the server's one global cwd. A tool not named here (git_wrapup_instructions, one added later) falls to the
-# case below and is allowed, so keep this list in step with the server when it is updated.
+# Every git MCP tool needs an absolute `path`, reads and writes alike, except git_wrapup_instructions (it takes none).
+# The default is to require it, so a tool the server adds later is guarded until it is named here. The two tools that
+# move the server's one global cwd are always denied.
 case "$TOOL_NAME" in
   mcp__git-mcp__git_set_working_dir|mcp__git-mcp__git_clear_working_dir)
     deny "${TOOL_NAME#mcp__git-mcp__} is blocked — the git MCP has one global cwd shared by every agent; pass an absolute path on each call instead."
     ;;
-  mcp__git-mcp__git_add|mcp__git-mcp__git_blame|mcp__git-mcp__git_branch|mcp__git-mcp__git_changelog_analyze|mcp__git-mcp__git_checkout|mcp__git-mcp__git_cherry_pick|mcp__git-mcp__git_clean|mcp__git-mcp__git_clone|mcp__git-mcp__git_commit|mcp__git-mcp__git_diff|mcp__git-mcp__git_fetch|mcp__git-mcp__git_init|mcp__git-mcp__git_log|mcp__git-mcp__git_merge|mcp__git-mcp__git_pull|mcp__git-mcp__git_push|mcp__git-mcp__git_rebase|mcp__git-mcp__git_reflog|mcp__git-mcp__git_remote|mcp__git-mcp__git_reset|mcp__git-mcp__git_show|mcp__git-mcp__git_stash|mcp__git-mcp__git_status|mcp__git-mcp__git_tag|mcp__git-mcp__git_worktree)
+  mcp__git-mcp__git_wrapup_instructions) ;;
+  mcp__git-mcp__*)
     require_abs_path
     ;;
 esac
