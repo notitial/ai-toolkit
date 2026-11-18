@@ -23,7 +23,7 @@ Example directives:
 - When to ask for confirmation vs proceed autonomously
 - Place temporary artifacts in a gitignored `.archive/` folder, creating it if needed
 - If `docs/adr/` exists, check it before proposing architectural changes; when a significant decision is made, propose creating an ADR
-- Use git MCP tools (`mcp__git-mcp__*`) for all git operations instead of Bash git commands. Always pass the `path` parameter on every git call; never rely on `git_set_working_dir` — the server has one global cwd and concurrent agents race on it
+- Use git MCP tools (`mcp__git-mcp__*`) for all git operations instead of Bash git commands. Always pass the `path` parameter on every git call; the guard denies a missing or relative one, and `git_set_working_dir`, because the server has one global cwd and concurrent agents race on it
 - Commit titles under ~50 characters; put specifics in the body
 - Commit and PR attribution is disabled by the `attribution` setting (this skill enforces it); never add Claude trailers or footers manually unless explicitly asked
 
@@ -61,7 +61,7 @@ If no global CLAUDE.md exists, offer this as a starting point for the user to cu
 - Never edit code without user approval — see workflow.md Analysis-First for the gate sequence
 - Place temporary artifacts (handover docs, draft specs, research, logs, chat trackers — session tracking across conversations) in a gitignored `.archive/` folder, creating it if needed
 - If `docs/adr/` exists, check it before proposing architectural changes; when a significant decision is made, propose creating an ADR
-- Use git MCP tools (`mcp__git-mcp__*`) for all git operations instead of Bash git commands. Always pass the `path` parameter on every git call; never rely on `git_set_working_dir` — the server has one global cwd and concurrent agents race on it
+- Use git MCP tools (`mcp__git-mcp__*`) for all git operations instead of Bash git commands. Always pass the `path` parameter on every git call; the guard denies a missing or relative one, and `git_set_working_dir`, because the server has one global cwd and concurrent agents race on it
 - After a major code change, invoke the `code-reviewer` subagent before declaring the task complete. Major = ≥3 files touched, ≥100 lines changed, or any change to auth/permissions/payments/data migrations/concurrency/public APIs/error handling. Minor fixes (typos, formatting, single-line bug fixes, doc-only or test-only changes) are exempt.
 - Commit titles under ~50 characters; put specifics in the body
 - Commit and PR attribution is disabled by the `attribution` setting; never add Claude trailers or footers manually unless explicitly asked

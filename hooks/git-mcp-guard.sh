@@ -1,12 +1,16 @@
 #!/bin/bash
-# Pre-tool-use hook: guards the MCP git write tools against irreversible operations.
+# Pre-tool-use hook: guards the MCP git tools. Every call must carry an absolute repo path, the working-dir tools are
+# refused, and the write tools are held back from irreversible operations.
 # Configured in ~/.claude/settings.json for PreToolUse with matcher:
-#   mcp__git-mcp__git_add|mcp__git-mcp__git_branch|mcp__git-mcp__git_checkout|mcp__git-mcp__git_cherry_pick|mcp__git-mcp__git_clean|mcp__git-mcp__git_commit|mcp__git-mcp__git_fetch|mcp__git-mcp__git_merge|mcp__git-mcp__git_pull|mcp__git-mcp__git_push|mcp__git-mcp__git_rebase|mcp__git-mcp__git_reset|mcp__git-mcp__git_stash|mcp__git-mcp__git_tag|mcp__git-mcp__git_worktree
-#   (the settings template spells each tool out; the allowed write tools are in it so this hook sees them)
+#   mcp__git-mcp__.*
+#   (the whole server, so a tool added later is seen too; the settings template carries the same matcher)
 #
-# Every allowed write tool must carry an absolute `path`: the git MCP server has one global cwd, and a missing or
-# relative path is resolved against that cwd, which may not be the folder the other hooks checked. git_push also
-# needs its `remote` to be a remote configured in the repo, so a URL cannot be pushed to without a prompt.
+# Every git MCP tool (all but git_wrapup_instructions, which takes no path) must carry an absolute `path`, reads included:
+# the git MCP server keeps one working directory per process, and a missing or relative path is resolved against it,
+# which may not be the folder the other hooks checked, and which another session's git_set_working_dir may have moved.
+# git_set_working_dir and git_clear_working_dir are always denied for the same reason: the agent passes `path` on each
+# call instead. git_push also needs its `remote` to be a remote configured in the repo, so a URL cannot be pushed to
+# without a prompt.
 #
 # FAIL-CLOSED: unlike the convenience hooks (git-mcp-redirect, audit-logger,
 # secret-detector, destructive-blocker), this hook blocks when its dependencies
@@ -82,7 +86,7 @@ if [ -z "$TOOL_NAME" ]; then
   deny "could not determine the git operation from input (empty or malformed stdin) — blocked (fail-closed)."
 fi
 
-# The repo path of a write tool must be absolute — checked BEFORE any git invocation so this hook never
+# The repo path of a tool must be absolute — checked BEFORE any git invocation so this hook never
 # resolves against its own cwd (the git MCP server has one global cwd and concurrent agents race on it, and
 # resolves a relative path such as ./ or a subfolder against that cwd, not this one).
 require_abs_path() {
@@ -91,6 +95,19 @@ require_abs_path() {
     *) deny "pass an absolute repo path — the git MCP has one global cwd and concurrent agents race on it." ;;
   esac
 }
+
+# Every git MCP tool needs an absolute `path`, reads and writes alike, except git_wrapup_instructions (it takes none).
+# The default is to require it, so a tool the server adds later is guarded until it is named here. The two tools that
+# move the server's one global cwd are always denied.
+case "$TOOL_NAME" in
+  mcp__git-mcp__git_set_working_dir|mcp__git-mcp__git_clear_working_dir)
+    deny "${TOOL_NAME#mcp__git-mcp__} is blocked — the git MCP has one global cwd shared by every agent; pass an absolute path on each call instead."
+    ;;
+  mcp__git-mcp__git_wrapup_instructions) ;;
+  mcp__git-mcp__*)
+    require_abs_path
+    ;;
+esac
 
 case "$TOOL_NAME" in
   mcp__git-mcp__git_add|mcp__git-mcp__git_branch|mcp__git-mcp__git_checkout|mcp__git-mcp__git_cherry_pick|mcp__git-mcp__git_commit|mcp__git-mcp__git_fetch|mcp__git-mcp__git_merge|mcp__git-mcp__git_pull|mcp__git-mcp__git_rebase|mcp__git-mcp__git_stash|mcp__git-mcp__git_tag)

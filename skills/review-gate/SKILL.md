@@ -19,7 +19,7 @@ Select and run the appropriate reviewer agents for a change, in parallel, and co
 
 ## Step 1: Determine the change set
 
-Use `mcp__git-mcp__git_status` and `mcp__git-mcp__git_diff` (pass the range if given) to get the list of changed files. **Dirty tree and no range given → stop:** if `git_status` shows uncommitted or untracked changes, ask the user to commit first or to name a committed range, and review nothing until they do. Always pass the `path` parameter on every git call; never rely on `git_set_working_dir` — the server has one global cwd and concurrent agents race on it.
+Use `mcp__git-mcp__git_status` and `mcp__git-mcp__git_diff` (pass the range if given) to get the list of changed files. **Dirty tree and no range given → stop:** if `git_status` shows uncommitted or untracked changes, ask the user to commit first or to name a committed range, and review nothing until they do. Always pass the `path` parameter on every git call; the guard denies a missing or relative one, and `git_set_working_dir`, because the server has one global cwd and concurrent agents race on it.
 
 Record the **exact HEAD SHA** under review (`mcp__git-mcp__git_log` with `maxCount: 1`) — the verdict binds to it (Step 6). **Untracked files** in `git_status` produce no diff: list them explicitly and instruct the reviewers to Read them in full, or a diff-led review is blind to them.
 
