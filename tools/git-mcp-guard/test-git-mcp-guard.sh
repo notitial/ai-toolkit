@@ -57,8 +57,9 @@ tool() {  # tool <name> <tool_input json>
 }
 push() { expect "$1" "push: $2" "$(tool mcp__git-mcp__git_push "$3")"; }  # push <deny|pass> <label> <tool_input json>
 
-push pass "dry run needs no path"                '{"dryRun":true}'
-push pass "dry run even when forced"             '{"dryRun":true,"force":true}'
+push deny "dry run with no path"                 '{"dryRun":true}'
+push pass "dry run with a path"                  '{"path":"/x","dryRun":true}'
+push pass "dry run even when forced"             '{"path":"/x","dryRun":true,"force":true}'
 push deny "force"                                "{\"path\":\"$T/feat\",\"branch\":\"feature\",\"force\":true}"
 push deny "force with lease"                     "{\"path\":\"$T/feat\",\"branch\":\"feature\",\"forceWithLease\":true}"
 push deny "delete"                               "{\"path\":\"$T/feat\",\"branch\":\"feature\",\"delete\":true}"
@@ -111,7 +112,27 @@ expect deny "clean with no dryRun"   "$(tool mcp__git-mcp__git_clean '{"path":"/
 expect deny "worktree add"           "$(tool mcp__git-mcp__git_worktree '{"path":"/x","mode":"add"}')"
 expect deny "worktree list"          "$(tool mcp__git-mcp__git_worktree '{"path":"/x","mode":"list"}')"
 
-expect pass "git_status is not guarded"  "$(tool mcp__git-mcp__git_status '{"path":"/x"}')"
+expect deny "clean dry run with no path" "$(tool mcp__git-mcp__git_clean '{"dryRun":true}')"
+
+# Every git tool that takes a path needs an absolute one, reads included.
+for t in status log diff show blame reflog changelog_analyze remote clone init; do
+  expect pass "git_$t with an absolute path"   "$(tool "mcp__git-mcp__git_$t" '{"path":"/x"}')"
+  expect deny "git_$t with no path"            "$(tool "mcp__git-mcp__git_$t" '{"maxCount":5}')"
+  expect deny "git_$t with a dot path"         "$(tool "mcp__git-mcp__git_$t" '{"path":"."}')"
+  expect deny "git_$t with an empty path"      "$(tool "mcp__git-mcp__git_$t" '{"path":""}')"
+  expect deny "git_$t with a relative path"    "$(tool "mcp__git-mcp__git_$t" '{"path":"sub/dir"}')"
+  expect deny "git_$t with a tilde path"       "$(tool "mcp__git-mcp__git_$t" '{"path":"~/repo"}')"
+  expect deny "git_$t with a numeric path"     "$(tool "mcp__git-mcp__git_$t" '{"path":5}')"
+done
+
+# The working-dir tools move the server's one global cwd: always denied, even with a path.
+for t in set_working_dir clear_working_dir; do
+  expect deny "git_$t"                         "$(tool "mcp__git-mcp__git_$t" '{"path":"/x","confirm":"yes"}')"
+  expect deny "git_$t with no input"           "$(tool "mcp__git-mcp__git_$t" '{}')"
+done
+
+# A tool with no path parameter is left alone.
+expect pass "git_wrapup_instructions"            "$(tool mcp__git-mcp__git_wrapup_instructions '{"acknowledgement":"yes"}')"
 
 # Every allowed write tool needs an absolute path (the server resolves a relative or missing one against its own cwd).
 for t in add branch checkout cherry_pick commit fetch merge pull rebase stash tag reset; do
@@ -135,7 +156,7 @@ push deny "remote is an option"                  "{\"path\":\"$T/remote\",\"bran
 push deny "remote name that is not configured"   "{\"path\":\"$T/remote\",\"branch\":\"feature\",\"remote\":\"upstream\"}"
 push deny "remote is not a string"               "{\"path\":\"$T/remote\",\"branch\":\"feature\",\"remote\":[\"origin\"]}"
 push deny "a remote on a repo with no remotes"   "{\"path\":\"$T/feat\",\"branch\":\"feature\",\"remote\":\"origin\"}"
-push pass "dry run with a URL remote is harmless" '{"dryRun":true,"remote":"https://example.invalid/x.git"}'
+push pass "dry run with a URL remote is harmless" '{"path":"/x","dryRun":true,"remote":"https://example.invalid/x.git"}'
 expect pass "Bash is not guarded"        '{"tool_name":"Bash","tool_input":{"command":"git push --force"}}'
 
 expect deny "empty input"                ''
