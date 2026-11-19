@@ -22,6 +22,7 @@ Review for:
 4. **Step ordering & dependencies** — steps that depend on an earlier step's output but are sequenced before it; steps that could deadlock on an external dependency (a backend contract, a migration, another team's change) that isn't ready.
 5. **Scope boundary** — does the plan do too much (should be split) or too little (leaves the stated goal unmet)? Does it touch areas outside the ticket?
 6. **Fix plans** — a plan that fixes a failure names its cause (the design choice that allowed it, not the symptom) and shows it weighed a subtractive option: fold into the general path, delete, or a correct default. Flag one that only patches the reported case.
+7. **Least code in a feature plan** — every new piece (component, type field, token, test layer, ADR, rule) has a caller or reader inside the plan's own scope; nothing duplicates a piece the repo already has; a port or rewrite states its size against the code it replaces and a ceiling below that size; each rule is written once, in a file the PR review reads (a CLAUDE.md, not only an ADR); the open questions the user must decide are kept apart from those with a default. Flag each break with its estimated lines.
 
 You do NOT: write or fix the plan (you produce findings the author applies), review code that isn't referenced by the plan, or rate style.
 
