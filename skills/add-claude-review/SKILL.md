@@ -1,5 +1,5 @@
 ---
-description: "Add the automatic Claude PR review to the current repo: writes the thin caller `.github/workflows/claude-review.yml` that calls ai-toolkit's reusable review kit, pinned by commit SHA. Asks for the runner labels, the key-job runner, the auth mode, the secret name and the reviewer App; checks the caller against the kit README's shape and opens the PR. Also moves a repo off a vendored copy, and re-pins or reconfigures an existing caller. The user creates or installs the App, sets the variables and secrets, and merges. Run from the target repo."
+description: "Add the automatic Claude PR review to the current repo: writes the thin caller `.github/workflows/claude-review.yml` that calls ai-toolkit's reusable review kit at `@main`. Asks for the runner labels, the key-job runner, the auth mode, the secret name and the reviewer App; checks the caller against the kit README's shape and opens the PR. Also moves a repo off a vendored copy or a SHA-pinned caller, and reconfigures an existing caller. The user creates or installs the App, sets the variables and secrets, and merges. Run from the target repo."
 disable-model-invocation: true
 ---
 
@@ -25,13 +25,11 @@ readlink -f ~/.claude/skills/add-claude-review/SKILL.md
 Walk up two levels from `skills/add-claude-review/` to the toolkit's root. If the link is broken, ask the user for
 the ai-toolkit path.
 
-Pin only the released kit, never work in progress:
+The caller calls the kit's default branch, `main`, so a kit change reaches the repo when it merges. Read the released
+kit, never work in progress:
 
 - Read `tools/claude-review/README.md` and `.github/workflows/claude-review-kit.yml` from the default branch
   (`git show main:<file>` via git MCP), not from the working tree, which may be on a feature branch.
-- Record the default branch's full 40-hex commit SHA as `PIN`. Check that it is on the toolkit's GitHub default branch
-  (github MCP `list_commits`): a local commit that was never pushed can't be called.
-- Record the version from the README's **Version** line as `VERSION`.
 - Record the kit repo's `<owner>/<name>` from its git remote. The kit repo must be one the calling repo's
   `GITHUB_TOKEN` can read (README, Prerequisites).
 
@@ -44,8 +42,8 @@ back.
 - **The repo:** `gh repo view --json nameWithOwner,isPrivate,owner`.
 - **What is installed.** Read `.github/workflows/claude-review.yml` and `.claude/commands/claude-pr-review.md`:
   - neither file: an **install**;
-  - a workflow whose only job has a `uses:` line naming `claude-review-kit.yml`: a **caller**. This run re-pins or
-    reconfigures it, and Step 3 prefills from its `with:` and `secrets:`;
+  - a workflow whose only job has a `uses:` line naming `claude-review-kit.yml`: a **caller**. This run
+    reconfigures it (a SHA in its `uses:` becomes `@main`), and Step 3 prefills from its `with:` and `secrets:`;
   - a full workflow with `preflight`, `appcheck`, `review` and `publish` jobs: a **vendored copy**. This run moves
     the repo to the caller (an upgrade). Note its `runs-on` labels, its credential lines, and any `CHANGES_EVENT`
     or `APPROVE_EVENT` set to `COMMENT`, as the prefill. The command copy goes;
@@ -104,10 +102,10 @@ upgrading.
 
 Restate the plan and wait for the user's go. The plan names:
 
-- the repo, and whether this is an install, a re-pin, a reconfiguration or an upgrade from a vendored copy;
-- `PIN` and `VERSION`, the `runs-on` labels, the key-job variable, the auth mode, the secret name and the App;
+- the repo, and whether this is an install, a reconfiguration or an upgrade from a vendored copy;
+- the `runs-on` labels, the key-job variable, the auth mode, the secret name and the App;
 - the branch, and the workflow file, which needs the user's live go where the repo requires one;
-- on an upgrade, that the review's behaviour changes to the pinned version's (the README's **Version** line, for
+- on an upgrade, that the review's behaviour changes to the kit's current one (the README's **Version** line, for
   example how a fixed issue that comes back is reported);
 - the README prerequisites that apply: GitHub-hosted runners allowed for any job left on them; on a private repo with
   the key jobs hosted, about two billed Actions minutes per review; the recommended CLAUDE.md "Review" section if it
@@ -118,12 +116,12 @@ Restate the plan and wait for the user's go. The plan names:
 1. Branch from the default branch, per the repo's conventions. Follow its lock protocol if one is armed. Use git MCP
    tools with `path` on every call.
 2. Write `.github/workflows/claude-review.yml` in the README's caller shape, with these values:
-   - a header comment: it calls the toolkit's reusable review kit pinned by SHA; it owns the triggers, the
-     permission ceiling and the secrets; secrets are mapped by name and no other is added. Where the key jobs need
+   - a header comment: it calls the toolkit's reusable review kit at `@main`, so a kit change reaches it when it
+     merges; it owns the triggers, the permission ceiling and the secrets; secrets are mapped by name and no other is added. Where the key jobs need
      the variable, say so;
    - the README's triggers, unchanged;
    - `permissions: {}` at the top, and the job's ceiling exactly as the README's;
-   - `uses: <kit owner/name>/.github/workflows/claude-review-kit.yml@<PIN>  # <VERSION>`;
+   - `uses: <kit owner/name>/.github/workflows/claude-review-kit.yml@main`;
    - a `with:` block only for an input that differs from the kit's default: `runs-on` as a JSON string such as
      `'["self-hosted","<label>"]'`, and `changes-event` and `approve-event` whenever Step 3, item 6 holds a value,
      prefilled or chosen;
@@ -137,7 +135,7 @@ Restate the plan and wait for the user's go. The plan names:
 4. Verify:
    - the file has one job and no `steps:`;
    - the top level is `permissions: {}`, and the job's permissions equal the README's ceiling;
-   - `uses:` ends in a 40-hex SHA that is on the kit repo's default branch;
+   - `uses:` ends in `@main`;
    - `grep -n 'secrets\.'` shows `CLAUDE_REVIEW_APP_KEY` and `<NAME>` once each, and nothing else;
    - every value Step 2 prefilled is in the caller, unless the user changed it in Step 3: the `runs-on` labels and
      any `COMMENT` event;
@@ -186,16 +184,16 @@ gh variable set CLAUDE_REVIEW_KEY_RUNS_ON -R <owner/repo> --body '["<label>","<l
 
 1. Commit the caller (and, on an upgrade, the command's deletion) in one commit. Title per the repo's conventions.
    Don't add `[skip ci]`: the PR's own run of its caller is the first test of the install.
-2. The PR description says whether it installs, re-pins, reconfigures or upgrades the review. It names `VERSION` and
-   `PIN`, lists the values from Step 3, and lists the Step 5 setup as the user's steps, each a command they run.
+2. The PR description says whether it installs, reconfigures or upgrades the review. It lists the values from Step 3,
+   and lists the Step 5 setup as the user's steps, each a command they run.
 3. Review it locally first: `code-reviewer` and `security-auditor`, given the README's caller section, its
    Permissions bullet and the written caller.
 4. Open it as a draft and follow `/claude-review-loop`. Mark it ready only once the user has confirmed Step 5 (ask
    them to run `gh variable list` and `gh secret list`, names only, given in a code block) and CI is green.
 5. The first review is the live test. Check:
    - all four kit jobs start on the intended runners;
-   - in `publish`'s log, the step "Check out the kit's scripts" shows the kit repo and `PIN` as its repository and
-     ref;
+   - in `publish`'s log, the step "Check out the kit's scripts" shows the kit repo as its repository and a commit
+     of its `main` as its ref;
    - the review posts as the App, with the one credential mapped (the kit's other credential input is empty, which
      the README lists as unverified).
 
@@ -204,7 +202,7 @@ gh variable set CLAUDE_REVIEW_KEY_RUNS_ON -R <owner/repo> --body '["<label>","<l
 6. **On an install or an upgrade from a vendored copy, the follow-up round can't run yet.** A comment run uses the
    caller on the default branch, which has none (or the old copy) until the merge. Answer the first review's
    findings by fixing or replying, have the fixes reviewed locally, and say so in the handover; a `@claude review`
-   works once the caller is merged. A re-pin or reconfiguration follows `/claude-review-loop` in full.
+   works once the caller is merged. A reconfiguration follows `/claude-review-loop` in full.
 7. (user) Merge.
 
 The README's test protocol, on a throwaway PR with a planted bug, opens a PR, pushes and posts billed `@claude review`
