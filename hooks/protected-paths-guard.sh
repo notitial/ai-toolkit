@@ -50,7 +50,12 @@
 #   judged by its folder, not as the file. At most 80 words are judged in one call, and a text with a substitution and over
 #   150 distinct path-like words is denied: each word costs about 40 ms and a hook past its 10 s timeout lets the call through.
 #   On bash 3.2 a `< <(cmd)` leaks a descriptor, and the hook crashed (exit 133, the call goes through) after about 250 of them:
-#   none are left in the guard or in lib/shell-parse.sh; a here-document does not leak.
+#   none are left in the guard or in lib/shell-parse.sh; a here-document does not leak (and a probe denies when one cannot be
+#   written). A call whose parse takes over 6 s is denied (lib/shell-parse.sh sp_budget); a path over 1024 characters is denied.
+#   Not read, single calls: a recursive copy or extract of a folder that holds a protected place into an ancestor of it
+#   (cp -R /tmp/x/ ~ with /tmp/x/.claude/settings.json made earlier; rsync, tar -xf -C ~, unzip -d ~), brace expansion
+#   (~/.claude{,}/settings.json), a leading $VAR other than $HOME ($PWD/hooks/x, ${HOME%/}/..), ~+, a bundled option with its
+#   value attached (curl -so/path, tar -xC/path).
 #
 # Reads JSON from stdin. Returns a JSON deny decision or nothing; exit 0 always (but `exit 1` when a lib file is
 # missing: the `|| exit 2` wiring blocks the call). No `set -e`: it would break the exit-0-always contract. Runs on bash 3.2.
@@ -270,17 +275,26 @@ ANC=0
 # Each word judged costs about 40 ms (several forks) and the hook has a 10 s timeout, past which the call goes through unchecked
 # (bash 3.2 also crashed, with the same result, after about 250 executions of `< <(...)`). So the work is bounded here, for every
 # caller: the 81st distinct word judged in one call is denied, never cut short. The same word in the same folder is judged once
-# (mv and cp judge their operands twice, sub_guard and the parse judge the same words), and /dev/ targets cost nothing.
+# (mv and cp judge their operands twice, sub_guard and the parse judge the same words), and /dev/ targets cost nothing. The
+# words seen are kept in arrays and compared whole: a string of them would let one word that holds the separator hide another.
+# A path over 1024 characters is denied (a ${p//..} on a long one is quadratic), and the clock budget of lib/shell-parse.sh applies.
 JUDGED=0
-JSEEN="|"
+JC=()
+JA=()
+JP=()
 judge_target() {
-  local p="$1" verb="$2" c
+  local p="$1" verb="$2" c k
   [ -n "$p" ] || return 0
   case "$p" in /dev/*) return 0 ;; esac
-  case "$JSEEN" in *"|$CWD|1|$p|"*) return 0 ;; esac  # a judgement with the ancestor check (ANC=1) covers one without
-  [ "$ANC" = 1 ] || case "$JSEEN" in *"|$CWD|0|$p|"*) return 0 ;; esac
-  JSEEN="$JSEEN$CWD|$ANC|$p|"
+  for ((k = 0; k < JUDGED; k++)); do  # a judgement with the ancestor check (ANC=1) covers one without
+    if [ "${JP[k]}" = "$p" ] && [ "${JC[k]}" = "$CWD" ] && { [ "${JA[k]}" = 1 ] || [ "$ANC" != 1 ]; }; then return 0; fi
+  done
+  JC[JUDGED]=$CWD
+  JA[JUDGED]=$ANC
+  JP[JUDGED]=$p
   JUDGED=$((JUDGED + 1))
+  sp_budget
+  [ "${#p}" -le 1024 ] || deny "a path of more than 1024 characters cannot be read within the hook's time limit - blocked (fail-closed)."
   [ "$JUDGED" -le 80 ] || deny "this call names more than 80 distinct paths to judge, which cannot be done within the hook's time limit (a call past it would go through unchecked). Split it into several calls."
   case "$p" in
     /dev/*) return 0 ;;
@@ -792,6 +806,7 @@ EOF
 # ---- dispatch ---------------------------------------------------------------------------------------------------
 
 find_session_root
+sp_probe
 
 case "$TOOL" in
   Edit | Write | MultiEdit) judge_target "$(ti .file_path)" "$TOOL" ;;

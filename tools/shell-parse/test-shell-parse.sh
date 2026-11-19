@@ -25,6 +25,7 @@ on_command() { local o="C[\$CWD]" w; for w in "\$@"; do o="\$o <\$w>"; done; ech
 on_redirect() { echo "R[\$CWD] <\$1>"; }
 CWD=/s
 [ -z "\${PARSE_SET_U:-}" ] || set -u
+[ -z "\${PARSE_STALE:-}" ] || SP_T0=\$((SECONDS - 10))
 shell_parse "\$1"
 RUN
 
@@ -220,6 +221,12 @@ g
 LOOP
 out=$("$SH" "$T/loop.sh" 2>&1)
 check "400 parses in one function do not crash bash 3.2 (got: $(printf '%s' "$out" | head -c 40))" "$([ "$out" = "done 400" ] && echo 1 || echo 0)"
+
+# the clock budget: a parse that has run for 6 s is denied (a hook past its 10 s timeout lets the call through)
+got=$(PARSE_STALE=1 "$SH" "$T/run.sh" 'echo a' 2>&1)
+case "$got" in *'takes too long'*) check "a parse past the clock budget is denied" 1 ;; *) check "a parse past the clock budget is denied (got: $got)" 0 ;; esac
+got=$("$SH" "$T/run.sh" 'echo a' 2>&1)
+check "a fresh parse is not" "$([ "$got" = 'C[/s] <echo> <a>' ] && echo 1 || echo 0)"
 
 # refusals
 for c in $'a\001b' $'a\033b' $'a\177b'; do

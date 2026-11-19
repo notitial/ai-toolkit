@@ -254,7 +254,24 @@ function ansic(   t, d, v, k, m, ch, cut) {
 }'
 }
 
+# sp_budget: the hook has a 10 s timeout, past which the call goes through unchecked, and the parse forks per segment (a cd, an
+# eval, a word with a capital). So the work is bounded by the clock: past 6 s the call is denied, never cut short. SECONDS is a
+# builtin (no fork); it counts whole seconds, so the deny comes between 5 and 6 s after the lib is sourced.
+SP_T0=$SECONDS
+sp_budget() {
+  [ $((SECONDS - SP_T0)) -lt 6 ] || deny "reading this command takes too long for the hook's time limit (a call past it would go through unchecked) - blocked (fail-closed). Split it into several calls."
+}
+# sp_probe: bash 3.2 writes a here-document to a temp file; when that fails the loop that reads it never runs and nothing is seen.
+sp_probe() {
+  local p=""
+  IFS= read -r p <<PROBE
+ok
+PROBE
+  [ "$p" = ok ] || deny "a here-document cannot be written (temp folder full or read-only), so the command cannot be read - blocked (fail-closed)."
+}
+
 set_cwd() {
+  sp_budget
   while :; do
     case "${1:-}" in
       -P | -L | -e | -@ | --) shift ;;
@@ -288,6 +305,7 @@ sp_lc() {
 # sp_command <command words...>: one simple command, from its first word (a wrapper, an assignment or the verb). A shell
 # with no -c string reads its script from SP_STDIN, the heredoc or here-string shell_parse found for this command.
 sp_command() {
+  sp_budget
   local verb vl a w wb wv sv script takenext stdin=${SP_STDIN:-}
   # Skip assignments, wrappers and shell keywords in front of the command.
   while [ "$#" -gt 0 ]; do
@@ -478,6 +496,7 @@ sp_xargs() {
 # the string runs in the current shell, as eval's does: the caller passes `keep`).
 NEST=0
 read_nested() {
+  sp_budget
   local saved=$CWD
   [ "$NEST" -lt 3 ] || return 0
   case "$1" in '$(...)' | '$(..)') return 0 ;; esac  # a substitution is the whole string: there is nothing to read
@@ -501,6 +520,7 @@ shell_parse() {
   local SEG=() STK=() STR=() STI=()
   if [ "$NEST" -eq 0 ]; then
     declare -F on_command on_redirect >/dev/null 2>&1 || deny "the hook defines no on_command or on_redirect - blocked (fail-closed)."
+    sp_probe
     tok=$(printf '%s' "$cmd" | LC_ALL=C tr -d '\011\012\040-\176\200-\377')
     [ -z "$tok" ] || deny "the command holds control characters the hook cannot read safely - blocked (fail-closed)."
   fi

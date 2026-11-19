@@ -163,6 +163,9 @@ bash_ $p "chmod 600 \$(x) $(printf ' /tmp/a%s' $(seq 1 45))" "$CLONE"
 bash_ $p "chmod 600 $(printf ' /tmp/a%s' $(seq 1 80))" "$CLONE"
 bash_ $d "chmod 600 $(printf ' /tmp/a%s' $(seq 1 81))" "$CLONE"
 bash_ $p "echo hi $(printf ' 2>/dev/null%.0s' $(seq 1 90))" "$CLONE"
+# a word that holds the separator of a string of seen words must not hide a later target (the seen words are compared whole)
+bash_ $d "touch '/tmp/x|$LIVE|0|hooks/g.sh'; cd $LIVE; touch hooks/g.sh" "$CLONE"
+bash_ $d "touch /tmp/$(printf 'a/%.0s' $(seq 1 600))x" "$CLONE"
 bash_ $p "echo \$(x) $(printf ' 2>&1%.0s' $(seq 1 900))" "$CLONE"
 # mkfifo and mknod are write verbs for a text with a substitution too
 bash_ $d "mkfifo \$(mktemp -u)" "$LIVE"
