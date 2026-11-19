@@ -131,6 +131,8 @@ expect "a group the text leaves open gives back the words parked in front of it"
 # a heredoc piped to a shell on the same line reaches that shell
 expect "heredoc piped to a shell" $'cat <<EOF | bash\nrm /x\nEOF' 'C[/s] <cat>' 'C[/s] <rm> </x>' 'C[/s] <bash>'
 expect "heredoc piped to a non-shell is skipped" $'cat <<EOF | wc\nrm /x\nEOF' 'C[/s] <cat>' 'C[/s] <wc>'
+SP_ALL_HEREDOCS=1 expect "opt-in: every heredoc body is a script" $'ssh h <<EOF\nrm /x\nEOF' 'C[/s] <ssh> <h>' 'C[/s] <rm> </x>'
+expect "without the opt-in a body for a non-shell is skipped" $'ssh h <<EOF\nrm /x\nEOF' 'C[/s] <ssh> <h>'
 # where a group ends is a guess: whatever it says, the words inside reach on_command on their own
 expect "case in backticks" 'echo `case x in x) rm /p;; esac`' 'C[/s] <case> <x> <in> <x>' 'C[/s] <echo> <rm> </p>' 'C[/s] <rm> </p>' 'C[/s] <esac>' 'C[/s] <$(..)>'
 expect "a stray esac word" 'echo $(case x in y) echo esac;; x) rm /p;; esac)' 'C[/s] <case> <x> <in> <y>' 'C[/s] <echo> <$(..)> <echo> <esac>' 'C[/s] <echo> <esac>' 'C[/s] <x>' 'C[/s] <rm> </p>' 'C[/s] <esac>'
@@ -138,6 +140,16 @@ expect "a quoted case" 'echo $("case" x in x) rm /p;; esac)' 'C[/s] <case> <x> <
 expect "case behind time" 'echo $(time case x in x) rm /p;; esac)' 'C[/s] <case> <x> <in> <x>' 'C[/s] <echo> <$(..)> <rm> </p>' 'C[/s] <rm> </p>' 'C[/s] <esac>'
 # nested strings
 expect "bash -c" 'bash -c "cd /n; a > f"; b' 'R[/n] <f>' 'C[/n] <a>' 'C[/s] <bash> <-c> <cd /n; a > f>' 'C[/s] <b>'
+# wrapper edges
+expect "time --" 'time -- rm /x' 'C[/s] <rm> </x>'
+expect "sudo -T" 'sudo -T 5 rm /x' 'C[/s] <rm> </x>'
+expect "eval --" 'eval -- "rm /x"' 'C[/s] <rm> </x>' 'C[/s] <eval> <--> <rm /x>'
+# options between -c and its string are not the string
+expect "bash -c --" 'bash -c -- "rm /x"' 'C[/s] <rm> </x>' 'C[/s] <bash> <-c> <--> <rm /x>'
+expect "bash -c -x" 'bash -c -x "rm /x"' 'C[/s] <rm> </x>' 'C[/s] <bash> <-c> <-x> <rm /x>'
+expect "sh -c -e" 'sh -c -e "rm /x"' 'C[/s] <rm> </x>' 'C[/s] <sh> <-c> <-e> <rm /x>'
+expect "bash -c -o pipefail" 'bash -c -o pipefail "rm /x"' 'C[/s] <rm> </x>' 'C[/s] <bash> <-c> <-o> <pipefail> <rm /x>'
+expect "bash -O extglob -c" 'bash -O extglob -c "rm /x"' 'C[/s] <rm> </x>' 'C[/s] <bash> <-O> <extglob> <-c> <rm /x>'
 expect "sh -ec and bash -lc" "sh -ec \"a\"; bash -lc 'b'" 'C[/s] <a>' 'C[/s] <sh> <-ec> <a>' 'C[/s] <b>' 'C[/s] <bash> <-lc> <b>'
 expect "eval" 'eval "x; y > z" w' 'C[/s] <x>' 'R[/s] <z>' 'C[/s] <y> <w>' 'C[/s] <eval> <x; y > z> <w>'
 expect "three levels are read, the fourth is not" 'bash -c "bash -c \"bash -c \\\"bash -c a\\\"\""' \

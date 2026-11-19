@@ -8,7 +8,8 @@
 # An exact example file name (.env.example, .env.sample, .env.template, .env.dist) may be read, searched and written.
 #
 # Reads JSON from stdin and prints a deny decision, or nothing to allow. Exit 0 always (`exit 1` if lib/hook-common.sh is
-# missing, as is lib/shell-parse.sh, which the `|| exit 2` wiring blocks).
+# missing, as is lib/shell-parse.sh, which the `|| exit 2` wiring blocks). For a command that names grep or rg, a control byte in
+# the text is denied, and every heredoc body is read as a script.
 
 set -uo pipefail
 
@@ -126,9 +127,29 @@ env_clean() {
 # skipped, `sh -c` strings and $( ) read too). A recursive grep, or an rg that also reads hidden or ignored files, may read
 # a .env below whatever path it is given, so it needs an exclude: --exclude='*.env*' (grep), -g '!*.env*' (rg).
 # `.env*` is not enough: it misses <name>.env files such as prod.env, which ENVTOK treats as secret too.
+# A grep behind xargs or find -exec is read as a command of its own, and a shell further along (docker exec c sh -c 'grep -r x .')
+# runs its string; a grep directly behind ssh, docker exec, kubectl exec or busybox is not read (the Grep tool is the way).
 on_command() {
   local kind="" a prev="" rec=0 ex=0
-  case "${1##*/}" in grep | egrep | fgrep) kind=grep ;; rg) kind=rg ;; *) return 0 ;; esac
+  case "${1##*/}" in
+    grep | egrep | fgrep) kind=grep ;;
+    rg) kind=rg ;;
+    xargs) shift; sp_xargs "$@"; return 0 ;;
+    find)
+      shift
+      while [ "$#" -gt 0 ]; do
+        case "$1" in -exec | -execdir | -ok | -okdir) sp_command "${@:2}" ;; esac
+        shift
+      done
+      return 0 ;;
+    *)
+      shift
+      while [ "$#" -gt 0 ]; do
+        case "${1##*/}" in sh | bash | zsh | dash | ksh | su) sp_command "$@"; break ;; esac
+        shift
+      done
+      return 0 ;;
+  esac
   shift
   for a in "$@"; do
     case "$a" in *[[:space:]]*) prev=$a; continue ;; esac  # a quoted pattern, not an option
@@ -235,6 +256,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
   fi
   if match_in -qE '(^|[^[:alnum:]_.-])(grep|egrep|fgrep|rg)[[:space:]]' "$CONTENT"; then
     CWD=""
+    SP_ALL_HEREDOCS=1  # as in destructive-blocker: any heredoc body may be a script
     shell_parse "$CONTENT"
   fi
 fi

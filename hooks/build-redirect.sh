@@ -17,7 +17,8 @@
 # `eval` string or a $( ). The tool inside a string or an argument is left alone, also when the string holds | ; & ( )
 # or braces, spans several lines, sits in a heredoc body or in a # comment.
 # This is an advisory redirect: without jq, or on input that is not a JSON object, it lets the call through.
-# Exit 0 always, also when lib/hook-common.sh is missing.
+# Exit 0 always, also when lib/hook-common.sh or lib/shell-parse.sh is missing or cut short, and when the parser refuses the
+# text (a control byte): this hook never denies on a parse failure.
 #
 # Known gaps, kept on purpose so the hook stays simple. These shapes pass:
 #   - a variable as the task or an argument (./gradlew $TASK), Gradle's camel-case task abbreviations (./gradlew aD),
@@ -110,7 +111,7 @@ on_redirect() { :; }
 # else: this hook stays advisory, so what it cannot read passes.
 case "$COMMAND" in *xcodebuild* | *gradlew* | *swiftlint*) ;; *) exit 0 ;; esac
 CWD=""
-HITS=$(set +e; deny() { exit 0; }; shell_parse "$COMMAND")
+HITS=$(set +e; deny() { exit 0; }; shell_parse "$COMMAND") || true
 HIT=$(printf '%s\n' "$HITS" | grep -m1 -E '^(xcodebuild|gradlew|swiftlint|unclassifiable) ' || true)
 [ -n "$HIT" ] || exit 0
 set -- $HIT

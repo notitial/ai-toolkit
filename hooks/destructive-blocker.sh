@@ -11,7 +11,8 @@
 #
 # This catches the commands an agent types by mistake, not a command built to slip past it. Decisions are
 # recorded through the sibling audit-logger.sh when it is present. Reads JSON from stdin; exit 0 always (`exit 1` if
-# lib/hook-common.sh or lib/shell-parse.sh is missing or cut short, which the `|| exit 2` wiring blocks).
+# lib/hook-common.sh or lib/shell-parse.sh is missing or cut short, which the `|| exit 2` wiring blocks). A control byte in
+# the command text is denied (the parser cannot read it). Every heredoc body is read as a script (`ssh host <<EOF` and the like).
 
 HOOK=destructive-blocker
 S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
@@ -111,13 +112,13 @@ on_command() {
       done ;;
     *)  # a shell further along (docker exec c sh -c 'rm -rf x') runs its string too
       while [ "$#" -gt 0 ]; do
-        sp_lc "${1##*/}"
-        case "$SP_LC" in sh | bash | zsh | dash | ksh | su) sp_command "$@"; break ;; esac
+        case "${1##*/}" in [Ss][Hh] | [Bb][Aa][Ss][Hh] | [Zz][Ss][Hh] | [Dd][Aa][Ss][Hh] | [Kk][Ss][Hh] | [Ss][Uu]) sp_command "$@"; break ;; esac
         shift
       done ;;
   esac
 }
 on_redirect() { :; }
+SP_ALL_HEREDOCS=1  # a heredoc body may reach a shell the parser cannot see (ssh host <<EOF, sudo -s, source /dev/stdin)
 shell_parse "$COMMAND"
 # A python one-liner or heredoc that deletes files is rm by another name.
 if matches 'python[0-9.]*([[:space:]]+-[A-Za-z]*)*[[:space:]]+(-[A-Za-z]*c|<<)' "$COMMAND" &&

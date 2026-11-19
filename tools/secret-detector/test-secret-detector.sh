@@ -338,6 +338,16 @@ check deny "rg -uu negated .env* only"     "rg -uu KEY . -g '!.env*'"
 check pass "plain rg (skips hidden)"        "rg KEY ."
 check pass "plain grep"                     "grep -n KEY src/app.ts"
 check pass "chained grep -r with exclude"   "cd x && grep -r --exclude='*.env*' KEY src"
+check deny "grep -r behind xargs"            "echo src | xargs grep -r KEY"
+check deny "grep -r behind xargs -n1"        "echo src | xargs -n 1 grep -r KEY"
+check deny "grep -r behind find -exec"       "find . -name x -exec grep -r KEY {} +"
+check deny "grep -r in a docker exec sh -c"  "docker exec c sh -c 'grep -r KEY .'"
+check pass "xargs grep -r with exclude"      "echo src | xargs grep -r --exclude='*.env*' KEY"
+check pass "find -exec grep, not recursive"  "find . -exec grep KEY {} +"
+check pass "git grep -r (tracked files only)" "git grep -r KEY"
+check deny "grep -r in a heredoc to ssh"     $'ssh host <<EOF\ngrep -r KEY .\nEOF'
+check deny "grep -r in a heredoc, <<EOF bash" $'<<EOF bash\ngrep -r KEY .\nEOF'
+check pass "grep -r with exclude in a heredoc" $'ssh host <<EOF\ngrep -r --exclude=\'*.env*\' KEY .\nEOF'
 check pass "find piped to xargs -r grep"    "find . -name '*.py' | xargs -r grep -n 'KEY'"
 check pass "grep --directories=recurse"     "grep --directories=recurse KEY ."
 check pass "ag -u"                          "ag -u KEY ."
