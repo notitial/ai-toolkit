@@ -77,13 +77,14 @@ function flush(   b) {
   if (inw) {
     gsub(/\n/, ";", w); print "W" w
     b = tolower(w); sub(/.*\//, "", b)
-    if (b ~ /^(sh|bash|zsh|dash|ksh|su)$/) segsh = 1
+    if (b ~ /^(sh|bash|zsh|dash|ksh|su)$/) { segsh = 1; if (hdn > 0) hdbody() }  # `cat <<EOF | bash`: the body reaches the shell
     if (atstart && w == "case") cs[sp]++      # a case pattern ends with a ) that closes nothing
     else if (w == "esac" && cs[sp] > 0) cs[sp]--
     if (w !~ /^(then|do|else|elif|if|while|until|\{|!)$/) atstart = 0
   }
   w = ""; inw = 0; wq = 0
 }
+function hdbody(   k) { print "Y"; for (k = 1; k <= hdn; k++) print "Z" hl[k] }
 function hdscan(p, emit,   e, line, l2) {
   while (p <= n) {
     e = index(substr(s, p), "\n")
@@ -91,7 +92,7 @@ function hdscan(p, emit,   e, line, l2) {
     l2 = line
     if (hdash) sub(/^\t+/, "", l2)
     if (l2 == hd) break
-    if (emit) print "Z" line
+    if (emit) hl[++hdn] = line
   }
   hdend = p
 }
@@ -163,7 +164,7 @@ function ansic(   t, d, v, k, m, ch, cut) {
       i++; continue
     }
     if (c == " " || c == "\t") { flush(); i++; continue }
-    if (c == "\n") { flush(); sep(); i++; if (hd != "") { hdscan(i); i = hdend; hd = "" }; continue }
+    if (c == "\n") { flush(); sep(); i++; if (hd != "") { hdscan(i); i = hdend; hd = ""; hdn = 0 }; continue }
     if (c == "#" && !inw) {
       j = index(substr(s, i), "\n")
       if (j == 0) i = n + 1; else i += j - 1
@@ -216,7 +217,8 @@ function ansic(   t, d, v, k, m, ch, cut) {
           dl = dl d; i++
         }
         hd = dl
-        if (hd != "" && segsh && (j = index(substr(s, i), "\n")) > 0) { print "Y"; hdscan(i + j, 1) }
+        hdn = 0
+        if (hd != "" && (j = index(substr(s, i), "\n")) > 0) { hdscan(i + j, 1); if (segsh) hdbody() }
         continue
       }
       if (nx == "(") { subopen("S", 1); i += 2; continue }

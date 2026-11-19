@@ -128,6 +128,9 @@ expect "a substitution that is the whole -c string is not read again" 'bash -c "
 PARSE_SET_U=1 expect "groups under set -u" '(a; b) c; echo "$(mk)" x; cp $(mk) y' 'C[/s] <a>' 'C[/s] <b>' 'C[/s] <c>' 'C[/s] <mk>' 'C[/s] <echo> <$(...)> <x>' 'C[/s] <mk>' 'C[/s] <cp> <$(..)> <y>'
 expect "a group the text leaves open gives back the words parked in front of it" 'cp x $(mk' 'C[/s] <mk>' 'C[/s] <cp> <x>'
 
+# a heredoc piped to a shell on the same line reaches that shell
+expect "heredoc piped to a shell" $'cat <<EOF | bash\nrm /x\nEOF' 'C[/s] <cat>' 'C[/s] <rm> </x>' 'C[/s] <bash>'
+expect "heredoc piped to a non-shell is skipped" $'cat <<EOF | wc\nrm /x\nEOF' 'C[/s] <cat>' 'C[/s] <wc>'
 # nested strings
 expect "bash -c" 'bash -c "cd /n; a > f"; b' 'R[/n] <f>' 'C[/n] <a>' 'C[/s] <bash> <-c> <cd /n; a > f>' 'C[/s] <b>'
 expect "sh -ec and bash -lc" "sh -ec \"a\"; bash -lc 'b'" 'C[/s] <a>' 'C[/s] <sh> <-ec> <a>' 'C[/s] <b>' 'C[/s] <bash> <-lc> <b>'
