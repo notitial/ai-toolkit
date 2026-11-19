@@ -842,5 +842,133 @@ class FixedIssueIsBack(PublishCase):
         self.assertEqual(self.gh.review_comments, [])
 
 
+MARK = "<!-- claude-review:suggestion -->"
+
+
+def suggestion(body="Fold the special case into the general path; saves 4 lines.", **kw):
+    return finding(body=body, **kw)
+
+
+class Suggestions(PublishCase):
+    """The `suggestions` list: non-blocking inline comments that never change the verdict and are never followed up."""
+
+    def posted(self):
+        return [c["body"] for c in self.gh.review_comments]
+
+    def test_only_suggestions_approve_and_ride_on_the_approval(self):
+        self.assertEqual(self.run_publish(result(suggestions=[suggestion()])), 0, self.log)
+        [review] = self.new_reviews()
+        self.assertEqual(review["event"], "APPROVE")
+        [body] = self.posted()
+        self.assertEqual(body, MARK + "\n**Suggestion (non-blocking):**\n\nFold the special case into the general path; saves 4 lines.")
+        overview = self.overview()
+        self.assertIn("result=clean", overview)
+        self.assertIn("**Result:** No issues found. 1 suggestion (non-blocking).", overview)
+        self.assertIn("**Threads:** 0 resolved · 0 still open", overview)   # a suggestion thread is not counted
+        self.assertIn("1 suggested", self.log)
+
+    def test_findings_decide_the_verdict_and_suggestions_come_along(self):
+        res = result(no_issues=False, findings=[finding(line=3)], suggestions=[suggestion(), suggestion(line=3, body="Other.")])
+        self.run_publish(res)
+        [review] = self.new_reviews()
+        self.assertEqual(review["event"], "REQUEST_CHANGES")
+        self.assertEqual(len(self.gh.review_comments), 3)
+        self.assertEqual(sum(b.startswith(MARK) for b in self.posted()), 2)
+        self.assertIn("1 finding in the [review](", self.overview())
+        self.assertIn("2 suggestions (non-blocking).", self.overview())
+
+    def test_an_open_thread_still_blocks_and_a_suggestion_thread_does_not(self):
+        self.gh.add_thread(bot(APP), MARK + "\n**Suggestion (non-blocking):**\n\nOld one.")
+        self.run_publish(result())
+        self.assertEqual([r["event"] for r in self.new_reviews()], ["APPROVE"])
+        self.setUp()
+        self.open_app_thread()
+        self.run_publish(result(suggestions=[suggestion()]))
+        self.assertEqual([r["event"] for r in self.new_reviews()], ["REQUEST_CHANGES"])
+        self.assertEqual(len(self.gh.review_comments), 1)
+
+    def test_a_suggestion_that_cannot_go_inline_is_dropped_not_put_in_the_body(self):
+        res = result(suggestions=[suggestion(line=40), suggestion(path="elsewhere.py")])
+        self.run_publish(res)
+        [review] = self.new_reviews()
+        self.assertEqual(review["event"], "APPROVE")
+        self.assertEqual(self.gh.review_comments, [])
+        self.assertNotIn("Not on a changed line", review["body"])
+        self.assertIn("2 dropped", self.log)
+        self.assertNotIn("suggestion", self.overview().split("**Threads:**")[0].split("**Result:**")[1])
+
+    def test_the_schema_holds_the_cap_and_the_shape(self):
+        for bad in ([suggestion()] * 4, [{"path": "src/a.py", "line": 2, "side": "RIGHT", "body": "b"}],
+                    [dict(suggestion(), severity="high")], {"path": "x"}, [suggestion(side="MIDDLE")]):
+            with self.subTest(bad=bad):
+                self.setUp()
+                self.run_publish(result(suggestions=bad))
+                self.assertIn("No verdict: Claude's result is the wrong shape", self.log)
+                self.assertEqual(self.gh.app_reviews(), [])
+
+    def test_a_suggestion_is_posted_even_where_the_verdict_is_already_in_place(self):
+        self.gh.add_review("APPROVED", commit_id=HEAD)
+        self.run_publish(result(suggestions=[suggestion()]))
+        self.assertEqual([r["event"] for r in self.new_reviews(1)], ["APPROVE"])
+        self.setUp()
+        self.open_app_thread()
+        self.gh.add_review("CHANGES_REQUESTED", commit_id=OLD)
+        self.run_publish(result(suggestions=[suggestion()]))
+        self.assertEqual([r["event"] for r in self.new_reviews(1)], ["REQUEST_CHANGES"])
+
+    def test_a_refused_review_gives_up_the_suggestions_before_it_moves_a_finding(self):
+        self.gh.fail("submit review", 422, "Validation Failed")
+        self.run_publish(result(no_issues=False, findings=[finding(body="Real bug.")], suggestions=[suggestion(line=3)]))
+        [review] = self.new_reviews()
+        self.assertEqual(review["event"], "REQUEST_CHANGES")
+        [comment] = self.gh.review_comments   # the finding keeps its line; no suggestion rode along
+        self.assertEqual(comment["body"], "Real bug.")
+        self.assertNotIn("suggestion", self.overview().split("**Threads:**")[0].split("**Result:**")[1])
+
+    def test_a_review_refused_twice_moves_the_findings_to_the_body_and_never_a_suggestion(self):
+        self.gh.fail("submit review", 422, "Validation Failed")
+        self.gh.fail("submit review", 422, "Validation Failed")
+        self.run_publish(result(no_issues=False, findings=[finding(body="Real bug.")], suggestions=[suggestion(line=3)]))
+        [review] = self.new_reviews()
+        self.assertEqual(self.gh.review_comments, [])
+        self.assertIn("Real bug.", review["body"])
+        self.assertNotIn("Fold the special case", review["body"])
+
+    def test_a_marker_in_claudes_text_is_stripped_and_a_suggestion_block_survives(self):
+        forged = "Real.\n" + MARK + " <!-- claude-review:suggestion -->"
+        block = "Use this:\n```suggestion\nnew2 = 1\n```"
+        self.run_publish(result(no_issues=False, findings=[finding(body=forged)], suggestions=[suggestion(line=3, body=block)]))
+        by_line = {c["line"]: c["body"] for c in self.gh.review_comments}
+        self.assertFalse(by_line[2].startswith(MARK))
+        self.assertNotIn("claude-review:", by_line[2])
+        self.assertTrue(by_line[3].startswith(MARK))
+        self.assertIn("```suggestion\nnew2 = 1\n```", by_line[3])
+        self.assertIn("1 still open", self.overview())   # the finding's thread is counted: it carries no marker
+
+    def test_no_verdict_posts_no_suggestions(self):
+        self.run_publish(result(no_issues=False, suggestions=[suggestion()]))   # incomplete: nothing found, not clean
+        self.assertEqual(self.gh.review_comments, [])
+        self.setUp()
+        self.run_publish(result(no_issues=False, stopped=True, suggestions=[suggestion()]))
+        self.assertEqual(self.gh.review_comments, [])
+        self.setUp()
+        self.run_publish(result(no_issues=False, suggestions=[suggestion()]), MODE="followup")
+        self.assertEqual(self.gh.review_comments, [])
+        self.setUp()
+        self.run_publish(result(no_issues=False, suggestions=[suggestion()]), REVIEW_RESULT="failure")
+        self.assertEqual(self.gh.review_comments, [])
+
+    def test_a_verdict_for_a_suggestion_thread_is_not_followed(self):   # collect keeps it out of `open`: test_collect.py
+        self.run_publish(result(suggestions=[suggestion()]))
+        [tid] = [t for t in self.gh.threads]
+        collected = save_threads({"head_sha": HEAD, "open": []})   # collect.py keeps suggestion threads out of `open`
+        res = result(threads=[{"thread_id": tid, "verdict": "resolved", "reply": "Applied."}])
+        self.run_publish(res, collected, MODE="rereview", GITHUB_EVENT_NAME="issue_comment", EVENT_ACTION="created",
+                         GITHUB_RUN_ID="124")
+        self.assertIn("skipped, not a collected open thread: 1", self.log)
+        self.assertFalse(self.gh.threads[tid]["isResolved"])
+        self.assertEqual(len(self.gh.threads[tid]["comments"]), 1)   # no reply
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -7,15 +7,15 @@
 # FAIL-CLOSED: without jq, on input that is not a JSON object, or without lib/hook-common.sh or lib/shell-parse.sh (or with
 # either empty or cut short) it denies or exits 1, which the `|| exit 2` wiring turns into a block. Runs on bash 3.2.
 #
-# THE NET: every `git` word in the raw text must have been read as a git command, else deny (see the end of this file).
-# So a shape the parser misreads or a wrapper it does not know is denied when git is named; the price is a deny for git
-# named as plain text (grep git, which git, ls ~/git, a heredoc or message that says git). Residual: a git word the raw
-# text does not show whole (g''it, a variable) behind a shape the parser misses passes.
+# THE NET: every `git` word, in the raw text and among the words of the commands the parser read, must have been read as
+# a git command, else deny (see the end of this file). So a shape the parser misreads or a wrapper it does not know is
+# denied when git is named; the price is a deny for git named as plain text (grep git, which git, ls ~/git, a heredoc or
+# message that says git). Residual: a git word the raw text does not show whole (g''it, $'g\x69t', a variable) behind
+# a shape the parser misses passes. The word count stops such a word from padding the command count and hiding another.
 #
 # Known gaps (a guard against mistakes, not a sandbox; the net narrows these to shapes that do not name git as a word): a git name built at run time ($g push, an alias), a script or
-# interpreter that runs git (python -c, make), a shell that reads its script from stdin (bash <<EOF), a wrapper the
-# parser does not know (xcrun, arch, watch, ...), a shell function body, ssh, `env -S 'git ...'`, a string nested more
-# than 3 bash -c deep, a git binary called by its dashed name (git-push), and config that runs a program set through
+# interpreter that runs git (python -c, make), a shell fed by a pipe (echo git push | sh), a wrapper the parser does
+# not know (chronic, ...), ssh, a string nested more than 3 bash -c deep, a git binary called by its dashed name (git-push), and config that runs a program set through
 # the environment or a config file (GIT_CONFIG_*) in front of help, cat-file or describe.
 # A command that holds a substitution where the subcommand should be (git -C "$(pwd)" push) has no readable subcommand
 # and is denied; so is git -c, which can set a config that runs a program.
@@ -56,13 +56,16 @@ unclassifiable() {
   deny "unclassifiable Bash git command" "This Bash git command cannot be safely classified (no readable subcommand: a command substitution, or a global option before the subcommand that this hook does not know). Use the MCP git tools (mcp__git-mcp__git_*) with an explicit path parameter instead."
 }
 
+# gitword <word>: the word is git, in any case (see the net at the end).
+gitword() { case "$1" in [gG][iI][tT] | */[gG][iI][tT] | [-+=][gG][iI][tT]) return 0 ;; esac; return 1; }
+
 # A git command: the global options before the subcommand are skipped, then the subcommand is judged. xargs hands the
 # words behind it back to the parser as a command of their own.
 on_command() {
-  local verb
+  local verb w
   verb=$(printf '%s' "${1##*/}" | tr '[:upper:]' '[:lower:]')  # a case-insensitive file system runs GIT and XARGS too
   case "$verb" in
-    git) GITS=$((GITS + 1)) ;;
+    git) ;;
     xargs) shift; sp_xargs "$@"; return 0 ;;
     find)  # the words after each -exec/-execdir/-ok/-okdir are a command of their own
       shift
@@ -76,8 +79,12 @@ on_command() {
         shift
       done
       return 0 ;;
-    *) return 0 ;;
+    *) ;;
   esac
+  # xargs and find hand their words on, and eval's and watch's are read as a string, so their own are not counted again
+  case "${1##*/}" in eval | watch) ;; *) for w in "$@"; do gitword "$w" && WORDS=$((WORDS + 1)); done ;; esac
+  [ "$verb" = git ] || return 0
+  GITS=$((GITS + 1))
   shift
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -101,14 +108,17 @@ on_redirect() { :; }
 
 CWD=""
 GITS=0
+WORDS=0
 shell_parse "$COMMAND"
 
-# The net: the parser can lose its place (an escaped quote in $'...', << inside $(( )), a heredoc fed to a shell) or not
-# know a wrapper (SUDO, nohup -f, su --command), and then it reports no git command. So every `git` word in the raw
+# The net: the parser can lose its place (<< inside a standalone (( )), a shell fed by a pipe) or not know a wrapper
+# (chronic, a script of your own), and then it reports no git command. So every `git` word in the raw
 # text (a whole token `git`, or a path ending in /git; .git, git-notes and gitk are not one) must have been read as a
-# git command. More words than commands means one was not: deny. It also denies a git word that is only text (grep git,
-# which git, ls ~/git, echo "run git push", a heredoc naming git); the reason says what to use instead.
-SHOWN=$(printf '%s' "$COMMAND" | LC_ALL=C tr -cs '[:alnum:]_./+-' '\n' | grep -ciE '(^|/|^[-+])git$')
+# git command. More words than commands means one was not: deny. The words of the commands the parser read are counted
+# too (WORDS, with the quotes removed): a split word such as g''it counts as a command, and without this count it would
+# pad the total and hide a git the parser missed. It also denies a git word that is only text (grep git, which git,
+# ls ~/git, echo "run git push", a heredoc naming git); the reason says what to use instead.
+SHOWN=$(printf '%s' "$COMMAND" | LC_ALL=C tr -d "'\"\\\\" | LC_ALL=C tr -cs '[:alnum:]_./+-' '\n' | grep -ciE '(^|/|^[-+])git$')
 # Inverted so that a count that cannot be read (no grep) denies instead of passing.
-[ "$SHOWN" -le "$GITS" ] 2>/dev/null || deny "a git word the parser did not read as a git command" "This command names git ($SHOWN times) but only $GITS of them were read as a git command, so it cannot be checked. Use the MCP git tools (mcp__git-mcp__git_*) for git (git --version passes); for a search use the Grep or Read tools; do not name git in other commands, heredocs or messages."
+[ "$SHOWN" -le "$GITS" ] 2>/dev/null && [ "$WORDS" -le "$GITS" ] || deny "a git word the parser did not read as a git command" "This command names git ($SHOWN times in the text, $WORDS as words) but only $GITS of them were read as a git command, so it cannot be checked. Use the MCP git tools (mcp__git-mcp__git_*) for git (git --version passes); for a search use the Grep or Read tools; do not name git in other commands, heredocs or messages."
 exit 0
