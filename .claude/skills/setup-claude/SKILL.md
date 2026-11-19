@@ -51,7 +51,7 @@ Read these files to understand what's already configured:
   - `hooks/*.sh` — global hook scripts
   - `rules/*.md` — global always-on rule files (no frontmatter — distinct from project-scoped `.claude/rules/`)
   - `tools/statusline.sh` — status line script
-  - `tools/workspace-lock/workspace-lock.sh` — workspace lock script (the owned team's members and turns included)
+  - `tools/workspace-lock/workspace-lock.sh` — workspace lock script
   - `tools/shell-init.zsh` — `~/.zshrc` sources it through its `~/.claude/tools/` link; it loads the `ait` zsh helpers (`tools/ait.zsh`)
   - `tools/install-copies.sh` — the status of what is installed outside the checkout (Step 8b)
 
@@ -446,7 +446,7 @@ confirm that the command prompts.
 
 ### Hooks
 
-Read the `hooks` object from `templates/safe-permissions.json`. This defines PreToolUse, PostToolUse, PostToolUseFailure, SessionStart and SessionEnd hooks that reference the scripts installed in Step 3.
+Read the `hooks` object from `templates/safe-permissions.json`. This defines PreToolUse, PostToolUse, PostToolUseFailure and SessionStart hooks that reference the scripts installed in Step 3.
 
 - **Skip a hook that is not executable, in both cases below.** Leave out any template entry whose script fails Step 3's executable check, since every tool call would log a hook error and the script still would not run. Name it in the report as a control that is off; the next `/setup-claude` after the fix wires it. A hook already wired stays wired, since the merge never removes an entry: report it the same way.
 - **If `~/.claude/settings.json` has no `hooks` key:** Add the `hooks` object from the template, leaving out its `_comment` keys.
@@ -477,11 +477,6 @@ listed in Step 3 (the `hooks/<name>.sh` lines of `bash tools/install-copies.sh r
    script, with a `matcher` string **byte-identical to the template's**. Comparing mere presence
    is not enough — a stale matcher (e.g. missing a newly guarded tool) passes a presence check
    while leaving the control partially dead.
-
-   An entry with **no `matcher` key** (the `SessionEnd` entry: it fires for every end reason) has no matcher to
-   compare: assert the live entry under that event referencing the script also has no `matcher`, or an empty one
-   (`""` and an absent key both match everything). A live entry carrying a narrowing matcher is
-   `DRIFT: <script> matcher differs on <event> — live: <live>, template: (none)`.
 
    **Assert per event, not per script.** A script registered on three events that is live on only
    one is *worse than uninstalled*, and it passes any per-script check.
