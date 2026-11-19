@@ -11,50 +11,14 @@
       "type": "array",
       "maxItems": 8,
       "items": {
-        "type": "object",
-        "properties": {
-          "path": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 512
-          },
-          "line": {
-            "type": "integer"
-          },
-          "side": {
-            "type": "string",
-            "enum": [
-              "LEFT",
-              "RIGHT"
-            ]
-          },
-          "start_line": {
-            "type": "integer"
-          },
-          "start_side": {
-            "type": "string",
-            "enum": [
-              "LEFT",
-              "RIGHT"
-            ]
-          },
-          "body": {
-            "type": "string",
-            "maxLength": 4000
-          },
-          "line_text": {
-            "type": "string",
-            "maxLength": 500
-          }
-        },
-        "required": [
-          "path",
-          "line",
-          "side",
-          "body",
-          "line_text"
-        ],
-        "additionalProperties": false
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "suggestions": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "$ref": "#/$defs/finding"
       }
     },
     "threads": {
@@ -98,5 +62,53 @@
     "threads",
     "overview"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "line": {
+          "type": "integer"
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "LEFT",
+            "RIGHT"
+          ]
+        },
+        "start_line": {
+          "type": "integer"
+        },
+        "start_side": {
+          "type": "string",
+          "enum": [
+            "LEFT",
+            "RIGHT"
+          ]
+        },
+        "body": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "line_text": {
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "required": [
+        "path",
+        "line",
+        "side",
+        "body",
+        "line_text"
+      ],
+      "additionalProperties": false
+    }
+  }
 }

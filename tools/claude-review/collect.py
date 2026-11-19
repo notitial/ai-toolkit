@@ -5,6 +5,7 @@ FOLLOWUP_MARKER = re.compile(
     r"<!-- claude-review:followup verdict=(resolved|open) sha=([0-9a-f]{40})(?: mode=(rereview|followup))? -->")
 SUMMARY_MARKER = re.compile(
     r"<!-- claude-review:summary sha=([0-9a-f]{40}) result=(clean|issues|stopped|followup) -->")
+SUGGESTION_MARKER = "<!-- claude-review:suggestion -->"   # starts a suggestion's first comment (publish.py)
 APP_LOGIN = os.environ["APP_LOGIN"]
 
 QUERY = """
@@ -84,13 +85,14 @@ for t in threads["nodes"]:
     comments = t["comments"]["nodes"]
     if not comments or author(comments[0]) != ("Bot", APP_LOGIN):
         continue
-    if t["isResolved"]:
+    soft = comments[0]["body"].startswith(SUGGESTION_MARKER)   # a suggestion is never followed up, resolved or not
+    if t["isResolved"] and not soft:
         continue   # a resolved thread no longer covers its issue: if the issue is back, it is an ordinary new finding
     too_long = t["comments"]["pageInfo"]["hasNextPage"]
     long_threads += too_long
     said = [{"author": who(c), "created_at": c["createdAt"], "body": c["body"]} for c in comments]
     m = ours(comments[-1])
-    if moved or too_long:
+    if moved or too_long or soft:
         raised.append({"thread_id": t["id"], "path": t["path"], "line": t["line"] or t["originalLine"],
                        "issue": comments[0]["body"]})
         continue

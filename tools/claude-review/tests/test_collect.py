@@ -4,7 +4,7 @@ import contextlib, io, json, os, pathlib, runpy, tempfile, unittest
 from unittest import mock
 
 from github_fake import API, APP, GH_TOKEN, GRAPHQL, FakeGitHub, bot, user
-from workflow import COLLECT
+from workflow import COLLECT, load_publish
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -116,6 +116,23 @@ class Collect(unittest.TestCase):
         _, threads = self.collect()
         self.assertEqual(len(threads["raised"]), 1)
         self.assertIn("(1 too long to follow)", self.log)
+
+    def test_the_suggestion_marker_is_the_one_publish_writes(self):
+        self.assertIn(f'SUGGESTION_MARKER = "{load_publish()["SUGGESTION_MARKER"]}"', COLLECT.read_text())
+
+    def test_a_suggestion_thread_is_context_only(self):
+        suggestion = self.gh.add_thread(bot(APP), "<!-- claude-review:suggestion -->\n**Suggestion (non-blocking):**\n\nFold it.")
+        blocking = self.gh.add_thread(bot(APP), "A bug.")
+        outputs, threads = self.collect()
+        self.assertEqual([t["thread_id"] for t in threads["open"]], [blocking])
+        self.assertEqual([t["thread_id"] for t in threads["raised"]], [suggestion])   # a rereview must not suggest it again
+        self.assertNotIn("covered", outputs)
+        self.gh.threads[suggestion]["isResolved"] = True   # a person's "won't do": still context, so no second suggestion
+        _, threads = self.collect()
+        self.assertEqual([t["thread_id"] for t in threads["raised"]], [suggestion])
+        self.gh.threads[blocking]["isResolved"] = True   # only the suggestion left: nothing to follow up
+        outputs, threads = self.collect(mode="followup")
+        self.assertEqual((outputs.get("covered"), threads["open"]), ("true", []))
 
     def test_followup_with_nothing_open_is_covered(self):
         self.assertEqual(self.collect(mode="followup")[0].get("covered"), "true")
