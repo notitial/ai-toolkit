@@ -316,8 +316,9 @@ def contradiction(mode, data):
 # --- Thread replies (comment runs) ---
 
 def reply_text(ctx, text, verdict, head):
-    """Claude's reply, sanitized like a finding and quoted, then this workflow's marker for the head."""
-    text = sanitize(text).strip() or (
+    """Claude's reply, sanitized like a finding and quoted, then this workflow's marker for the head. Tabs are expanded
+    first: the "> " prefix shifts a tab stop, so a tab-indented fence line would count differently quoted than judged."""
+    text = sanitize(text.expandtabs(4)).strip() or (
         "The current code handles this." if verdict == "resolved" else "This still looks open in the current code.")
     quoted = "\n".join("> " + line for line in text.split("\n"))   # not splitlines(): sanitize() saw only "\n" as a line break
     return f"{quoted}\n\n— Claude review follow-up\n<!-- claude-review:followup verdict={verdict} sha={head} mode={ctx.mode} -->"

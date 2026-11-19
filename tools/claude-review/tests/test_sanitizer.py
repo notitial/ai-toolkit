@@ -128,6 +128,18 @@ class Sanitizer(unittest.TestCase):
                 out = self.ns["reply_text"](ctx, f"`a{sep}{sep}![x](https://e.example/t.png) @someone`", "open", "a" * 40)
                 self.assertEqual(out.split("\n\n")[0].count("\n"), 0)
 
+    def test_reply_text_judges_tab_indented_fences_as_they_render_quoted(self):
+        # "> " moves a tab stop: a tab-indented closer/opener must be seen with the indentation it renders with.
+        import types
+        ctx = types.SimpleNamespace(mode="followup")
+        out = self.ns["reply_text"](ctx, "```\n\t```\n![x](https://e.example/t.png) @someone", "open", "a" * 40)
+        self.assertNotIn("\t", out)
+        quoted = out.split("\n\n")[0].split("\n")
+        self.assertEqual(quoted[:3], ["> ```", ">     ```", "> ![x](https://e.example/t.png) @someone"])
+        self.assertEqual(quoted[-1], "> ```")   # still inside the fence: sanitize closed it at the end
+        opener = self.ns["reply_text"](ctx, "\t```\n![x](https://e.example/t.png)", "open", "a" * 40)
+        self.assertIn("!\\[x\\]", opener)   # a tab-indented "fence" opens nothing: the image line is escaped prose
+
     def test_reply_text_of_only_whitespace_gets_the_default(self):
         import types
         out = self.ns["reply_text"](types.SimpleNamespace(mode="followup"), "  \n ", "open", "a" * 40)
