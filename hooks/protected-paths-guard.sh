@@ -692,12 +692,15 @@ git_tool() {
 # something removed or moved (`rm -rf ~/.claude`, `cp f ~/.claude/` after a substitution). Cost: such a text that only
 # reads a protected file, a heredoc or string that only names one or a word that is a verb name ("find the cause"), a
 # redirect sign anywhere (`->`, `$((a>b))`), a write verb from a protected folder, and a write verb next to a bare `~` or `/`
-# are denied too, as is a text with more than 300 distinct path-like words (the hook has a 10 s timeout: split the call). Not
-# read: ${ cmd; }, a path assembled at run time, a bare relative word without a write verb, and a `cd` chain from an unprotected
-# folder when the verb itself comes from a substitution (`$(which rm) -rf hooks`).
+# are denied too, as is a text with more than 300 distinct path-like words (the hook has a 10 s timeout: split the call). A quoted
+# path with spaces is judged too (a quoted string that holds a space and starts like a path); a bare word is judged when a write verb is in the text
+# and it names something in the session folder (`cd live`). Not read: ${ cmd; }, a path assembled at run time, a bare relative
+# word without a write verb, and a `cd` chain from an unprotected folder when the verb itself comes from a substitution
+# (`$(which rm) -rf hooks`).
 sub_guard() {
-  local t=$1 rd w c wr=0 inprot=0 pw=() seen="|" big=0
+  local t=$1 rd w c s r wr=0 inprot=0 pw=() bw=() seen="|" big=0 quoted=0
   case "$t" in *'('* | *'`'*) ;; *) return 0 ;; esac  # every opener has a ( or a backtick
+  case "$t" in *[\"\'\\]*) quoted=1 ;; esac
   t=${t//\\$'\n'/}
   t=${t//\'\'/}
   t=${t//\"\"/}
@@ -712,6 +715,13 @@ sub_guard() {
   rd=${rd//>\/dev\/null/}
   case "$rd" in *'>'*) wr=1 ;; esac
   t=${t//'$('/ }  # `rm$(x)` and `$(x)rm` still show their verb
+  if [ "$quoted" = 1 ]; then  # a quoted path may hold spaces: judge each quoted string that holds one and starts like a path
+    while IFS= read -r s; do
+      s=${s#?}
+      s=${s%?}
+      case "$s" in /* | '~'* | '$HOME'* | '${HOME}'*) [ "${#pw[@]}" -lt 50 ] && pw[${#pw[@]}]=$s ;; esac
+    done < <(printf '%s' "$1" | grep -oE "\"[/~\$][^\"]* [^\"]*\"|'[/~\$][^']* [^']*'")
+  fi
   t=$(printf '%s' "$t" | tr ' \t;|&<>()`=:' '\n')  # not ${t//[...]/}: bash 3.2 takes 10 s on a 5 KB text
   while IFS= read -r w; do
     case "$w" in
@@ -722,13 +732,13 @@ sub_guard() {
     case "$SP_LC" in
       rm | rmdir | unlink | shred | touch | mkdir | chmod | chown | chgrp | truncate | tee | mv | cp | install | ln | rsync | dd | patch | sed | perl | tar | unzip | curl | wget | find | xargs) wr=1 ;;
     esac
-    case "$w" in  # judged later: a word with a / or .., or in ~ or $HOME spelling, once; a bare / or ~ is a split-off or an operator
-      / | '~') continue ;;
-      */* | '~'* | '$HOME'* | '${HOME}'* | ..) ;;
-      *) continue ;;
-    esac
     case "$seen" in *"|$w|"*) continue ;; esac
     seen="$seen$w|"
+    case "$w" in  # a word with a / or .., or in ~ or $HOME spelling, is judged; a bare word only when it is a name in the session folder (a cd target)
+      / | '~') continue ;;
+      */* | '~'* | '$HOME'* | '${HOME}'* | ..) ;;
+      *) [ -e "$SESSION_CWD/$w" ] && [ "${#bw[@]}" -lt 100 ] && bw[${#bw[@]}]=$w; continue ;;
+    esac
     if [ "${#pw[@]}" -ge 300 ]; then big=1; break; fi
     pw[${#pw[@]}]=$w
   done <<EOF
@@ -736,11 +746,11 @@ $t
 EOF
   if [ "$wr" = 1 ]; then  # a protected session folder denies, so the words need no further look
     c=$(phys_any "$SESSION_CWD")
-  [ "$(lower "$c")" = "$LHOME_R/.claude" ] && deny "a command that holds a substitution and writes (or may) would run in ~/.claude, and the substitution is not read reliably. Run it from a clone under /tmp, or put the substitution in its own call and write with plain paths."
-  while IFS= read -r c; do
-    prot_check "$c" && inprot=1
-  done < <(candidates "$c")
-  [ "$inprot" = 1 ] && deny "a command that holds a substitution and writes (or may) would run in $PROT_WHAT, and the substitution is not read reliably. Run it from a clone under /tmp, or put the substitution in its own call and write with plain paths."
+    [ "$(lower "$c")" = "$LHOME_R/.claude" ] && deny "a command that holds a substitution and writes (or may) would run in ~/.claude, and the substitution is not read reliably. Run it from a clone under /tmp, or put the substitution in its own call and write with plain paths."
+    while IFS= read -r c; do
+      prot_check "$c" && inprot=1
+    done < <(candidates "$c")
+    [ "$inprot" = 1 ] && deny "a command that holds a substitution and writes (or may) would run in $PROT_WHAT, and the substitution is not read reliably. Run it from a clone under /tmp, or put the substitution in its own call and write with plain paths."
   fi
   [ "$big" = 1 ] && deny "a command that holds a substitution and more than 300 path-like words is too long to read reliably. Split it, or keep the substitution out of the call that writes."
   for w in "${pw[@]}"; do
@@ -757,6 +767,9 @@ EOF
     judge_target "$w" "a command that holds a substitution (not read reliably)"
     ANC=0
   done
+  if [ "$wr" = 1 ]; then
+    for w in "${bw[@]}"; do judge_target "$w" "a command that holds a substitution and a write verb (not read reliably)"; done
+  fi
   return 0
 }
 
