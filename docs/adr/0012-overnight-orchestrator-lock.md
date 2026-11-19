@@ -1,7 +1,7 @@
 # 12. Workspace Lock
 
 **Status:** accepted
-**Date:** 2026-07-03 · **Amended:** 2026-10-26 (expiry, retake and the prompted `clear`), 2026-11-13 (arm step moved out), 2026-11-14 (owned team)
+**Date:** 2026-07-03 · **Amended:** 2026-10-26 (expiry, retake and the prompted `clear`), 2026-11-13 (arm step moved out), 2026-11-14 (owned team), 2026-11-19 (session lock: owned team and shared slugs removed)
 
 ## Context
 
@@ -22,6 +22,10 @@ unattended run never includes them.
   and server resolving workspaces differently). Revisit when there is a real need.
 - **Automatic takeover of a stale lock:** rejected. A session that looks dead may be alive (a long build, a sleeping
   laptop), and breaking its lock lets two sessions mutate at once, the failure the lock exists to prevent.
+- **Owned teams, shared slugs and a precise Bash parser (2026-11-14 design):** rejected on 2026-11-19, see the
+  amendment below. The owned team, the open team and cross-repo resolution were never used. The holder was a name the
+  agent typed instead of the session id the hook already receives, and the guard tried to read Bash as the shell does,
+  so each new spelling became another rule.
 - **An advisory lock directory with a guard hook as the backstop: chosen.**
 
 ## Decision
@@ -29,67 +33,63 @@ unattended run never includes them.
 The threat model is cooperative: the lock stops well-meaning sessions from forgetting the protocol, not a session that
 works around it on purpose, the same stance as the hooks in [ADR 0011](0011-shell-hook-enforcement.md).
 
-- **The lock.** `<workspace>/.workspace-lock/lock.d/` is the mutex, won by an exclusive create (`O_EXCL`) of
+- **The lock.** `<root>/.workspace-lock/lock.d/` is the mutex, won by an exclusive create (`O_EXCL`) of
   `lock.d/claim`, never by `mkdir`'s exit status (some mkdir builds exit 0 after losing the create race). The holder
-  id lives inside it (`lock.d/holder`), and `release` and `heartbeat` check that token; `status.json` is a display mirror that
-  can never cause a double acquire. `tools/workspace-lock/workspace-lock.sh` does no git: a run branches off `main`,
-  commits locally and never pushes or merges, with git through the MCP tools
+  lives inside it (`lock.d/holder`), and `release` checks it. `tools/workspace-lock/workspace-lock.sh` does no git: a
+  run branches off `main`, commits locally and never pushes or merges, with git through the MCP tools
   ([ADR 0010](0010-mcp-git-over-bash-git.md)). `/setup-claude` links the script to `~/.claude/tools/workspace-lock.sh`.
-- **The guard.** `hooks/workspace-lock-guard.sh` (PreToolUse on edits, Bash and git MCP) denies a mutation in a guarded
-  workspace unless this session holds the lock. A session registers by running `acquire --id <slug>` and holds the lock
-  when that slug equals `lock.d/holder`. A non-holder may still read (a short list of read-only commands, among them
-  `git fetch`, `git branch` listings, `git rev-parse`, `git ls-files`, `git merge-base`, `git remote -v` and `get-url`,
-  `git worktree list` and `git config --get <key>`, each in its read-only form only: a fetch with a refspec that has a
-  destination, a branch name outside `--list`, or `config --list` is still a mutation). A fetch does write inside
-  `.git` (`FETCH_HEAD`, remote-tracking refs, tags, maybe an automatic gc), also in a repo named with `-C`; that is
-  accepted. A non-holder may also write under `.archive/` or a temp dir, append to a file in the workspace's own
-  `.archive/` with a single-quoted `cat >> <path> <<'TAG'` heredoc, and run the lock script. Builds and tests are not
-  on that list: serializing them is the point. A deny names the holder and ETA and says how to proceed. An empty
-  holder denies everyone until a human inspects
-  it and removes `lock.d` by hand; `clear` refuses an empty holder.
-- **The rule.** `rules/workspace-lock.md` is installed globally but does nothing unless the workspace is armed
-  (`WORKSPACE_LOCK_DIR` set, or a held lock at or above the cwd). Where it applies, agents acquire before their first
-  mutation, heartbeat with a revised ETA during long work, and release when done. An open team shares one slug that
-  only the session that took the lock first releases; a solo session uses `solo-<first 8 characters of its session id>`.
-- **Arming.** Arming is user-triggered only, so an agent never arms itself. An arm step arms only the non-risk tasks and
-  holds every risk-topic task for the user's live turn. (Amended 2026-11-13: no arm step ships in this repo any
-  more. The lock, the guard and the `STATE.md` Authorizations ledger stay here; any arm step supplied elsewhere
-  must meet the risk-topic exception in [rules/workflow.md](../../rules/workflow.md).)
-- **Expiry and retake (amended 2026-10-26).** No lock stays held for good. Once its ETA passes, the guard denies the
-  holder's own mutations and the script refuses a bare `heartbeat`, until the holder retakes the lock with
-  `heartbeat --id <slug> --eta <new>`.
-- **Prompted clear (amended 2026-10-26).** Once `WORKSPACE_LOCK_WEDGE_GRACE` (default 30 minutes) has passed since both
-  the ETA and the last heartbeat, another session may run `workspace-lock.sh clear --id <me> --holder <h>`. The guard
-  runs the script's read-only `clear --check` and turns a clearable lock into a permission prompt showing the holder,
-  ETA and last heartbeat. It denies `clear` in headless sessions, in permission modes that may not show a prompt, and in
-  a compound, redirected or `cd`-prefixed command; `permissions.ask` entries for the plain spellings back it up if the
-  hook fails open. A wrapped spelling (an env prefix, `bash -c`, a subshell) is not gated, a known gap this cooperative
-  threat model accepts. The cleared id's next lock call fails loudly, naming who cleared it, and it gets back in only with
-  `acquire --after-clear`, once the user agrees.
+- **The holder is the session.** The holder id is the session id: the script reads `$CLAUDE_CODE_SESSION_ID` and the
+  guard reads the hook's `session_id`, so nothing is typed, pasted or registered, and a subagent shares its parent's
+  holder. Probes saw the id survive compaction, resume and reload and change after `/clear`. A `--id` argument is
+  accepted and ignored for a transition period.
+- **The workspace is the git root, armed by the folder.** The workspace is the nearest ancestor of the target that
+  holds `.git`, from any subfolder. It is armed when `<root>/.workspace-lock/` exists; a person creates the folder and
+  gitignores it, and the script never creates it. No environment variable arms or redirects it.
+- **The guard.** `hooks/workspace-lock-guard.sh` (PreToolUse on edits, Bash and git MCP, and SessionEnd) denies a
+  mutation in an armed workspace unless this session holds the lock. Each guarded call by the holder stamps
+  `lock.d/seen`. A non-holder may still read: Read-style tools, git MCP read tools by name, writes under the root's
+  `.archive/` or outside the root, the lock script as one plain call, scratch writes (`mkdir`, `cp`, `mv`, `touch`,
+  `rm` on absolute paths under a temp directory) and a Bash read check that **fails closed**: anything it does not
+  recognise counts as a mutation. The check allows no command substitution, process substitution or backtick, only
+  `2>&1` and redirects to `/dev/null`, splits on `&& || ; |` and newline with no quote awareness (a quoted `|` makes a
+  segment that fails the check, a safe deny), allows leading `cd <path>` segments, and requires every other segment to
+  start with a word from a fixed read set without a write flag. Builds and tests are not on that list: serializing them
+  is the point. A deny names the holder, ETA and task and says how to proceed. A missing `jq`, malformed input or a
+  missing `session_id` in an armed workspace denies (fail closed, as in `gh-block.sh`).
+- **Session end.** The guard also handles SessionEnd: if `lock.d/holder` is the ending session, it renames `lock.d`
+  away and logs it. A resumed session acquires again. A separate session-end hook is not kept.
+- **The rule.** `rules/workspace-lock.md` is installed globally but does nothing unless the workspace is armed. Where
+  it applies, agents acquire in the background before their first mutation and wait for `ACQUIRED`, re-run
+  `acquire --eta` to extend a long job, and release when done. Arming is user-triggered only, so an agent never arms
+  itself. The `STATE.md` Authorizations ledger stays in this repo; any arm step supplied elsewhere must meet the
+  risk-topic exception in [rules/workflow.md](../../rules/workflow.md).
+- **Expiry and prompted clear (amended 2026-10-26, reworked 2026-11-19).** No lock stays held for good. A lock is
+  stale once `now > max(ETA, seen) + grace` (default 30 minutes), so a holder that keeps working never looks stale and
+  there is no separate heartbeat verb. Another session may then run `clear`; the guard turns a plain call on a stale
+  lock into a permission prompt showing the holder, ETA and last activity, read straight from `lock.d`. It denies
+  `clear` on a lock that is not stale, in headless sessions and in permission modes that may not show a prompt;
+  `permissions.ask` entries for `clear` and `--after-clear` back it up if the hook fails open. `clear` renames `lock.d`
+  away and writes `cleared/<sid>`. The cleared session's next guarded call is denied, loudly, and it gets back in only
+  with `acquire --after-clear`, once the user agrees. A wrapped spelling (an env prefix, `bash -c`, a subshell) is not
+  gated, a known gap this cooperative threat model accepts.
 
-- **Owned team (amended 2026-11-14).** `acquire --owned --sid <sid>` makes the calling session the **owner** of a
-  closed lock; without it the lock stays an open one, with the behavior above. The owner adds and removes **members**
-  (`member add|remove`, at most 16); a session that is neither never mutates, never acquires the slug and is not
-  registered by trying. One **turn** serializes the members: a session mutates only while `lock.d/turn.d/sid` is its
-  own id and the turn is within its ETA, for Bash, the file tools and git MCP alike, the owner's own edits included. A
-  member takes the turn with `turn take` (run in the background), keeps it alive with `turn beat` and hands it back
-  with `turn give --tree clean|dirty`. The tree state is the giver's word, recorded for the next member and for
-  `status`: the script does no git and a dirty hand-over only warns. Only the owner heartbeats or releases; the lock's
-  ETA gates the owner's own turn and `clear`, not the members, so an owner that waits on them cannot lock them out.
-  Identity is the session id (`$CLAUDE_CODE_SESSION_ID`; probes saw it survive compaction, resume and reload and
-  change after `/clear`), passed as a literal value. The guard checks the caller's own id (`--by`, and `--sid` on the
-  caller's own verbs) before the script runs; a member, force or transfer target is only checked for shape.
-  Freeing a turn takes the owner's `turn give --force`: a healthy turn is refused, a turn past its ETA plus the
-  grace with a stale heartbeat needs a permission prompt, and one still held by a session marked `ended` passes the
-  guard without it. `owner transfer`, for an owner that lost its id, always prompts. They go through the
-  script's read-only `--check` and, like `clear`, the guard's prompt; a headless session cannot answer one. A session-end hook, where installed,
-  marks a stopped session `ended` and frees its turn but keeps its membership; it runs on a normal stop, on
-  SIGTERM, SIGHUP and SIGINT and on a window close, but not after SIGKILL or a crash, so a stale turn can remain, and the prompted force
-  covers it. The members, turn files and `ended/` markers
-  are plain files of the same user, so a session that forges them is outside the cooperative threat model, as before.
-  The protocol is in [the protocol skill](../../skills/workspace-lock-protocol/SKILL.md); a repo is armed for it by the
-  person adding the literal absolute-path lock script entry to the repo's gitignored `.claude/settings.local.json`
-  (never a leading-wildcard allow entry, which auto-approves any command naming that path), and no agent writes that.
+### Amendment 2026-11-19: what the session lock removes
+
+The 2026-11-14 owned team and the open team's shared slug are removed, with everything that existed only to support
+them:
+
+- the owned team: owner, members, turns, `force`, `transfer`, the `ended/` markers and the separate session-end hook;
+- the open team: a slug several sessions share. Sessions that share a checkout take the one lock in turn, which is
+  what turns added;
+- cross-repo workers (`--repos`) and `WORKSPACE_LOCK_DIR`: a worker that mutates another repo takes that repo's lock;
+- `WORKSPACE_LOCK_ID` and `WORKSPACE_LOCK_BYPASS`;
+- the `sessions/` registration, the second parser for `release`, the literal-session-id rule and the
+  `workspace-lock-protocol` skill;
+- the `status.json` mirror (`status` reads `lock.d`), the wedge-warning ladder and the guard of the lock folder itself
+  (no owned lock remains to protect).
+
+The change lands in stages: remove the owned team, replace the Bash read check, then key the lock on the session id.
+Until the last stage merges, the code still uses typed slugs; the text above describes the end state.
 
 ## Consequences
 
@@ -97,16 +97,26 @@ works around it on purpose, the same stance as the hooks in [ADR 0011](0011-shel
 - Every session in a guarded workspace acquires before mutating, daytime sessions included. The guard is the backstop
   for forgetting.
 - The rule is inert outside an armed workspace, so installing it globally is safe.
-- A crashed session's lock stays held until its ETA and heartbeat go stale and someone clears it at the prompt. Nothing
-  clears a lock automatically.
-- When jq is missing or the hook's input is unreadable, a session without `WORKSPACE_LOCK_ID` set gets a warning and a
-  pass (fails open), and one with it set is denied (fails closed).
-- Accepted residuals: a Bash command's guardedness follows its cwd; session registrations don't expire; a cleared holder
-  is stopped at its next lock call, not its next edit; hard links and symlink swaps are outside the cooperative threat
-  model.
-- An owned team trades speed for safety: one member mutates at a time, a stuck turn needs the owner and sometimes
-  the user's click, and a dead owner's lock waits for `clear` or `owner transfer`.
+- A crashed session's lock stays held until its ETA and last activity go stale and someone clears it at the prompt; a
+  session that ends normally frees its own lock. Nothing else clears a lock automatically.
 - Clearing a lock is a recovery the user approves, not a pattern for risk-topic actions, where a relayed approval
   carries no weight.
+- Residuals the session lock accepts:
+  - A waiting session's Bash narrows: `sed -n`, `curl`, `sort`, `uniq`, `sysctl`, `log show`, the git `fetch`, `branch`,
+    `remote` and `config` read forms, and heredoc or `tee` scratch writes become denies. It uses Read, Grep, Glob, the
+    Write tool for `.archive/` and the git MCP reads, as the global rules already prefer. A quoted metacharacter
+    (`grep "a|b"`) is a false deny, never a false allow.
+  - Nothing guards the lock folder: a holder's `git clean -fdx` or `rm -rf .workspace-lock` removes the lock and the
+    arming. The ADR accepted this before the owned team.
+  - There is no closed membership and no queue: any session in the checkout may take the lock between another's units,
+    and waiters poll with jitter, so one that re-acquires at once can starve the rest.
+  - A holder blocked inside one Bash call longer than ETA plus grace looks stale; the user still decides at the
+    `clear` prompt.
+  - SessionEnd frees the lock on any stop, including one that is later resumed; a session that stopped mid-change
+    leaves a dirty tree that the next holder sees in `git_status`.
+  - A session id that differs between the hook and the Bash environment would mismatch holder and caller. The tests
+    probe that they match, for subagents too.
+  - A Bash command's guardedness follows its cwd; hard links and symlink swaps are outside the cooperative threat
+    model.
 - The protocol is [rules/workspace-lock.md](../../rules/workspace-lock.md); the script reference is
   [tools/workspace-lock/README.md](../../tools/workspace-lock/README.md).
