@@ -23,7 +23,7 @@
 #   rest like a command of their own (`sp_command`, cd included: it moves CWD for the commands after it).
 # Not read (a guard against mistakes, not a sandbox): a command name built from a substitution (`$(which rm) -rf p`), a
 # substitution spliced into the middle of a path (`settings$(:).json`), escaped nested backticks, a `)` inside a
-# substitution that is not a case pattern or a paren (`${x/)/}`), a shell fed by a pipe (echo cmd | sh), a heredoc named before its
+# substitution that is not a case pattern or a paren (`${x/)/}`), a shell fed by a pipe from anything but a heredoc on the same line (echo cmd | sh; `cat <<EOF | sh` is read), a heredoc named before its
 # shell (<<EOF bash) or opened after a quote that spans a newline, a here-string or body for a group ({ bash; } <<EOF),
 # a string nested more than 3 deep, `watch -x`, `su --session-command`, an attached `-c'cmd'`, `env -iS`, `$( )` and
 # backticks inside a heredoc body, and `\c` escapes in $'..'.
