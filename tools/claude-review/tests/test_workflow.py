@@ -323,6 +323,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("- **No caller** (a non-blocking suggestion).", text)
         self.assertIn("`sonnet` for a defect, written-rule, private-data, simplification or no-caller candidate", text)
         self.assertIn("Set apart the confirmed simplifications and no-caller candidates", text)
+        self.assertIn("a piece something outside the repo's own code reaches or reads by name", text)   # no false positive on a public API
 
     def test_app_key_only_in_the_key_jobs(self):
         # v3.3: appcheck and publish run on ubuntu-latest unless the repo variable holds a label array (a dedicated

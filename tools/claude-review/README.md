@@ -20,7 +20,7 @@ command below is v4.1's and expects the v4.1 `collect.py`, so a v3.4 repo does n
 | File | Install path in the target repo | SHA-256 |
 |---|---|---|
 | [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` (frozen v3.4) | `302603c31c1dff049046af03ce06ba2e96314c63561d2dbd29f2be65dbb5a760` |
-| [claude-pr-review.md](claude-pr-review.md) | the kit's own checkout (v4.3); a frozen v3.4 repo keeps its existing copy, SHA `9537f11b...` | `884f26edc541dc1149a29b6e6d85be3a61a84b2f43caaef6256cf92c502f41b4` |
+| [claude-pr-review.md](claude-pr-review.md) | the kit's own checkout (v4.3); a frozen v3.4 repo keeps its existing copy, SHA `9537f11b...` | `e443ebec2dbf2f64ceaa0b5307c95a304801af6c5af3ac2bf0fe15492c315262` |
 
 **Version:** v4.3 (2026-11-19): a third least-code kind, "no caller" (see [Least code](#least-code)): a new export, option, parameter, prop or type field nothing uses is a non-blocking suggestion, checked by a `sonnet` verifier like a simplification. v4.2 (2026-11-19): the kit's `review` job runs a pinned Claude Code CLI directly instead of through `claude-code-action`. What the review posts is unchanged; the root `CLAUDE.md` it reads is now the PR's copy, not the default branch's, and is not a rule source when the PR changes it. The CLI is pinned by `reviewer/package.json` and its lockfile, the session starts in a copy of the kit's `reviewer/` folder with no GitHub token in its environment, and nothing the PR holds can configure it (see the trust rules below). The cost record's `action` field is now `claude_code`. v4.1 (2026-11-19): a seventh review pass, "least code" (see [Least code](#least-code)). Duplication of
 code the repo already has is a blocking finding; a clear simpler rewrite is a non-blocking suggestion, posted inline
@@ -168,7 +168,7 @@ What goes in it (this repo's own, `REVIEW.md` at the repo root, is the worked ex
 - **Failure modes to hunt:** the repo's recurring bugs, by area, each concrete enough to check against a diff.
 - **A nit cap:** the most findings to return (never more than the workflow's 8), and what never to report.
 - **Least-code switches:** make duplication non-blocking, turn suggestions off, or lower the cap of 3 suggestions. It cannot make a suggestion block or raise the cap.
-- **Optional, for a repo doing a port or rewrite:** a failure mode such as "a ported piece states its size against the old one".
+- **Optional, for a repo porting or rewriting code:** a failure mode such as "a ported piece states its size in lines against the code it replaces".
 - **Paths to skip:** generated files, lockfiles, archives, prose-only changes.
 - **A finding rule:** every finding cites `path:line` and names the trigger.
 
@@ -227,9 +227,11 @@ own verifier (duplication on `opus`, because it blocks; simplification and no ca
   general path, a redundant branch or guard removed, hand-written code replaced by a standard-library feature). It
   goes in the result's `suggestions` list, at most 3, most lines saved first, and never blocks.
 - **No caller** is a new export, option, parameter, prop or type field that nothing in the PR or the repo uses. It is a
-  suggestion too, never blocking, since a PR in a stack may add the caller next. The verifier searches the checkout for
-  the name, dynamic uses included, and rejects a piece that callers outside the repo reach by name (a public API, an
-  entry point, a route, a framework hook, a config key).
+  suggestion too, never blocking, since a PR in a stack may add the caller next. The verifier searches the checkout,
+  tests and dynamic uses included (for a parameter or option: a call site that passes it, code that reads it), and
+  rejects a piece something outside the repo's code reaches or reads (a public API, an entry point, a CLI flag, a
+  route, a framework hook, a config key, a field a serializer or schema reads), an override or a parameter a required
+  signature holds, and code in docs, generated or vendored files.
 - `publish` posts a suggestion only as an inline comment (one that cannot go inline is dropped, not put in the review
   body), starting with a hidden marker and "Suggestion (non-blocking):". The sanitizer strips markers from Claude's
   text, so only `publish` can write one. A thread that starts with the marker never counts as open: the
