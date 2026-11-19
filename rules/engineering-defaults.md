@@ -3,19 +3,19 @@
 Default quality bar for all code changes: change discipline, sourcing values, and runtime robustness.
 
 ## Minimal Changes
-Minimal means the least code left to maintain and a tight task scope, not the smallest diff. Prefer the change that removes lines over the one that adds them; for a fix, see `rules/workflow.md`, Fixing a Failure. This is not code golf: clarity, tests and input validation still count. Stay inside the task: no unrelated formatting, renames or refactors. Reuse existing helpers and components. Keep interfaces stable unless breaking changes are explicitly required.
+Minimal means the least code left to maintain and a tight task scope, not the smallest diff, and never at the cost of clarity, tests or input validation. Prefer the change that removes lines over the one that adds them; for a fix, see `rules/workflow.md`, Fixing a Failure. Stay inside the task: no unrelated formatting, renames or refactors. A plan or PR says what it deletes and its net lines.
+- Reuse before adding: look in the shared module first; a difference is data or an option on the shared piece, never a copy.
+- Build a piece only when something in scope calls it: no option, seam, flag or mode for a later step, and one path where a branch per mode would do the same job.
+- An optional add-on (never a guard or validation) fails soft: when it cannot apply, it warns and the core path still works.
 
 ## No Hardcoding
 Never hardcode values to match expected output. Trace the real source of truth (data sources, configuration, APIs, databases, environment variables, constants). Hardcoding is only acceptable when explicitly requested or as a temporary diagnostic step removed before final output.
 
 ## Respect Existing Patterns
-Follow the repository's architecture and style. Understand existing patterns first and build consistently upon them. Reuse existing components from shared modules.
+Follow the repository's architecture and style. Understand existing patterns first and build consistently upon them.
 
 ## Breaking Changes
-Avoid breaking changes unless necessary. If a breaking change is required:
-- Document it clearly
-- Provide migration steps
-- Prefer backwards-compatible shims when feasible
+Avoid breaking changes unless explicitly required. When one is, document it, give migration steps, and prefer a backwards-compatible shim when feasible.
 
 ## Performance
 Consider performance implications for loops, database queries, and data structures. Flag potential N+1 queries, expensive operations in hot paths, or unbounded growth.
