@@ -59,6 +59,7 @@ CLAUDE.md                           # Root and any nested (monorepo tiers)
 .cursor/agents/*.md                 # Cursor agents
 .cursor/commands/*.md               # Cursor commands
 .gitignore                          # For secret/settings exclusion checks
+REVIEW.md                           # Owner's review brief, when the repo has one (check 2.11)
 ~/.claude/settings.json             # User settings: extract only the enabledPlugins key (below)
 ~/.claude.json                      # User-scope MCP servers: extract only the mcpServers key names (below)
 rules/ agents/ skills/ hooks/       # Repo root: the global layer's source, when linked into ~/.claude (Global layer, below)

@@ -33,6 +33,9 @@ In the review workflow and `tools/github-mcp/`: anything that lets a secret, tok
 a comment or a file. In the workflow: PR, comment or Claude text that reaches a `run:` through `${{ }}`, and a change
 to `tools/claude-review/claude-review.yml` that isn't made to the installed copy too.
 
+In a fix, in any path: a new branch, flag or guard for the one reported case while the same cause still breaks a
+sibling input or state through the general path. Name that input or state as the trigger.
+
 ## Private data
 
 This repo is public: every line on `main` can be read by anyone. Hunt private data in every file, docs and prose

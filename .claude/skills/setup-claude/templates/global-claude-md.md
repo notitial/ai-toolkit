@@ -59,6 +59,7 @@ If no global CLAUDE.md exists, offer this as a starting point for the user to cu
 - Understand existing patterns before introducing new ones
 - Proactively flag breaking changes, performance risks, and security implications
 - Never edit code without user approval — see workflow.md Analysis-First for the gate sequence
+- Fix a failure at its cause, subtractive option first: see workflow.md, Fixing a Failure
 - Place temporary artifacts (handover docs, draft specs, research, logs, chat trackers — session tracking across conversations) in a gitignored `.archive/` folder, creating it if needed
 - If `docs/adr/` exists, check it before proposing architectural changes; when a significant decision is made, propose creating an ADR
 - Use git MCP tools (`mcp__git-mcp__*`) for all git operations instead of Bash git commands. Always pass the `path` parameter on every git call; the guard denies a missing or relative one, and `git_set_working_dir`, because the server has one global cwd and concurrent agents race on it
