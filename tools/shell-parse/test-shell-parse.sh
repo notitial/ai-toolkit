@@ -24,6 +24,7 @@ HOME="$T/home"
 on_command() { local o="C[\$CWD]" w; for w in "\$@"; do o="\$o <\$w>"; done; echo "\$o"; if [ "\$1" = xargs ]; then shift; sp_xargs "\$@"; fi; }
 on_redirect() { echo "R[\$CWD] <\$1>"; }
 CWD=/s
+[ -z "\${PARSE_SET_U:-}" ] || set -u
 shell_parse "\$1"
 RUN
 
@@ -40,6 +41,12 @@ check() {  # check <label> <0|1: did the condition hold>
   if [ "$2" = 1 ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: $1"; fi
 }
 
+refuse() {  # refuse <label> <command>: the text is unreadable, so the parser refuses it (the hooks deny)
+  local got
+  got=$("$SH" "$T/run.sh" "$2" 2>&1)
+  case "$got" in *'cannot be read exactly'*) PASS=$((PASS + 1)) ;; *) FAIL=$((FAIL + 1)); printf 'FAIL: %s\n%s\n' "$1" "$got" ;; esac
+}
+
 # words and quotes
 expect "plain words" 'echo a b' 'C[/s] <echo> <a> <b>'
 expect "quotes and escapes" "echo \"a b\" 'c d' e\\ f" 'C[/s] <echo> <a b> <c d> <e f>'
@@ -51,7 +58,7 @@ expect "ANSI-C unterminated takes the rest" "echo \$'a b" 'C[/s] <echo> <a b>'
 expect "locale string \$\"..\" is a plain quote" 'echo $"a b" c' 'C[/s] <echo> <a b> <c>'
 expect "<< inside \$(( )) is not a heredoc" $'n=$((1<<3))\na' 'C[/s] <1<<3>' 'C[/s] <a>'
 expect "<< inside a standalone (( )) is not a heredoc" $'(( n = 1 << 3 ))\na' 'C[/s] <n> <=> <1> <<<> <3>' 'C[/s] <a>'
-expect "a redirect inside \$(( )) is still read" 'echo $((a >f; b)) c' 'C[/s] <echo>' 'R[/s] <f>' 'C[/s] <a>' 'C[/s] <b>' 'C[/s] <c>'
+expect "a redirect inside \$(( )) is still read" 'echo $((a >f; b)) c' 'R[/s] <f>' 'C[/s] <a>' 'C[/s] <b>' 'C[/s] <echo> <$(..)> <c>'
 expect "ANSI-C \\u and \\U escapes decoded" "echo \$'\\u0061\\U00000062'" 'C[/s] <echo> <ab>'
 expect "op run with a word holding -- does not hang" 'op run "x -- y"; a' 'C[/s] <x -- y>' 'C[/s] <a>'
 expect "multi-line heredoc body to a shell, <<- with tabs" $'bash <<-EOF\n\ta\n\tb > f\n\tEOF\nc' 'C[/s] <a>' 'R[/s] <f>' 'C[/s] <b>' 'C[/s] <bash>' 'C[/s] <c>'
@@ -98,9 +105,69 @@ expect "cd - and ~user: folder unknown" 'cd /q; cd -; a; cd ~root; b' 'C[] <a>' 
 expect "pushd and popd" 'pushd /y; a; popd; b' 'C[/y] <a>' 'C[] <b>'
 expect "cd is not passed on" 'cd /x' ''
 expect "subshell scopes cd" 'cd /x; a; (cd /z; b); c' 'C[/x] <a>' 'C[/z] <b>' 'C[/x] <c>'
-expect "\$( ) and backticks scope cd" 'cd /x; echo $(cd /w; d); e `cd /v; f`; g' 'C[/x] <echo>' 'C[/w] <d>' 'C[/x] <e>' 'C[/v] <f>' 'C[/x] <g>'
+expect "\$( ) and backticks scope cd" 'cd /x; echo $(cd /w; d); e `cd /v; f`; g' 'C[/w] <d>' 'C[/x] <echo> <$(..)>' 'C[/v] <f>' 'C[/x] <e> <$(..)>' 'C[/x] <g>'
 expect "braces do not scope cd" '{ cd /q; a; }; b' 'C[/q] <a>' 'C[/q] <b>'
 
+# the words of the command around a substitution stay with it (they used to become commands of their own). $(...) stands
+# for a quoted substitution, $(..) for an unquoted one, which the shell may split into several words.
+expect "operand after a substitution" 'cp "$(mk)" /p/f' 'C[/s] <mk>' 'C[/s] <cp> <$(...)> </p/f>'
+expect "operand after backticks (unquoted)" 'cp `mk` /p/f' 'C[/s] <mk>' 'C[/s] <cp> <$(..)> </p/f>'
+expect "substitution in the middle of the operands" 'cp -a /src "$(mk)/sub" /p/f' 'C[/s] <mk>' 'C[/s] <cp> <-a> </src> <$(...)/sub> </p/f>'
+expect "substitution glued to text" 'echo pre$(mk)post "a$(mk)b"' 'C[/s] <mk>' 'C[/s] <mk>' 'C[/s] <echo> <pre$(..)post> <a$(...)b>'
+expect "nested substitutions" 'a "$(b "$(c)" d)" e' 'C[/s] <c>' 'C[/s] <b> <$(...)> <d>' 'C[/s] <a> <$(...)> <e>'
+expect "substitution then a redirect target" 'a > "$(mk)/f" b' 'C[/s] <mk>' 'R[/s] <$(...)/f>' 'C[/s] <a> <b>'
+expect "a redirect before the substitution survives it" 'a >f "$(mk)" b' 'R[/s] <f>' 'C[/s] <mk>' 'C[/s] <a> <$(...)> <b>'
+expect "process substitution keeps the words around it" 'cp <(mk) /p/f' 'C[/s] <mk>' 'C[/s] <cp> <$(...)> </p/f>'
+expect ">( ) keeps the words around it" 'x | tee >(mk) /p/f' 'C[/s] <x>' 'C[/s] <mk>' 'C[/s] <tee> <$(...)> </p/f>'
+expect "a substitution in an assignment" 'x=$(mk) cp a /p/f' 'C[/s] <mk>' 'C[/s] <cp> <a> </p/f>'
+expect "folder tracked through a substitution" 'cd /x; a "$(cd /y; mk)" b; c' 'C[/y] <mk>' 'C[/x] <a> <$(...)> <b>' 'C[/x] <c>'
+expect "an arithmetic expansion is a word too" 'cp $((1+2)) /p/f' 'C[/s] <1+2>' 'C[/s] <cp> <$(..)> </p/f>'
+expect "a subshell in front of a command is unchanged" '(a; b) c' 'C[/s] <a>' 'C[/s] <b>' 'C[/s] <c>'
+expect "an unquoted substitution as the verb: what follows may be the command" '$(:) rm -rf /p' 'C[/s] <:>' 'C[/s] <rm> <-rf> </p>' 'C[/s] <$(..)> <rm> <-rf> </p>'
+expect "the same behind env" 'env $(mk) rm /p' 'C[/s] <mk>' 'C[/s] <rm> </p>' 'C[/s] <$(..)> <rm> </p>'
+expect "a quoted substitution as the verb is one command name" '"$(mk)" rm /p' 'C[/s] <mk>' 'C[/s] <$(...)> <rm> </p>'
+expect "a shell keeps its heredoc across a substitution" $'bash -s "$(mk)" <<EOF\na > f\nEOF' 'C[/s] <mk>' 'R[/s] <f>' 'C[/s] <a>' 'C[/s] <bash> <-s> <$(...)>'
+expect "a substitution that is the whole -c string is not read again" 'bash -c "$(mk)"' 'C[/s] <mk>' 'C[/s] <bash> <-c> <$(...)>'
+# a hook that runs under set -u (secret-detector) parses a group whose parked words are empty
+PARSE_SET_U=1 expect "groups under set -u" '(a; b) c; echo "$(mk)" x; cp $(mk) y' 'C[/s] <a>' 'C[/s] <b>' 'C[/s] <c>' 'C[/s] <mk>' 'C[/s] <echo> <$(...)> <x>' 'C[/s] <mk>' 'C[/s] <cp> <$(..)> <y>'
+expect "a group the text leaves open gives back the words parked in front of it" 'cp x $(mk' 'C[/s] <mk>' 'C[/s] <cp> <x>'
+
+# a group ends exactly at its ): a case pattern (whose ) ends nothing) or a ) inside ${x/)/} in a substitution is refused
+refuse "case in a substitution" 'echo $(case x in x) rm /p;; esac) y'
+refuse "case in a substitution, glued to the verb" 'echo$(case x in x) rm /p;; esac)'
+refuse "case in a process substitution, glued" 'cat<(case x in x) rm /p;; esac)'
+refuse "case in an output process substitution" 'x>(case x in x) rm /p;; esac)'
+refuse "case in a quoted substitution" 'echo "$(case x in x) rm /p;; esac)"'
+refuse "case in backticks" 'echo `case x in x) rm /p;; esac`'
+refuse "a quoted case in a substitution" 'echo $("case" x in x) rm /p;; esac)'
+refuse "case behind time in a substitution" 'echo $(time case x in x) rm /p;; esac)'
+refuse "case in a substitution inside a subshell" '(echo $(case x in x) rm /p;; esac); cd /n)'
+refuse "case as an argument in a substitution" 'echo $(echo case; a) b'
+refuse "a ) inside \${x/)/} in a substitution" 'echo $(echo ${x/)/} rm /p)'
+refuse "case in a plain subshell pops the folder" 'cd /t; (cd /x; case x in x) rm p;; esac)'
+refuse "case in a subshell inside a function body" 'f() { (case x in x) a;; esac); }'
+refuse "a space before the ) inside \${ }" 'cd /t; (cd /x; echo $(echo ${x:-a )}); rm p)'
+refuse "a ( inside \${ }" 'rm$(echo ${x#(}) -rf /p'
+refuse "an escaped backtick inside backticks" 'echo `echo \`case x in x) rm /p;; esac\``'
+refuse "a heredoc ended by EOF) inside a substitution" $'echo $(cat <<EOF\nx\nEOF) ; rm /p'
+refuse "case behind bash -c in a substitution" 'bash -c '"'"'echo $(case x in x) rm /p;; esac)'"'"
+expect "case in a function body outside any group" 'f() { case x in x) a;; esac; }' 'C[/s] <f>' 'C[/s] <case> <x> <in> <x>' 'C[/s] <a>' 'C[/s] <esac>'
+expect "a plain subshell" '(cd /n; a); b' 'C[/n] <a>' 'C[/s] <b>'
+expect "parameter expansions keep their braces" 'echo ${x:-$(date)} ${y#a} ${#arr[@]} z' 'C[/s] <date>' 'C[/s] <echo> <${x:-$(..)}> <${y#a}> <${#arr[@]}> <z>'
+expect "a heredoc in a substitution reads normally" $'echo $(cat <<EOF\nx)\nEOF\n) a' 'C[/s] <cat>' 'C[/s] <echo> <$(..)> <a>'
+refuse "nested quotes inside \${ } inside a string" 'echo $(eval "${x:+")"}" rm /p)'
+refuse "a comment inside backticks" 'echo `#` ; rm /p'
+refuse "a heredoc inside backticks" $'echo `cat <<X`\nrm /p'
+refuse "a backtick inside a substitution inside backticks" 'rm `: $(` /p'
+expect "a substitution glued before the verb" '$(a)rm /p' 'C[/s] <a>' 'C[/s] <rm> </p>' 'C[/s] <$(..)rm> </p>'
+expect "backticks glued before the verb" '`a`rm /p' 'C[/s] <a>' 'C[/s] <rm> </p>' 'C[/s] <$(..)rm> </p>'
+expect "a quoted substitution glued before the verb" '"$(a)"rm /p' 'C[/s] <a>' 'C[/s] <rm> </p>' 'C[/s] <$(...)rm> </p>'
+expect "text glued before a substitution in the verb" 'rm$(a) /p' 'C[/s] <a>' 'C[/s] <rm> </p>' 'C[/s] <rm$(..)> </p>'
+expect "a quoted substitution that is the whole verb stays a word" '"$(a)" rm /p' 'C[/s] <a>' 'C[/s] <$(...)> <rm> </p>'
+expect "case outside a substitution is plain words" 'case x in x) rm /p;; esac' 'C[/s] <case> <x> <in> <x>' 'C[/s] <rm> </p>' 'C[/s] <esac>'
+expect "case inside a bash -c string is read" 'bash -c "case x in x) rm /p;; esac"' 'C[/s] <case> <x> <in> <x>' 'C[/s] <rm> </p>' 'C[/s] <esac>' 'C[/s] <bash> <-c> <case x in x) rm /p;; esac>'
+expect "a plain substitution with parameter expansion reads normally" 'echo $(echo ${x:-a} b) c' 'C[/s] <echo> <${x:-a}> <b>' 'C[/s] <echo> <$(..)> <c>'
+expect "the word case in a plain string is not a case" 'echo "case x" $(a)' 'C[/s] <a>' 'C[/s] <echo> <case x> <$(..)>'
 # nested strings
 expect "bash -c" 'bash -c "cd /n; a > f"; b' 'R[/n] <f>' 'C[/n] <a>' 'C[/s] <bash> <-c> <cd /n; a > f>' 'C[/s] <b>'
 expect "sh -ec and bash -lc" "sh -ec \"a\"; bash -lc 'b'" 'C[/s] <a>' 'C[/s] <sh> <-ec> <a>' 'C[/s] <b>' 'C[/s] <bash> <-lc> <b>'

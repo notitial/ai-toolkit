@@ -360,7 +360,8 @@ curl_bundle_O() {
 # applied cd, pushd and popd to CWD, and read bash -c and eval strings.
 on_command() {
   local verb a i n w idx start
-  verb=${1##*/}
+  sp_lc "$1"  # a case-insensitive file system runs RM too
+  verb=$SP_LC
   shift
   case "$verb" in
     rm | rmdir | unlink | shred)
@@ -559,7 +560,8 @@ on_command() {
       done
       for a in "$@"; do
         if [ "$inx" = 1 ]; then
-          case "${a##*/}" in
+          sp_lc "$a"
+          case "$SP_LC" in
             rm | rmdir | unlink | shred | touch | mkdir | chmod | chown | chgrp | truncate | tee | mv | cp | install | ln | rsync | dd | patch) writes=1 ;;
             sed | perl) xsed=1 ;;
           esac
