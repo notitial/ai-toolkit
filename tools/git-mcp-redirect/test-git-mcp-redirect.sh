@@ -87,7 +87,23 @@ check deny "net: absolute git path behind a missed shape" 'SUDO /usr/bin/git res
 check deny "net: relative git path behind a missed shape" 'nohup -- ./bin/git push --force'
 check deny "net: quoted git behind a missed shape" 'SUDO "git" push --force'
 check deny "net: escaped git behind a missed shape" 'SUDO \git push --force'
-check pass "residual: g''it behind a missed shape (not whole in the text)" "SUDO g''it push --force"
+check pass "plumbing behind eval is not counted twice" 'eval git rev-parse HEAD'
+check deny "split word read by the parser, behind a wrapper" "SUDO g''it push --force"
+check deny "g''it behind an unknown wrapper: the word count reads it" "chronic g''it push --force"
+check deny "g''it in a string a pipe feeds to a shell: the quote-free text names git" "echo \"g''it push --force\" | sh"
+check pass "residual: a decoded name in a string a pipe feeds to a shell" "echo \$'g\\x69t push --force' | sh"
+check deny "a split word does not pad the count (git in a heredoc fed to sh)" $'g\'\'it rev-parse HEAD; cat <<EOF | sh\ngit push --force\nEOF'
+check deny "a PID then a quote does not open an ANSI-C string" $'echo $$\'a\\\'; git push --force; echo \'x\''
+check deny "zsh =git" '=git push --force'
+check deny "a split word does not pad the count and hide a missed git" "g''it rev-parse HEAD; echo git push | sh"
+check deny "a split word does not pad the count (decoded)" $'$\'g\\x69t\' rev-parse HEAD; chronic git push'
+check deny "\$'...' with a hex escape is read" $'$\'g\\x69t\' push --force'
+check deny "\$'...' with an octal escape is read" $'$\'g\\151t\' push --force'
+check deny "\$\"...\" locale string is read" '$"git" push --force'
+check deny "shell reading a heredoc, split word" $'bash <<EOF\ng\'\'it push --force\nEOF'
+check deny "shell reading a here-string, split word" "sh <<< \"g''it push --force\""
+check deny "env -S, split word"            "env -S \"g''it push --force\""
+check deny "su --command, split word"      "su --command=\"g''it push --force\" root"
 check deny "net: \${VAR:-git} default"     'GIT_BIN= ${GIT_BIN:-git} push --force'
 check pass "a pip git+https requirement"   'pip install git+https://example.invalid/r.git'
 check deny "net: one git read twice does not cover a hidden one" 'find . -exec find . -exec git rev-parse HEAD \; \; ; SUDO git push --force'
@@ -171,8 +187,9 @@ check deny "accepted: git in a heredoc body" $'cat <<EOF\ngit push\nEOF'
 check deny "accepted: git in a comment"    'ls # git push'
 check deny "accepted: git as xargs data"   'echo git | xargs echo'
 
-# The net: shapes the parser misreads or does not know, found because git is named (review findings, PR 109). Each of
-# these reaches no on_command with git; only the raw word count denies it.
+# The net: shapes the parser once misread or did not know, found because git is named (review findings, PR 109). Most are
+# read by the parser now (the shell-parse suite pins each); the cases stay as the net's own pins, and a git word that the
+# parser cannot read still hits the raw word count.
 check deny "net: upper-case wrapper"       'SUDO git push --force origin main'
 check deny "net: upper-case env"           'ENV git reset --hard HEAD~1'
 check deny "net: upper-case shell -c"      "Bash -c 'git push --force'"

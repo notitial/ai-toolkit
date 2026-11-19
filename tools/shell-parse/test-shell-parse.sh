@@ -44,7 +44,17 @@ check() {  # check <label> <0|1: did the condition hold>
 expect "plain words" 'echo a b' 'C[/s] <echo> <a> <b>'
 expect "quotes and escapes" "echo \"a b\" 'c d' e\\ f" 'C[/s] <echo> <a b> <c d> <e f>'
 expect "escaped quote in double quotes" 'echo "a\"b"' 'C[/s] <echo> <a"b>'
-expect "ANSI-C quote kept as written" "echo \$'x\\ty'" 'C[/s] <echo> <x\ty>'
+expect "ANSI-C tab and newline decoded (a newline reads as a separator)" "echo \$'x\\ty\\nz'" $'C[/s] <echo> <x\ty;z>'
+expect "ANSI-C escaped quote does not end the word" "printf \$'it\\'s'; a" $'C[/s] <printf> <it\'s>' 'C[/s] <a>'
+expect "ANSI-C hex and octal escapes decoded" "echo \$'a\\x6fb \\151 \\n \\xZZ \\x7'" 'C[/s] <echo> <aob i ; \xZZ \x7>'
+expect "ANSI-C unterminated takes the rest" "echo \$'a b" 'C[/s] <echo> <a b>'
+expect "locale string \$\"..\" is a plain quote" 'echo $"a b" c' 'C[/s] <echo> <a b> <c>'
+expect "<< inside \$(( )) is not a heredoc" $'n=$((1<<3))\na' 'C[/s] <1<<3>' 'C[/s] <a>'
+expect "<< inside a standalone (( )) is not a heredoc" $'(( n = 1 << 3 ))\na' 'C[/s] <n> <=> <1> <<<> <3>' 'C[/s] <a>'
+expect "a redirect inside \$(( )) is still read" 'echo $((a >f; b)) c' 'C[/s] <echo>' 'R[/s] <f>' 'C[/s] <a>' 'C[/s] <b>' 'C[/s] <c>'
+expect "ANSI-C \\u and \\U escapes decoded" "echo \$'\\u0061\\U00000062'" 'C[/s] <echo> <ab>'
+expect "op run with a word holding -- does not hang" 'op run "x -- y"; a' 'C[/s] <x -- y>' 'C[/s] <a>'
+expect "multi-line heredoc body to a shell, <<- with tabs" $'bash <<-EOF\n\ta\n\tb > f\n\tEOF\nc' 'C[/s] <a>' 'R[/s] <f>' 'C[/s] <b>' 'C[/s] <bash>' 'C[/s] <c>'
 expect "# inside a word is not a comment" 'echo a#b' 'C[/s] <echo> <a#b>'
 expect "comment to end of line" $'a # c; b\nd' 'C[/s] <a>' 'C[/s] <d>'
 
@@ -54,6 +64,17 @@ expect "the verb keeps the path as written" '/usr/bin/env FOO=1 /bin/rm x' 'C[/s
 expect "keywords skipped" 'if a; then b' 'C[/s] <a>' 'C[/s] <b>'
 expect "negation and braces" '! c; { d; }' 'C[/s] <c>' 'C[/s] <d>'
 expect "nohup" 'nohup a b' 'C[/s] <a> <b>'
+expect "wrapper and shell names in any case" 'SUDO -u me ENV X=1 Nice a; Bash -c "b"; ZSH -lc "c"' 'C[/s] <a>' 'C[/s] <b>' 'C[/s] <Bash> <-c> <b>' 'C[/s] <c>' 'C[/s] <ZSH> <-lc> <c>'
+expect "cd and eval stay case-sensitive" 'CD /x; a' 'C[/s] <CD> </x>' 'C[/s] <a>'
+expect "nohup and setsid options skipped" 'nohup -- a; setsid -f -w b; doas -a style c' 'C[/s] <a>' 'C[/s] <b>' 'C[/s] <c>'
+expect "xcrun, arch, direnv exec, op run" 'xcrun --sdk macosx a; arch -arm64 b; arch -e X=1 c; direnv exec /p e; op run --env-file x -- f' 'C[/s] <a>' 'C[/s] <b>' 'C[/s] <c>' 'C[/s] <e>' 'C[/s] <f>'
+expect "watch reads its command words as a string" 'watch -n 5 a b' 'C[/s] <a> <b>' 'C[/s] <watch> <-n> <5> <a> <b>'
+expect "noglob and nocorrect are skipped" 'noglob nocorrect a' 'C[/s] <a>'
+expect "a PID then a quote is not an ANSI-C string" $'echo $$\'a\\\'; b; echo \'x\'' 'C[/s] <echo> <$$a\>' 'C[/s] <b>' 'C[/s] <echo> <x>'
+expect "ANSI-C NUL ends the string, octal wraps at a byte" "echo \$'g\\0it' \$'\\551'" 'C[/s] <echo> <g> <i>'
+expect "direnv and op without exec or run are commands" 'direnv allow; op item get x' 'C[/s] <direnv> <allow>' 'C[/s] <op> <item> <get> <x>'
+expect "op run stops at the first non-option word" 'op run -- a; op run b -- c' 'C[/s] <a>' 'C[/s] <b> <--> <c>'
+expect "function, coproc, trap" 'function f { a; }; coproc N { b; }; coproc c; trap "d" EXIT' 'C[/s] <a>' 'C[/s] <b>' 'C[/s] <c>' 'C[/s] <d>' 'C[/s] <trap> <d> <EXIT>'
 
 # separators
 expect "separators" $'a | b && c || d & e\nf' 'C[/s] <a>' 'C[/s] <b>' 'C[/s] <c>' 'C[/s] <d>' 'C[/s] <e>' 'C[/s] <f>'
@@ -87,7 +108,7 @@ expect "eval" 'eval "x; y > z" w' 'C[/s] <x>' 'R[/s] <z>' 'C[/s] <y> <w>' 'C[/s]
 expect "three levels are read, the fourth is not" 'bash -c "bash -c \"bash -c \\\"bash -c a\\\"\""' \
   'C[/s] <bash> <-c> <a>' 'C[/s] <bash> <-c> <bash -c a>' 'C[/s] <bash> <-c> <bash -c "bash -c a">' 'C[/s] <bash> <-c> <bash -c "bash -c \"bash -c a\"">'
 
-expect "eval restores the folder" 'eval "cd /n"; a' 'C[/s] <eval> <cd /n>' 'C[/s] <a>'
+expect "eval runs in the current shell: its cd stays" 'eval "cd /n"; a' 'C[/n] <eval> <cd /n>' 'C[/n] <a>'
 
 # sp_command: the runner's on_command hands the words behind xargs to it
 expect "xargs: wrappers skipped" 'xargs env FOO=1 rm x' 'C[/s] <xargs> <env> <FOO=1> <rm> <x>' 'C[/s] <rm> <x>'
@@ -97,6 +118,22 @@ expect "xargs options skipped" 'xargs -0 -r -n 1 rm x' 'C[/s] <xargs> <-0> <-r> 
 expect "xargs option values skipped (BSD -J, GNU long)" 'xargs -J % --max-args 2 rm %' 'C[/s] <xargs> <-J> <%> <--max-args> <2> <rm> <%>' 'C[/s] <rm> <%>'
 expect "doas, caffeinate and their option values skipped" 'doas -u me caffeinate -i -t 5 rm x' 'C[/s] <rm> <x>'
 expect "su -c is a nested string" "su -c 'a > f' me" 'R[/s] <f>' 'C[/s] <a>' 'C[/s] <su> <-c> <a > f> <me>'
+expect "su --command forms" "su --command='a' me; su me --command 'b'; su --co 'c'" 'C[/s] <a>' 'C[/s] <su> <--command=a> <me>' 'C[/s] <b>' 'C[/s] <su> <me> <--command> <b>' 'C[/s] <c>' 'C[/s] <su> <--co> <c>'
+expect "env -S is a nested string" 'env -S "a" x; env -Sb\ y; env --split-string="c"; env -i -S "FOO=1 d"' 'C[/s] <a>' 'C[/s] <x>' 'C[/s] <b> <y>' 'C[/s] <c>' 'C[/s] <d>'
+
+# a shell with no -c string reads the heredoc or here-string it is given
+expect "bash <<EOF is read" $'bash <<EOF\na > f\nEOF\nb' 'R[/s] <f>' 'C[/s] <a>' 'C[/s] <bash>' 'C[/s] <b>'
+expect "sh -s <<'X' is read" $'sh -s <<\'X\'\na\nX' 'C[/s] <a>' 'C[/s] <sh> <-s>'
+expect "bash <<< string is read" 'bash <<< "a; b"' 'C[/s] <a>' 'C[/s] <b>' 'C[/s] <bash>'
+expect "heredoc then a pipe: the shell is the one it feeds" $'bash <<EOF | cat\na\nEOF\nb' 'C[/s] <a>' 'C[/s] <bash>' 'C[/s] <cat>' 'C[/s] <b>'
+expect "a -c string wins over a heredoc" $'bash -c "a" <<EOF\nb\nEOF' 'C[/s] <a>' 'C[/s] <bash> <-c> <a>'
+expect "a heredoc fed to cat is not read" $'cat <<EOF\na\nEOF' 'C[/s] <cat>'
+
+# size: a long heredoc to cat and a long script must not make the parser slow (a locale-dependent [A-Z] once forked per word)
+big=$(awk 'BEGIN { print "cat > f <<EOF"; for (k = 0; k < 1500; k++) print "line " k " xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"; print "EOF"; for (k = 0; k < 150; k++) print "echo " k }')
+t0=$SECONDS
+out=$("$SH" "$T/run.sh" "$big" 2>&1 | wc -l)
+check "a 75 KB heredoc and 150 commands parse in under 10 s ($((SECONDS - t0)) s)" "$([ "$((SECONDS - t0))" -lt 10 ] && [ "$out" -eq 152 ] && echo 1 || echo 0)"
 
 # refusals
 for c in $'a\001b' $'a\033b' $'a\177b'; do
@@ -121,7 +158,7 @@ rc_of() {  # rc_of <hook file> <input>: the hook's exit code
 damage() {  # damage <lib name> <ok|missing|empty|cut>: lay out $T/part with that lib file in that state
   rm -r "$T/part" 2>/dev/null
   mkdir -p "$T/part/lib"
-  cp "$GUARD" "${GUARD%/*}/destructive-blocker.sh" "$T/part/"
+  cp "$GUARD" "${GUARD%/*}/destructive-blocker.sh" "${GUARD%/*}/secret-detector.sh" "${GUARD%/*}/git-mcp-guard.sh" "$T/part/"
   cp "$T/hooks/lib/hook-common.sh" "$T/hooks/lib/shell-parse.sh" "$T/part/lib/"
   case "$2" in
     missing) rm "$T/part/lib/$1.sh" ;;
@@ -139,9 +176,15 @@ for lib in hook-common shell-parse; do
     done
   done
 done
+damage hook-common ok
+check "destructive-blocker with an intact lib exits 0" "$([ "$(rc_of "$T/part/destructive-blocker.sh" "$GIN")" = 0 ] && echo 1 || echo 0)"
+check "secret-detector with an intact lib exits 0" "$([ "$(rc_of "$T/part/secret-detector.sh" "$GIN")" = 0 ] && echo 1 || echo 0)"
+check "git-mcp-guard with an intact lib exits 0" "$([ "$(rc_of "$T/part/git-mcp-guard.sh" "$MIN")" = 0 ] && echo 1 || echo 0)"
 for state in empty cut; do
   damage hook-common $state
   check "destructive-blocker with $state lib/hook-common.sh exits 1" "$([ "$(rc_of "$T/part/destructive-blocker.sh" "$GIN")" = 1 ] && echo 1 || echo 0)"
+  check "secret-detector with $state lib/hook-common.sh exits 1" "$([ "$(rc_of "$T/part/secret-detector.sh" "$GIN")" = 1 ] && echo 1 || echo 0)"
+  check "git-mcp-guard with $state lib/hook-common.sh exits 1" "$([ "$(rc_of "$T/part/git-mcp-guard.sh" "$MIN")" = 1 ] && echo 1 || echo 0)"
 done
 
 echo "shell-parse: $PASS passed, $FAIL failed"
