@@ -23,7 +23,8 @@ live turn or, for building work only, a standing go (that rule's exception 2).
 In agent-mode:
 - Structure from what is known. **Never invent acceptance criteria**: mark anything inferred
   `(inferred — confirm)` in plan.md and STATE.md.
-- Park, don't ask: open questions go to `## Open questions`, chosen defaults to `## Assumptions` with the why.
+- Park, don't ask: a question with a safe default goes to `## Assumptions`, the default and its why; only one with
+  no safe default, or on the risk list (which never gets a default), goes to `## Open questions`.
 - Map the surface with Grep/Glob; the only subagents are the plan draft and review in Step 4.
 
 ## Input
@@ -128,9 +129,8 @@ or skip policy) and scope boundaries. Never pre-answer any gate on the risk list
 **plan.md** is drafted by [`/fable-plan`](../fable-plan/SKILL.md) in Step 4, not here. Its shape: acceptance
 criteria (inferred ones marked in agent-mode), the affected files, the change per file, edge cases and states,
 dependencies (backend contract, migrations, other teams), a `## Reuse and deletions` part (the existing pieces it
-uses, what it deletes, net lines per step, and any piece deferred because nothing in scope calls it), open
-questions each with its default (only those with no safe default are left for the user), and for each acceptance
-check whether it can run *now*
+uses, what it deletes, net lines per step, and any piece deferred because nothing in scope calls it), and for each
+acceptance check whether it can run *now*
 in the release chain (a check that needs an unshipped release or a prod deploy ships behind a Deferred-unreachable
 finding instead of blocking). Then the execution order:
 

@@ -52,7 +52,6 @@ directory), not a path relative to the target repo, where it does not exist. Pro
 - Dependencies (backend contract, migrations, other teams).
 - **Reuse and deletions** — the existing pieces the plan uses, what it deletes, net lines per step, and
   any piece deferred because nothing in scope calls it.
-- **Open questions**, each with its default; only those with no safe default are left for the user.
 - **Verification feasibility** per acceptance check — whether it is executable *now* in the release
   chain; flag one that needs a release, a product setup or a deploy that doesn't exist yet.
 - **`## Execution order`** — a flat ordered list, or waves for cross-repo ordering, exactly as the
@@ -85,7 +84,7 @@ naming the ticket and the mode:
 Plan draft for <ticket> (<user|agent>-mode)
 
 <the plan.md body: ACs → affected files/changes → edge cases → dependencies →
- reuse and deletions → open questions → verification-feasibility notes → ## Execution order>
+ reuse and deletions → verification-feasibility notes → ## Execution order>
 ```
 
 Then a short **Grounding notes** list: which claims you verified (file:line) and which inputs you had
