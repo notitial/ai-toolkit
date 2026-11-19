@@ -377,24 +377,18 @@ on_command() {
       ;;
     mkfifo | mknod)  # a FIFO or device node at a protected path counts as the file being there
       # Options come before the first operand (BSD getopt stops there, so an option word after it is another operand):
-      # from the first operand on, every word is a target. mknod's words after the name are a type and numbers.
-      local seen=0 skip=0 first=1
+      # from the first operand on, every word is judged as a target. An option's value (-m 600) and mknod's type and
+      # numbers are judged too: they are plain words, and skipping them is how a target gets skipped (-m=u, --mo).
+      local seen=0
       for a in "$@"; do
         if [ "$seen" = 0 ]; then
-          if [ "$skip" = 1 ]; then skip=0; continue; fi
           case "$a" in
             --) seen=1; continue ;;
-            -m | --mode | -F | -g | -u | -[A-Za-z]*[mFgu]) skip=1; continue ;;
             -) ;;  # a lone - is an operand
             -*) continue ;;
           esac
           seen=1
         fi
-        if [ "$verb" = mknod ] && [ "$first" = 0 ]; then
-          case "$a" in p | b | c | u) continue ;; esac
-          [[ "$a" =~ ^[0-9]+$ ]] && continue
-        fi
-        first=0
         judge_target "$a" "$verb"
       done
       ;;
