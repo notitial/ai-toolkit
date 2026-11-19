@@ -89,3 +89,8 @@ files (above) with no change to them. Later steps feed the command to the review
   from the caller's repository); whether a called job that asks for write passes start-up in a fork run, where the
   caller's write is adjusted down (the docs do not say which level the check sees); and that Dependabot proposes bumps
   for a SHA-pinned reusable workflow.
+- Seen on a live run (the review of the PR that moved the scripts): in `publish`, `job.workflow_repository` and
+  `job.workflow_sha` resolved to this repository and the commit of the called workflow file, which for the local call
+  is the PR's merge commit; the sparse checkout of one script by commit SHA worked and the script ran from it. Not
+  yet seen: a SHA-pinned call from another repository, where the value is the kit's pinned commit and a local call
+  cannot tell it from the caller's own; and `review`'s checkout, which only comment runs reach.
