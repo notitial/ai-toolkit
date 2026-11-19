@@ -15,6 +15,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/git-mcp-redirect-XXXXXX")
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/hooks" "$T/work"
 cp "$HOOK" "$T/hooks/git-mcp-redirect.sh"
+cp -R "${HOOK%/*}/lib" "$T/hooks/lib"
 HAVE_LOGGER=0
 [ -f "$LOGGER" ] && cp "$LOGGER" "$T/hooks/audit-logger.sh" && HAVE_LOGGER=1
 PASS=0
