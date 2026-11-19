@@ -142,6 +142,9 @@ jobs:
     outputs:
       run: ${{ steps.fork.outputs.run || steps.comment.outputs.run || steps.gate.outputs.run }}
       app_login: ${{ steps.app.outputs.login }}
+      # The commit to review: the event's own on a PR event, the PR's head as the API has it now on a comment. `review`
+      # checks out exactly this commit, so a push after the request cannot swap the code under the secrets.
+      head_sha: ${{ steps.comment.outputs.head_sha || github.event.pull_request.head.sha }}
     env:
       PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
     steps:
@@ -175,7 +178,7 @@ jobs:
           fi
           echo "login=$APP_LOGIN" >> "$GITHUB_OUTPUT"
 
-      - name: Check the commenter can write to the repo
+      - name: Check the commenter can write to the repo, and read the PR head
         id: comment
         if: github.event_name == 'issue_comment'
         env:
@@ -188,6 +191,9 @@ jobs:
             admin|maintain|write) echo "Commenter permission: $perm" ;;
             *) echo "::error::The commenter's permission is '$perm'; a review needs write access"; exit 1 ;;
           esac
+          head=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .head.sha) && [[ "$head" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::Couldn't read the PR's head commit, so not reviewing"; exit 1; }
+          echo "head_sha=$head" >> "$GITHUB_OUTPUT"
           echo "run=true" >> "$GITHUB_OUTPUT"
 
       # Counts the App's comments (findings, replies, the overview) and the legacy ones: claude[bot] inline comments and
@@ -328,7 +334,7 @@ jobs:
         if: steps.regate.outputs.skip != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          ref: refs/pull/${{ env.PR_NUMBER }}/head
+          ref: ${{ needs.preflight.outputs.head_sha }}
           fetch-depth: 1
           persist-credentials: false
 

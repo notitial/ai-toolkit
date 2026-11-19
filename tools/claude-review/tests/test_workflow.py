@@ -123,6 +123,18 @@ class Workflow(unittest.TestCase):
         parsed = json.loads(SCHEMA.read_text(encoding="utf-8"))
         self.assertEqual(parsed["required"], ["no_issues", "stopped", "findings", "threads", "overview"])
 
+    def test_the_pr_is_checked_out_by_the_commit_preflight_read(self):
+        # A moving ref (refs/pull/N/head) in a comment-triggered run lets a push after the request swap the code that runs
+        # under the secrets (CodeQL: untrusted checkout, time of check to time of use).
+        self.need_yaml()
+        [checkout] = [s for s in self.wf["jobs"]["review"]["steps"] if s.get("name") == "Check out the PR"]
+        self.assertEqual(checkout["with"]["ref"], "${{ needs.preflight.outputs.head_sha }}")
+        self.assertNotIn("refs/pull", self.text)
+        outputs = self.wf["jobs"]["preflight"]["outputs"]
+        self.assertEqual(outputs["head_sha"], "${{ steps.comment.outputs.head_sha || github.event.pull_request.head.sha }}")
+        [comment] = [s for s in self.wf["jobs"]["preflight"]["steps"] if s.get("id") == "comment"]
+        self.assertIn("[0-9a-f]{40}", comment["run"])   # the API's answer is checked before it becomes a ref
+
     def test_no_expression_in_any_run(self):
         self.need_yaml()
         for job, spec in self.wf["jobs"].items():

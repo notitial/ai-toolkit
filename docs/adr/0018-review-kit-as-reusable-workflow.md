@@ -78,7 +78,7 @@ lockfile; the session starts in a copy of the kit's `reviewer/` folder, taken fr
 PR's checkout is only readable data (read allow rules, not `--add-dir`: an added folder would contribute its
 `.claude/agents` and skills). The command's trust source is now one rule: every piece of configuration comes from the
 kit, and nothing the PR or the calling repo holds can configure its reviewer, its root `CLAUDE.md` included (it is read
-as orientation, and is not a rule source when the PR changes it). Claude's environment holds no GitHub token. Later steps simplify what
+as orientation, and is not a rule source when the PR changes it). Claude's environment holds no GitHub token. The PR is checked out by the head commit `preflight` reads from the API (the event's own on a PR event), not by the moving `refs/pull/<N>/head`, so a push after a comment request cannot swap the code under the secrets. Later steps simplify what
 `publish` posts. Each is its own PR and amends this record where it changes a rule.
 
 ## Consequences

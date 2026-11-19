@@ -329,7 +329,7 @@ jobs:
 
    Also turn on **"Always suggest updating pull request branches"** (repo Settings → General → Pull Requests; API
    field `allow_update_branch`). It is off by default, with no org-level switch. Without it a PR that has fallen
-   behind `main` shows no Update branch button, and the workflow, which checks out `refs/pull/<N>/head`, can fail on
+   behind `main` shows no Update branch button, and the workflow, which checks out the PR's head commit, can fail on
    a missing ref until the branch is updated. Update a stale branch by merging `main` into it, never by rebasing
    (`rules/workflow.md`, Stale PR Branches).
 5. **The Claude GitHub App is not needed.** If it is installed on the repo, it still reacts 👀 to every `@claude`
@@ -440,7 +440,7 @@ Use a throwaway PR. Each run's job summary shows
 | 5 | Comment `@claude review` | `rereview`, APPROVE, the same overview comment edited (`result=clean`) |
 | 6 | Re-run `publish` of any run | "already submitted"; no second review, no write |
 | 7 | Unset `CLAUDE_REVIEW_APP_CLIENT_ID`, comment `@claude review --comments`, set it back | `preflight` fails with "Missing: variable CLAUDE_REVIEW_APP_CLIENT_ID"; nothing else runs |
-| 8 | (if available) someone with read access comments `@claude review` | Fails at "Check the commenter can write to the repo" |
+| 8 | (if available) someone with read access comments `@claude review` | Fails at "Check the commenter can write to the repo, and read the PR head" |
 | 9 | On a PR with a resolved finding, push a commit that brings the bug back, comment `@claude review` | A new inline finding on the bug, REQUEST_CHANGES, and the old thread stays resolved and untouched (no `unresolve` call) |
 | 10 | Open a PR that adds a doc line naming an invented client and person as real, an invented ticket key, an internal-looking host and a home path | REQUEST_CHANGES; each finding names the category and the line, and no posted text (inline, body, overview) contains any planted value |
 | 11 | Open a PR that adds the same kind of line with obvious stand-ins only (`ACME`, `ABC-123`, `example.com`, `~/`) | No private-data finding |
