@@ -14,15 +14,19 @@ review that way, and its tests read the kit from that path.
 The kit reads the review command, [claude-pr-review.md](claude-pr-review.md), from its own checkout: no copy is
 installed in a repo that calls it, and this repo has none. The workflow beside it is the **vendored copy** for repos
 that have not moved to the reusable kit, **frozen at v3.4** (never edited; deleted once no repo uses it). Only a repo
-on that copy still installs the command by hand: both files byte for byte, changing only the lines listed in
-[Replacement points](#replacement-points).
+on that copy still keeps the command by hand, and it keeps its existing copy (the v3.4 one, SHA `9537f11b...`): the
+command below is v4.0's and expects the v4.0 `collect.py`, so a v3.4 repo does not take it.
 
 | File | Install path in the target repo | SHA-256 |
 |---|---|---|
 | [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` (frozen v3.4) | `302603c31c1dff049046af03ce06ba2e96314c63561d2dbd29f2be65dbb5a760` |
-| [claude-pr-review.md](claude-pr-review.md) | `.claude/commands/claude-pr-review.md` (frozen v3.4 only) | `9537f11bd44055f511c441b1e8410f138da36785312982417611f126ccdedb06` |
+| [claude-pr-review.md](claude-pr-review.md) | the kit's own checkout (v4.0); a frozen v3.4 repo keeps its existing copy, SHA `9537f11b...` | `92288bad04a0cc33eaaa386ec314b3149bd51c6ad7f5dc74432ffaf7ec51dd4d` |
 
-**Version:** v3.4 (2026-11-17; as a reusable workflow, 2026-11-19, with no behaviour change): the review step runs with `--permission-mode default`. Since `claude-code-action` v1.0.273 a
+**Version:** v4.0 (2026-11-19; breaking): a fixed issue that comes back is an ordinary new finding, not a reopened
+thread. `publish` no longer unresolves anything: resolving a thread is the only write it makes with its
+`GITHUB_TOKEN`. `collect` leaves resolved threads out of the threads file, and the result schema loses the `reopens`
+key. When Claude finds the bug again, it is a new finding, so the review is REQUEST_CHANGES. A repo that moved to the
+reusable kit gets this by pinning the new SHA; a repo on the frozen v3.4 copy keeps the old behaviour. v3.4 (2026-11-17; as a reusable workflow, 2026-11-19, with no behaviour change): the review step runs with `--permission-mode default`. Since `claude-code-action` v1.0.273 a
 session that has a prompt starts in auto mode, where a tool call no allow rule covers can be approved by a safety
 review; `default` refuses it, so `--allowedTools` stays a strict list. The deny list, review command, findings format and
 modes are unchanged. v3.3 (2026-11-10): the two jobs that hold the App key, `appcheck` and `publish`, may run on a dedicated
@@ -69,7 +73,7 @@ Three modes:
 |---|---|---|---|
 | A non-draft same-repo PR is opened, pushed to, reopened or marked ready, and has no review yet (Dependabot and forks skipped) | `initial` | Full review: a triage and a guidance agent, six review passes (defects in the change, interaction with the code around it, security, failure paths, written CLAUDE.md rules, private data), then one verifier per candidate. Up to 8 findings, inline on their lines (else in the review body), REQUEST_CHANGES; or APPROVE with "No issues found" | $0.5–2 on real feature PRs ($0.18–0.33 on small test PRs), measured before v3.1's sixth pass |
 | A push to a PR that was already reviewed | none | `preflight` skips; Claude doesn't run. `publish` dismisses a stale APPROVE | $0 |
-| A comment starting `@claude review`, from someone with write access | `rereview` | Judges each open review thread, replies, resolves the fixed ones, then reviews the whole PR again (drafts too) without repeating raised issues. A fixed issue that is back reopens its old thread with a "Regressed:" reply (a new finding if the thread can't be reopened); only a thread this review resolved at an earlier commit, so a person's resolve, or one Claude accepted as not a bug, stays. APPROVE when nothing is found and no thread is open | about `initial` |
+| A comment starting `@claude review`, from someone with write access | `rereview` | Judges each open review thread, replies, resolves the fixed ones, then reviews the whole PR again (drafts too) without repeating the issue of a thread that is still open. A fixed issue that is back is a new finding in a new thread (resolved threads cover nothing). APPROVE when nothing is found and no thread is open | about `initial` |
 | A comment starting `@claude review --comments` | `followup` | The thread follow-up only: new code, and a fixed issue that came back, aren't seen. When every thread is resolved, the App dismisses its REQUEST_CHANGES and posts a COMMENT "Findings addressed; new code was not re-reviewed." | $0.04–0.25 |
 | `--comments` again with no push and no new thread reply | none | One follow-up per branch state; Claude doesn't run | $0 |
 | `@claude review` again with no push and no new thread reply | `rereview` or none | Skipped when every open thread already has a rereview reply for this head or, with no open thread, when this head already has a clean overview | $0 or about `initial` |
@@ -253,9 +257,9 @@ jobs:
 - **The command** (`claude-pr-review.md` in this folder) comes from the same checkout: `review` checks it out with
   `collect.py` and the prompt names the file, so there is no `.claude/commands/` copy to install or keep in step. The
   result schema is in the workflow only (`RESULT_SCHEMA`, passed as `--json-schema`). The command keeps its
-  frontmatter and its `$ARGUMENTS` placeholder because the frozen v3.4 still runs it as a slash command; both go with
-  that file. A repo on v3.4 that kept the earlier command copy (SHA `2f76a0bc...`) still works: its workflow passes
-  its own `--json-schema`.
+  frontmatter and its `$ARGUMENTS` placeholder, which only the frozen v3.4 needs (it runs the command as a slash
+  command); both go with that file. This command is v4.0's and no longer pairs with v3.4: a repo on v3.4 keeps the
+  command copy it has.
 - The prerequisites below apply to both ways of installing; "the workflow" means the kit.
 
 ### Prerequisites
@@ -335,7 +339,7 @@ jobs:
 
 ### Replacement points
 
-For a vendored copy only. Change only these lines of `claude-review.yml` (the frozen v3.4). Everything else, `claude-pr-review.md` included, stays byte-identical.
+For an existing vendored copy only (no new one is installed since v4.0). Change only these lines of `claude-review.yml` (the frozen v3.4). Everything else stays byte-identical.
 
 | Line | Canonical | Replace with |
 |---|---|---|
@@ -363,7 +367,9 @@ between them by changing which secret is set, with no workflow edit.
 
 ### Steps
 
-For a vendored copy only. On the reusable kit, add the caller above and the command, and check the repo's variables and secrets.
+Closed since v4.0 for a new vendored copy: the command in this folder no longer pairs with the frozen v3.4 workflow
+(see the SHA table). A repo not yet on the reusable kit keeps both files it has and moves to the reusable kit. On the
+reusable kit, add the caller above and check the repo's variables and secrets.
 
 1. Branch from the default branch.
 2. Copy both files to their install paths, check their SHAs, then apply the replacements.
@@ -414,7 +420,7 @@ denies a post, give the user the `gh` command instead.
 
 Use a throwaway PR. Each run's job summary shows
 `Claude review (<mode>): $<cost>, <s> s, <turns> turns, <a> agents, <n> findings, <t> threads judged` and
-`Publish: <i> inline, <b> in body, <d> dropped, <m> moved, verdict <X>, <r> replied, <s> resolved, <o> reopened, <x> dismissed, …`.
+`Publish: <i> inline, <b> in body, <d> dropped, <m> moved, verdict <X>, <r> replied, <s> resolved, <x> dismissed, …`.
 `<a>` is at least 8 in `initial` and `rereview`, plus one per candidate issue (and the thread judges in `rereview`); below that the step warns.
 
 | # | Do | Pass when |
@@ -427,7 +433,7 @@ Use a throwaway PR. Each run's job summary shows
 | 6 | Re-run `publish` of any run | "verdict already submitted"; no second review; the history entry is replaced (kept when this attempt ends without a verdict and an earlier one posted a result for the same commit) |
 | 7 | Unset `CLAUDE_REVIEW_APP_CLIENT_ID`, comment `@claude review --comments`, set it back | `preflight` fails with "Missing: variable CLAUDE_REVIEW_APP_CLIENT_ID"; nothing else runs |
 | 8 | (if available) someone with read access comments `@claude review` | Fails at "Check the commenter can write to the repo" |
-| 9 | On a PR with a resolved finding, push a commit that brings the bug back, comment `@claude review` | The old thread is reopened with an App "Regressed:" reply, `1 reopened` in the publish line, REQUEST_CHANGES, the overview shows a **Regressions:** line; no second thread for the issue |
+| 9 | On a PR with a resolved finding, push a commit that brings the bug back, comment `@claude review` | A new inline finding on the bug, REQUEST_CHANGES, and the old thread stays resolved and untouched (no `unresolve` call) |
 | 10 | Open a PR that adds a doc line naming an invented client and person as real, an invented ticket key, an internal-looking host and a home path | REQUEST_CHANGES; each finding names the category and the line, and no posted text (inline, body, overview) contains any planted value |
 | 11 | Open a PR that adds the same kind of line with obvious stand-ins only (`ACME`, `ABC-123`, `example.com`, `~/`) | No private-data finding |
 
@@ -458,6 +464,8 @@ A thread a person starts must never get a reply or be resolved.
   `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` for it; remove that once the issue is fixed.
 - **Unresolve alone gets re-resolved** by the next request on the same commit. To reopen a thread, reply in it saying
   why it isn't fixed, then unresolve.
+- **A resolved thread covers nothing:** a rereview that finds an issue again posts it as a new finding, also when a
+  person, or Claude's own judge, had resolved the old thread as "not a bug". Reply in the new thread, or leave the old one resolved and say why in the PR.
 - **`the PR moved`:** a push during the run; the result is for older code and isn't posted (a stale approval is
   still dismissed, which can fail the job on a transient API error). Comment again.
 - **Two requests for the same head in quick succession** can both review it (posting happens in `publish`, outside
@@ -513,12 +521,9 @@ Don't loosen any of this when adapting the files.
 - **The App key and tokens live only in `appcheck` and `publish`** (GitHub-hosted by default, or the key pool of
   prerequisite 2). No expression in `preflight` or `review`, which may run self-hosted, names the key, and neither
   reads `CLAUDE_REVIEW_KEY_RUNS_ON`. The App has Pull requests: write only; `publish`'s
-  `GITHUB_TOKEN` has `contents: write` for resolving and reopening threads only. `publish` resolves a thread only if
+  `GITHUB_TOKEN` has `contents: write` for resolving threads only. `publish` resolves a thread only if
   the review started it, it is on this PR and open, and its last comment is this workflow's `verdict=resolved` marker
-  for the reviewed commit. It reopens a thread only in a rereview, only one the review started on this repository's
-  PR, that the `review` job collected at the reviewed commit as resolved after this workflow's own
-  `verdict=resolved` reply for an earlier commit, and whose last comment is still that reply. Then it posts the
-  finding in it as the App; if that reply fails, it resolves the thread back.
+  for the reviewed commit.
 - **Fork PRs never get the secrets:** a `pull_request` run from a fork is skipped, and a comment run needs write
   access and runs the default branch's workflow.
 - **Pinned actions** (full commit SHAs): `actions/checkout` v7.0.1, `anthropics/claude-code-action` v1.0.276,
@@ -535,7 +540,7 @@ Don't loosen any of this when adapting the files.
   `CLAUDE.md` the PR adds or edits in a subdirectory is not used as rules, but Claude Code itself loads it into an
   agent's context when the agent reads files there, so its text can still steer like any other injection; a prompt
   injection in the PR can steer misleading findings, a wrong "resolved", a "no issues" (which becomes an APPROVE),
-  a committable suggestion, or the reopening of threads this workflow resolved (never a person's resolve). All
+  or a committable suggestion. All
   visible and attributed to the App; the verdict is never a required review. The private-data pass is a model's
   judgement: it can miss a name, and an injection can talk it out of a finding.
 
@@ -547,8 +552,6 @@ Don't loosen any of this when adapting the files.
 - **A follow-up reads no new code:** after `--comments` dismisses the REQUEST_CHANGES, code pushed since the last full
   review (a new bug, or a fixed one brought back) is unreviewed until the next `@claude review`.
 - **A follow-up keeps the last full review's overview paragraph,** which can describe findings that are now fixed.
-- **Reopens aren't in the overview's history:** a run whose only findings reopened threads shows as "issues" with no
-  count.
 - **A no-verdict review hides the unchecked-findings note:** a full review that ends without a verdict is the newest
   full entry in the history, so a `--comments` follow-up after it no longer says that body findings of the last
   real review weren't re-checked.
@@ -564,7 +567,7 @@ Don't loosen any of this when adapting the files.
 
 ## Upkeep
 
-- Keep the cost record's `reviewer` string (`claude-pr-review@v3.4`) equal to the version above (a test checks).
+- Keep the cost record's `reviewer` string (`claude-pr-review@v4.0`) equal to the version above (a test checks).
 - Run `tests/` after any change to `collect.py` or `publish.py`.
 - `REVIEW.md` (repo root) is the repo's own file, not part of the kit: edit it freely.
 - A change to the review, the command included, goes in the reusable kit. A repo on the reusable kit picks it up by

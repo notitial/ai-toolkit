@@ -866,135 +866,33 @@ class FoldBack(PublishCase):
         Ctx(dict(self.env, CHANGES_EVENT="COMMENT", APPROVE_EVENT="COMMENT"))
 
 
-class Regressions(PublishCase):
-    """v2.5, live finding L7: a fixed issue that comes back reopens its old thread instead of being dropped."""
+class FixedIssueIsBack(PublishCase):
+    """Live finding L7 (a rereview APPROVEd with the bug back), settled since v4.0: a regression is an ordinary finding."""
 
     def setUp(self):
         super().setUp()
         self.tid = self.gh.add_thread(bot(APP), "SQL injection.", "src/a.py", 2, resolved=True)
         self.gh.thread_comment(self.tid, bot(APP), followup_marker("resolved", sha=OLD, mode="rereview"))
-        # As `publish` gets it: collect's shape, through the Save step's own jq projection.
-        self.threads = save_threads({"head_sha": HEAD, "open": [], "raised": [
-            {"thread_id": self.tid, "reopenable": True, "path": "src/a.py", "line": 2, "issue": "SQL injection.",
-             "comments": []}]})
 
-    def rereview(self, findings, threads=None, **env):
-        res = result(no_issues=False, findings=findings)
-        return self.run_publish(res, self.threads if threads is None else threads, MODE="rereview",
-                                GITHUB_EVENT_NAME="issue_comment", EVENT_ACTION="created", **env)
+    def rereview(self, findings, **env):
+        return self.run_publish(result(no_issues=False, findings=findings), save_threads({"head_sha": HEAD, "open": []}),
+                                MODE="rereview", GITHUB_EVENT_NAME="issue_comment", EVENT_ACTION="created", **env)
 
-    def test_the_artifact_keeps_what_the_gate_needs(self):   # review B1: the artifact once dropped `raised`
-        self.assertEqual(self.threads["raised"], [{"thread_id": self.tid, "reopenable": True}])
-
-    def test_regression_reopens_its_thread_and_asks_for_changes(self):
-        self.assertEqual(self.rereview([finding(body="The f-string is back.", reopens=self.tid)]), 0, self.log)
-        thread = self.gh.threads[self.tid]
-        self.assertFalse(thread["isResolved"])
-        reply = thread["comments"][-1]
-        self.assertEqual(reply["author"], bot(APP))
-        self.assertIn("Regressed: this was fixed earlier", reply["body"])
-        self.assertIn("The f-string is back.", reply["body"])
-        self.assertIn(f"verdict=open sha={HEAD} mode=rereview", reply["body"])
-        self.assertEqual(self.gh.tokens("unresolve"), {GH_TOKEN})
-        self.assertEqual(self.gh.tokens("reply"), {APP_TOKEN})
-        self.assertEqual(self.gh.review_comments, [])   # no second thread for the same issue
+    def test_it_is_posted_as_a_new_finding_and_asks_for_changes(self):
+        self.assertEqual(self.rereview([finding(body="The f-string is back.")]), 0, self.log)
+        [comment] = self.gh.review_comments
+        self.assertEqual(comment["body"], "The f-string is back.")
         [review] = self.new_reviews()
         self.assertEqual(review["event"], "REQUEST_CHANGES")
-        body = self.overview()
-        self.assertIn("result=issues", body.splitlines()[0])
-        self.assertIn("**Regressions:** 1 resolved thread reopened", body)
-        self.assertIn("1 still open", body)
-        self.assertIn("1 reopened", self.log)
+        self.assertIn("result=issues", self.overview().splitlines()[0])
+        self.assertTrue(self.gh.threads[self.tid]["isResolved"])   # the old thread is left as it was
+        self.assertEqual(len(self.gh.threads[self.tid]["comments"]), 2)
+        self.assertNotIn("resolve", {r for _, r, _ in self.gh.calls})   # no thread write at all
 
-    def test_regression_and_a_new_finding(self):
-        self.rereview([finding(body="Back.", reopens=self.tid), finding(line=3, body="New bug.")])
-        self.assertFalse(self.gh.threads[self.tid]["isResolved"])
-        [comment] = self.gh.review_comments
-        self.assertEqual(comment["body"], "New bug.")
-        self.assertEqual(self.new_reviews()[0]["event"], "REQUEST_CHANGES")
-
-    def test_unknown_thread_posts_a_new_finding(self):
-        self.assertEqual(self.rereview([finding(body="Back.", reopens="PRRT_nope")]), 0, self.log)
-        self.assertEqual(len(self.gh.review_comments), 1)
-        self.assertTrue(self.gh.threads[self.tid]["isResolved"])
-        self.assertNotIn("unresolve", {r for _, r, _ in self.gh.calls})
-
-    def test_an_open_thread_already_covers_it(self):   # review C2
-        open_tid = self.open_app_thread()
-        threads = dict(self.threads, open=[{"thread_id": open_tid, "last_comment_id": 1}])
-        self.rereview([finding(body="Back.", reopens=open_tid)], threads)
-        self.assertEqual(self.gh.review_comments, [])
-        self.assertEqual(self.new_reviews()[0]["event"], "REQUEST_CHANGES")   # the open thread asks for changes
-
-    def test_a_thread_resolved_without_this_workflows_fix_stays_resolved(self):   # review B2
-        threads = dict(self.threads, raised=[{"thread_id": self.tid, "reopenable": False}])
-        self.assertEqual(self.rereview([finding(body="Back.", reopens=self.tid)], threads), 0, self.log)
-        self.assertTrue(self.gh.threads[self.tid]["isResolved"])
-        self.assertEqual(self.gh.review_comments, [])
-        self.assertEqual(self.new_reviews(), [])   # no APPROVE: Claude did find something
-        self.assertIn("Claude's are on resolved threads. No verdict.", self.overview())
-
-    def test_thread_collected_at_another_head_posts_a_new_finding(self):
-        self.rereview([finding(body="Back.", reopens=self.tid)], dict(self.threads, head_sha=OLD))
-        self.assertTrue(self.gh.threads[self.tid]["isResolved"])
-        self.assertEqual(len(self.gh.review_comments), 1)
-
-    def test_thread_that_changed_since_collect_posts_a_new_finding(self):
-        self.gh.thread_comment(self.tid, user("dev"), "Won't fix: by design.")
+    def test_the_reopens_key_is_gone(self):
         self.rereview([finding(body="Back.", reopens=self.tid)])
-        self.assertTrue(self.gh.threads[self.tid]["isResolved"])
-        self.assertEqual(len(self.gh.review_comments), 1)
-
-    def test_the_same_thread_twice_reopens_once(self):   # review C1
-        self.rereview([finding(body="Back.", reopens=self.tid), finding(line=3, body="Also back.", reopens=self.tid)])
+        self.assertIn("No verdict: Claude's result is the wrong shape", self.log)
         self.assertEqual(self.gh.review_comments, [])
-        self.assertEqual(sum("Regressed" in c["body"] for c in self.gh.threads[self.tid]["comments"]), 1)
-
-    def test_forbidden_unresolve_falls_back_to_a_new_finding(self):
-        self.gh.fail("unresolve", 200, errors=[{"type": "FORBIDDEN"}])
-        self.assertEqual(self.rereview([finding(body="Back.", reopens=self.tid)]), 0, self.log)
-        self.assertTrue(self.gh.threads[self.tid]["isResolved"])
-        self.assertEqual(len(self.gh.review_comments), 1)
-        self.assertEqual(self.new_reviews()[0]["event"], "REQUEST_CHANGES")
-        self.assertIn("contents: write isn't enough to reopen", self.log)
-        self.assertIn("reopening not permitted", self.log)
-
-    def test_failed_reply_resolves_back_posts_the_finding_and_fails(self):   # review S2, S3
-        self.gh.fail("reply", 500)
-        self.assertNotEqual(self.rereview([finding(body="Back.", reopens=self.tid)]), 0)
-        self.assertTrue(self.gh.threads[self.tid]["isResolved"])
-        self.assertEqual(len(self.gh.review_comments), 1)
-        self.assertIn("Reopening a thread failed", self.log)
-
-    def test_rerun_counts_its_own_reopen_and_posts_nothing_twice(self):
-        self.rereview([finding(body="Back.", reopens=self.tid)])
-        replies = len(self.gh.threads[self.tid]["comments"])
-        self.rereview([finding(body="Back.", reopens=self.tid)], GITHUB_RUN_ATTEMPT="2")
-        self.assertEqual(len(self.gh.threads[self.tid]["comments"]), replies)
-        self.assertEqual(self.gh.review_comments, [])
-        self.assertEqual(len(self.new_reviews()), 1)
-        self.assertIn("**Regressions:** 1 resolved thread reopened", self.overview())
-
-    def test_a_person_resolving_it_again_is_respected(self):   # review S1
-        self.rereview([finding(body="Back.", reopens=self.tid)])
-        self.gh.threads[self.tid]["isResolved"] = True   # the author resolves it again on purpose
-        calls = len(self.gh.calls)
-        self.rereview([finding(body="Back.", reopens=self.tid)], GITHUB_RUN_ATTEMPT="2")
-        self.assertTrue(self.gh.threads[self.tid]["isResolved"])
-        self.assertNotIn("unresolve", {r for _, r, _ in self.gh.calls[calls:]})
-        self.assertEqual(self.gh.review_comments, [])
-        self.assertIn("regression resolved again by a person", self.log)
-
-    def test_initial_review_ignores_reopens(self):
-        self.run_publish(result(no_issues=False, findings=[finding(body="Back.", reopens=self.tid)]), self.threads)
-        self.assertTrue(self.gh.threads[self.tid]["isResolved"])
-        self.assertEqual(len(self.gh.review_comments), 1)
-
-    def test_reopens_must_be_a_short_string(self):
-        for bad in (5, "x" * 201):
-            with self.subTest(bad=bad):
-                self.rereview([finding(reopens=bad)])
-                self.assertIn("No verdict: Claude's result is the wrong shape", self.log)
 
 
 if __name__ == "__main__":

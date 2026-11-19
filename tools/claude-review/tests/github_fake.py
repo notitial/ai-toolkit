@@ -225,15 +225,7 @@ class FakeGitHub:
 
     def graphql(self, token, payload):
         q, v = payload["query"], payload["variables"]
-        if "unresolveReviewThread" in q:
-            self.calls.append(("POST", "unresolve", token))
-            failure = self.injected("unresolve")
-            if failure:
-                return failure[0], failure[1], headers({})
-            if token != GH_TOKEN:
-                return 200, {"errors": [{"type": "FORBIDDEN"}]}, headers({})
-            self.threads[v["id"]]["isResolved"] = False
-            return 200, {"data": {"unresolveReviewThread": {"thread": {"isResolved": False}}}}, headers({})
+        assert "unresolveReviewThread" not in q, "the kit no longer unresolves a thread"
         if "resolveReviewThread" in q:
             self.calls.append(("POST", "resolve", token))
             failure = self.injected("resolve")
