@@ -41,7 +41,8 @@ separate job. Three problems followed:
   it. Those two jobs run on GitHub-hosted runners by default. A repo may point them at a dedicated self-hosted pool
   instead (the repo variable `CLAUDE_REVIEW_KEY_RUNS_ON`, a JSON label array; unset means GitHub-hosted), to stop
   paying hosted minutes on a private repo. The pool is an option, described only by what it must be:
-  - it runs only `appcheck` and `publish`: no PR code, no checkout, no CI or deploy jobs;
+  - it runs only `appcheck` and `publish`: no PR code, no PR checkout, no CI or deploy jobs (`publish` checks out
+    the kit's own script);
   - it holds no deploy key and no other long-lived secret on the host. Its own runner-registration credential (for
     example a PAT or a registration App) is a different thing from the reviewer App's key, which arrives per job as
     the repo secret; it is read only by the runner's start-up and never reaches a job's environment or a path the
