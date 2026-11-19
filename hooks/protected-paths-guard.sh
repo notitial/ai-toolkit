@@ -374,13 +374,15 @@ on_command() {
       parse_args "-t -d -r" "$@"
       for a in "${NONOPT[@]}"; do judge_target "$a" "$verb"; done
       ;;
-    mkfifo)  # a FIFO at a protected path counts as the file being there: every operand is a target
-      parse_args "-m --mode -Z --context" "$@"
-      for a in "${NONOPT[@]}"; do judge_target "$a" "$verb"; done
-      ;;
-    mknod)  # the same for a device node; the operands after the name are a type and numbers, not paths
-      parse_args "-m --mode -Z --context" "$@"
-      [ "${#NONOPT[@]}" -gt 0 ] && judge_target "${NONOPT[0]}" "$verb"
+    mkfifo | mknod)  # a FIFO or device node at a protected path counts as the file being there: every operand is a target
+      parse_args "-m --mode" "$@"
+      for a in "${NONOPT[@]}"; do
+        if [ "$verb" = mknod ]; then  # mknod's type and major/minor words are not paths; an option value missed above is judged, not hidden
+          case "$a" in p | b | c | u) continue ;; esac
+          [[ "$a" =~ ^[0-9]+$ ]] && continue
+        fi
+        judge_target "$a" "$verb"
+      done
       ;;
     mkdir)
       parse_args "-m" "$@"
