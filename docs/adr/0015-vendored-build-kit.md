@@ -17,7 +17,7 @@ a build tool belongs to a project: its schemes, variants and lint pins are the p
   - Run from the toolkit checkout: every project would depend on one path and on the toolkit's state, and a rename
     breaks all of them. Rejected.
   - **A copy inside each project, installed and upgraded by a skill: chosen.** It follows the `claude-review` kit
-    ([ADR 0013](0013-app-owned-pr-review.md)): the toolkit holds the canonical files, `/add-build-kit` copies them and
+    ([ADR 0013](0013-app-owned-pr-review.md); that kit has since become a reusable workflow, [ADR 0018](0018-review-kit-as-reusable-workflow.md), and the build kit stays vendored): the toolkit holds the canonical files, `/add-build-kit` copies them and
     upgrades by diff, nothing runs until a project installs it.
 - **Script layer and MCP.** MCP only leaves CI and Bash users with different code; shell scripts need a second layer
   to parse results. **One Python CLI with an MCP mode on the same file: chosen**, so CI, agents in Bash and MCP clients

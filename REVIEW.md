@@ -10,7 +10,7 @@ Markdown knowledge base (`docs/`) plus working shell and Python in `hooks/` and 
 live: `/setup-claude` symlinks `~/.claude/hooks/*` to them, so a merged change runs on the next tool call. Most risk
 sits in the guards (`hooks/*-guard.sh`, `secret-detector.sh`, `destructive-blocker.sh`, `gh-block.sh`,
 `git-mcp-*.sh`), in `tools/github-mcp/` and in the review workflow (`tools/claude-review/`,
-`.github/workflows/claude-review.yml`).
+`.github/workflows/claude-review-kit.yml`, called by `.github/workflows/claude-review.yml`).
 
 ## Failure modes to hunt
 
@@ -30,8 +30,10 @@ In `docs/`, `rules/`, `agents/`, `skills/`: a statement that contradicts the cod
 flag, a count, a roster entry missing from the README install table). Not wording, except private data.
 
 In the review workflow and `tools/github-mcp/`: anything that lets a secret, token or credential reach a log, a URL,
-a comment or a file. In the workflow: PR, comment or Claude text that reaches a `run:` through `${{ }}`, and a change
-to `tools/claude-review/claude-review.yml` that isn't made to the installed copy too.
+a comment or a file. In the workflow: PR, comment or Claude text that reaches a `run:` through `${{ }}`; a kit job
+without its own `permissions:` (it would inherit the caller's ceiling); a secret the kit uses that the caller doesn't
+map by name, or `secrets: inherit`; a change to the frozen `tools/claude-review/claude-review.yml` (v3.4); and a change
+to `tools/claude-review/claude-pr-review.md` that isn't made to the installed copy too.
 
 In a fix, in any path: a new branch, flag or guard for the one reported case while the same cause still breaks a
 sibling input or state through the general path. Name that input or state as the trigger.

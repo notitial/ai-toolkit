@@ -2,11 +2,12 @@
 
 **Status:** accepted
 **Date:** 2026-10-23
-**Amended:** 2026-11-10 (the key jobs may run on a dedicated runner pool)
+**Amended:** 2026-11-10 (the key jobs may run on a dedicated runner pool), 2026-11-19 (the kit is a reusable workflow, [ADR 0018](0018-review-kit-as-reusable-workflow.md))
 
-The toolkit ships this review as a kit, `tools/claude-review/`, and this repo runs its own copy of it.
+The toolkit ships this review as a kit, `tools/claude-review/` and `.github/workflows/claude-review-kit.yml`, and this
+repo calls it from `.github/workflows/claude-review.yml`.
 
-The automatic Claude PR review (`.github/workflows/claude-review.yml`) posts as a per-owner GitHub App, and that App
+The automatic Claude PR review (`.github/workflows/claude-review-kit.yml`) posts as a per-owner GitHub App, and that App
 submits APPROVE / REQUEST_CHANGES reviews as a signal. It replaced an earlier, unrecorded approach that posted a
 closing comment instead of a review.
 

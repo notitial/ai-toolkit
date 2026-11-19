@@ -1,8 +1,10 @@
-"""Static checks on the workflow and the command: YAML parses, inline Python compiles, the schema is in sync, and the
-security rules hold (no posting tool, no `${{ }}` in a `run:`, the App key only in `appcheck` and `publish`, whose runner is the optional key pool, pinned actions)."""
+"""Static checks on the reusable kit workflow, this repo's caller of it and the command: YAML parses, inline Python
+compiles, the schema is in sync, and the security rules hold (no posting tool, no `${{ }}` in a `run:`, the App key only
+in `appcheck` and `publish`, whose runner is the optional key pool, every job's permissions declared and inside the
+caller's ceiling, the caller's credentials mapped by name, pinned actions)."""
 import json, re, unittest
 
-from workflow import COMMAND, WORKFLOW, command_schema, heredocs, parse_yaml
+from workflow import CALLER, COMMAND, FROZEN, HERE, WORKFLOW, command_schema, heredocs, parse_yaml, triggers
 
 
 class Workflow(unittest.TestCase):
@@ -90,7 +92,7 @@ class Workflow(unittest.TestCase):
                     self.assertEqual(spec["runs-on"], key_runs_on)
                     self.assertTrue(uses_key)
                 else:   # a self-hosted job: the runner would receive the key just to evaluate an expression
-                    self.assertEqual(spec["runs-on"], "ubuntu-latest")
+                    self.assertEqual(spec["runs-on"], "${{ fromJSON(inputs.runs-on) }}")
                     self.assertFalse(uses_key)
                     self.assertNotIn("CLAUDE_REVIEW_KEY_RUNS_ON", dumped)
         steps = self.wf["jobs"]["appcheck"]["steps"]
@@ -103,7 +105,8 @@ class Workflow(unittest.TestCase):
         self.assertIn("needs.appcheck.result != 'failure'", publish["if"])
         self.assertIn("head.repo.full_name == github.repository", publish["if"])
         self.assertEqual(self.wf["jobs"]["appcheck"]["permissions"], {})
-        self.assertEqual(publish["env"], {"CHANGES_EVENT": "REQUEST_CHANGES", "APPROVE_EVENT": "APPROVE"})
+        self.assertEqual(publish["env"], {"CHANGES_EVENT": "${{ inputs.changes-event }}",
+                                          "APPROVE_EVENT": "${{ inputs.approve-event }}"})
 
     def test_the_app_reacts_and_preflight_is_read_only(self):   # v2.5: 🚀 from the App, not 👀 from github-actions
         self.need_yaml()
@@ -168,11 +171,88 @@ class Workflow(unittest.TestCase):
                 self.assertIs(self.record["stopped"], stopped)   # review C4: false stays false
 
     def test_cost_record_names_the_kit_version(self):
-        import pathlib
-        readme = (pathlib.Path(WORKFLOW).parent / "README.md").read_text(encoding="utf-8")
+        readme = (HERE.parent / "README.md").read_text(encoding="utf-8")
         version = re.search(r"^\*\*Version:\*\* (v[0-9.]+) ", readme, re.M).group(1)
         self.cost_step("initial", 8)
         self.assertEqual(self.record["reviewer"], f"claude-pr-review@{version}")
+
+    # The reusable-workflow shape (ADR 0018): what the caller can pass in, what each job may hold.
+    LEVEL = {"none": 0, "read": 1, "write": 2}
+
+    def test_the_kit_is_a_reusable_workflow_and_nothing_else(self):
+        self.need_yaml()
+        self.assertEqual(list(triggers(self.wf)), ["workflow_call"])
+        call = triggers(self.wf)["workflow_call"]
+        self.assertEqual({k: v["default"] for k, v in call["inputs"].items()},
+                         {"runs-on": '["ubuntu-latest"]', "changes-event": "REQUEST_CHANGES", "approve-event": "APPROVE"})
+        for name, spec in call["inputs"].items():
+            self.assertEqual(spec["type"], "string", name)
+        # Optional: a missing credential must reach appcheck's "Missing: ..." check, not fail the call.
+        self.assertEqual({k: v.get("required") for k, v in call["secrets"].items()},
+                         {"CLAUDE_REVIEW_APP_KEY": False, "ANTHROPIC_API_KEY": False, "CLAUDE_CODE_OAUTH_TOKEN": False})
+        self.assertEqual(self.wf["permissions"], {})
+
+    def test_every_kit_job_declares_permissions_inside_the_callers_ceiling(self):
+        # A kit job without `permissions:` would inherit the caller job's whole ceiling.
+        self.need_yaml()
+        ceiling = parse_yaml(CALLER)["jobs"]["claude-review"]["permissions"]
+        for job, spec in self.wf["jobs"].items():
+            with self.subTest(job=job):
+                self.assertIn("permissions", spec)
+                for scope, level in spec["permissions"].items():
+                    self.assertGreaterEqual(self.LEVEL[ceiling.get(scope, "none")], self.LEVEL[level], scope)
+
+    def test_the_kit_equals_the_frozen_v34_workflow_apart_from_the_reusable_edits(self):
+        # "No behaviour change", pinned: from `jobs:` on, the kit is the frozen vendored workflow except the runner
+        # input, the verdict-event inputs and the check on them. Delete this test with the frozen file.
+        kit = self.text[self.text.index("\njobs:\n"):]
+        frozen = FROZEN.read_text(encoding="utf-8")
+        frozen = frozen[frozen.index("\njobs:\n"):]
+        kit = kit.replace("${{ fromJSON(inputs.runs-on) }}", "ubuntu-latest")
+        kit = kit.replace("${{ inputs.changes-event }}", "REQUEST_CHANGES").replace("${{ inputs.approve-event }}", "APPROVE")
+        kit = "".join(ln for ln in kit.splitlines(True)
+                      if "self.changes_event not in" not in ln and "changes-event must be" not in ln)
+        self.assertEqual(kit, frozen)
+
+    def test_the_kit_uses_only_the_three_declared_credentials(self):
+        self.need_yaml()
+        declared = set(triggers(self.wf)["workflow_call"]["secrets"])
+        self.assertEqual(set(re.findall(r"secrets\.(\w+)", self.text)), declared)
+        self.assertIsNone(re.search(r"secrets\[|toJSON\(secrets", self.text))   # every secret at once
+        for job, spec in self.wf["jobs"].items():
+            dumped = json.dumps(spec)
+            with self.subTest(job=job):   # the Claude credential only in `review`, the App key only in the key jobs
+                self.assertEqual("secrets.ANTHROPIC_API_KEY" in dumped or "secrets.CLAUDE_CODE_OAUTH_TOKEN" in dumped,
+                                 job == "review")
+                self.assertEqual("secrets.CLAUDE_REVIEW_APP_KEY" in dumped, job in ("appcheck", "publish"))
+
+
+class Caller(unittest.TestCase):
+    """This repo's .github/workflows/claude-review.yml: triggers, the permission ceiling and the credentials it maps."""
+    @classmethod
+    def setUpClass(cls):
+        cls.wf = parse_yaml(CALLER)
+
+    def need_yaml(self):
+        if self.wf is None:
+            self.skipTest("no YAML parser (install PyYAML or Ruby)")
+
+    def test_triggers_and_ceiling(self):
+        self.need_yaml()
+        self.assertEqual(triggers(self.wf), {"pull_request": {"types": ["opened", "synchronize", "ready_for_review", "reopened"]},
+                                        "issue_comment": {"types": ["created"]}})
+        self.assertEqual(self.wf["permissions"], {})
+        self.assertEqual(list(self.wf["jobs"]), ["claude-review"])
+        self.assertEqual(self.wf["jobs"]["claude-review"]["permissions"],
+                         {"contents": "write", "pull-requests": "write", "issues": "read"})
+
+    def test_calls_the_kit_and_maps_its_credentials_by_name(self):
+        self.need_yaml()
+        job = self.wf["jobs"]["claude-review"]
+        self.assertEqual(job["uses"], "./.github/workflows/claude-review-kit.yml")   # same commit as this caller
+        self.assertEqual(set(job) - {"permissions", "uses", "secrets"}, set())   # no steps, no `with`: the kit's defaults
+        names = ("CLAUDE_REVIEW_APP_KEY", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")
+        self.assertEqual(job["secrets"], {name: "${{ secrets.%s }}" % name for name in names})
 
 
 if __name__ == "__main__":
