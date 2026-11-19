@@ -187,11 +187,12 @@
         ]
       },
       {
-        "matcher": "Bash",
+        "_comment": "The one owner of Bash git (ADR 0010): denies every Bash git command except read-only plumbing, behind wrappers, keywords, bash -c, eval and find -exec (the hook header lists what it does not read), and sends the rest to the git MCP tools. Fail-closed like the other guards, so the command runs it through bash, quoted, with `|| exit 2`. Monitor is matched too: it runs its command in a shell, and protected-paths-guard no longer reads Bash git there.",
+        "matcher": "Bash|Monitor",
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/hooks/git-mcp-redirect.sh",
+            "command": "/bin/bash -p \"$HOME/.claude/hooks/git-mcp-redirect.sh\" || exit 2",
             "timeout": 10
           }
         ]

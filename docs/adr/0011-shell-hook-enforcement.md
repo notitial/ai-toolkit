@@ -20,8 +20,8 @@ Use shell hooks for enforcement. Five hooks are defined in `hooks/`:
 | Hook | Event | Purpose |
 |------|-------|---------|
 | `secret-detector.sh` | PreToolUse | Blocks Bash, Write, Edit, MultiEdit, NotebookEdit and git MCP commit calls that carry a secret pattern, read or write a `.env` file (the Read and Grep tools too; the four example names pass), search recursively where `.env` files may be, or (Bash) print a Keychain secret with `security find-*-password -w/-g` or `dump-keychain -d` |
-| `destructive-blocker.sh` | PreToolUse | Blocks destructive Bash commands (rm -rf, force push, DROP TABLE, etc.). A forced delete or truncation of one absolute path, or a bulk delete, asks instead in an interactive session (since 2026-10-20) |
-| `git-mcp-redirect.sh` | PreToolUse | Denies `git *` Bash commands, redirects to `mcp__git-mcp__*` equivalents |
+| `destructive-blocker.sh` | PreToolUse | Blocks destructive Bash commands (rm -rf, DROP TABLE, etc.; Bash git is not judged here, see the next row). A forced delete or truncation of one absolute path, or a bulk delete, asks instead in an interactive session (since 2026-10-20) |
+| `git-mcp-redirect.sh` | PreToolUse | Denies every `git *` Bash command except read-only plumbing, redirects to `mcp__git-mcp__*` equivalents; the one reader of Bash git, fail-closed (amended 2026-11-19, ADR 0010) |
 | `secret-redact-output.sh` | PostToolUse | Replaces token-shaped values in Bash, Read, Grep and MCP tool output with `[REDACTED:<kind>]` before the model sees it; never blocks (added 2026-10-27) |
 | `audit-logger.sh` | PostToolUse | Logs Bash and MCP tool calls to `.archive/audit/` |
 

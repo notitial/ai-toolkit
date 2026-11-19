@@ -9,11 +9,12 @@
 #     cannot be removed or moved (a call that creates one only widens the protection). The hook finds a root by walking up from the target's real path, so a clone made elsewhere (no marker
 #     in it) stays editable, and a non-repository folder can be protected the same way.
 #   - ~/.claude/settings*.json (any such file directly under ~/.claude).
-#   - A git push (Bash or git MCP git_push) whose target remote resolves to a local path inside a protected place:
+#   - A git MCP git_push whose target remote resolves to a local path inside a protected place:
 #     the push writes refs and objects there. A clone made from the live checkout's folder has that path as its
 #     origin. A network URL is not judged.
-#   Exceptions: <root>/.archive/** is writable; `git pull --ff-only`, `git merge --ff-only` and the git MCP
-#   git_pull with fastForwardOnly are allowed (they move a checkout to a reviewed commit and nothing else).
+#   Exceptions: <root>/.archive/** is writable; the git MCP git_pull with fastForwardOnly is allowed (it moves a
+#   checkout to a reviewed commit and nothing else).
+#   Bash git is not judged here: hooks/git-mcp-redirect.sh is its one owner and denies all of it but read-only plumbing.
 #
 # NEVER ASKS. Every decision is a deny or silence. It names no repository or tool of any project.
 # FAIL-CLOSED without jq (as git-mcp-guard): the input cannot be read, so the call is denied. Without lib/hook-common.sh
@@ -28,15 +29,14 @@
 #     $( ), backticks and ( )), `cd <dir>` is tracked left to right, and a segment is denied when it is a write
 #     shape and a target resolves into a protected place. Write shapes: a > >> >| &> redirect; rm rmdir unlink shred
 #     touch mkdir chmod chown chgrp truncate tee mv cp install ln rsync dd patch; sed -i and perl -i; tar x, unzip,
-#     curl -o/-O, wget; find with -delete, -fprint or -exec of a write verb; xargs of those; git subcommands that
-#     change a work tree, refs or config (checkout, reset, clean, restore, commit, add, rm, mv, merge, rebase, pull,
-#     stash, config, tag, branch, remote, worktree, clone, init and the like), judged by the folder git runs in
-#     (`git -C`, `--work-tree`, or the tracked cd). `bash -c STRING` and `eval STRING` are read recursively.
+#     curl -o/-O, wget; find with -delete, -fprint or -exec of a write verb; xargs of those.
+#     `bash -c STRING` and `eval STRING` are read recursively.
 #     Relative operands resolve against the tracked folder; a glob is judged by its directory prefix.
 #
 # KNOWN LIMITS (this is a guard against mistakes and the classifier is a second line, not a sandbox)
-#   Not read: for a push, a remote named by a variable or by git's environment (GIT_DIR, GIT_CONFIG_*) or by `git -c remote.<name>.url=...`, a remote changed or a clone made earlier in the same command, submodule pushes, `--git-dir`
-#   with no work tree, a bare word that is no configured remote (read as a name, not a folder), a percent-encoded file:// URL, a repo with no readable config, an alias or a remote helper
+#   Not read: for a git MCP push, a remote changed earlier, submodule pushes, a bare word that is no configured
+#   remote (read as a name, not a folder), a percent-encoded file:// URL, a repo with no readable config, an alias or a
+#   remote helper
 #   that maps to a local path; the program text of an interpreter (python -c, node -e, a script file), make/npm/other tools that
 #   write on their own, paths built at run time ($VAR, $(...) output), a `cd` to a variable or glob (the folder is
 #   then unknown and only absolute operands are judged), file names fed to xargs on stdin, $(...) inside a heredoc,
@@ -356,126 +356,6 @@ curl_bundle_O() {
   return 1
 }
 
-# git_is_write <subcommand> <args after it...>
-git_is_write() {
-  local sub="$1" a has_ff=0 has_rebase=0 has_read=0 pos=0
-  shift
-  case "$sub" in
-    add | rm | mv | commit | checkout | switch | restore | reset | cherry-pick | revert | am | init | clone | update-ref | filter-branch | gc | prune | repack | maintenance | read-tree | checkout-index | write-tree | commit-tree | fast-import | merge-file | update-index | pack-refs | rerere | submodule)
-      case "$sub" in submodule) case "${1:-}" in status | summary | foreach) return 1 ;; esac ;; esac
-      return 0
-      ;;
-    merge | pull)
-      for a in "$@"; do
-        case "$a" in
-          --ff-only) has_ff=1 ;;
-          --rebase | -r | --rebase=* | --no-ff | --squash) has_rebase=1 ;;
-        esac
-      done
-      [ "$has_ff" = 1 ] && [ "$has_rebase" = 0 ] && return 1
-      return 0
-      ;;
-    rebase) return 0 ;;
-    clean)
-      for a in "$@"; do
-        case "$a" in --dry-run | -n | -[a-zA-Z]*n*) return 1 ;; esac
-      done
-      return 0
-      ;;
-    symbolic-ref)
-      for a in "$@"; do
-        case "$a" in -d | --delete) return 0 ;; -*) ;; *) pos=$((pos + 1)) ;; esac
-      done
-      [ "$pos" -ge 2 ] && return 0
-      return 1
-      ;;
-    hash-object)
-      for a in "$@"; do
-        case "$a" in -w) return 0 ;; esac
-      done
-      return 1
-      ;;
-    notes)
-      case "${1:-list}" in add | append | edit | remove | merge | prune | copy) return 0 ;; esac
-      return 1
-      ;;
-    apply)
-      for a in "$@"; do
-        case "$a" in --check | --stat | --numstat | --summary) return 1 ;; esac
-      done
-      return 0
-      ;;
-    bisect)
-      case "${1:-}" in log | view | visualize | replay) return 1 ;; esac
-      return 0
-      ;;
-    sparse-checkout)
-      case "${1:-}" in list) return 1 ;; esac
-      return 0
-      ;;
-    replace)
-      [ "$#" -eq 0 ] && return 1
-      for a in "$@"; do
-        case "$a" in -l | --list) return 1 ;; esac
-      done
-      return 0
-      ;;
-    stash)
-      case "${1:-push}" in list | show) return 1 ;; esac
-      return 0
-      ;;
-    config)
-      for a in "$@"; do
-        case "$a" in --global | --system | --file | --file=* | -f) return 1 ;; esac
-      done
-      for a in "$@"; do
-        case "$a" in
-          --unset | --unset-all | --add | --replace-all | --edit | -e | --rename-section | --remove-section) return 0 ;;
-          --get | --get-all | --get-regexp | --list | -l | --show-origin | --get-urlmatch | --default) has_read=1 ;;
-          -*) ;;
-          *) pos=$((pos + 1)) ;;
-        esac
-      done
-      [ "$has_read" = 1 ] && return 1
-      [ "$pos" -ge 2 ] && return 0
-      return 1
-      ;;
-    tag)
-      for a in "$@"; do
-        case "$a" in
-          -l | --list | -v | --verify | --contains | --no-contains | --points-at | --merged | --no-merged) return 1 ;;
-          -d | --delete | -f | --force | -a | -s | -m | -F | -u) return 0 ;;
-          -*) ;;
-          *) pos=$((pos + 1)) ;;
-        esac
-      done
-      [ "$pos" -ge 1 ] && return 0
-      return 1
-      ;;
-    branch)
-      for a in "$@"; do
-        case "$a" in
-          -l | --list | --show-current | -a | -r | -v | -vv | --merged | --no-merged | --contains | --no-contains | --points-at) has_read=1 ;;
-          -d | -D | --delete | -m | -M | --move | -c | -C | --copy | -f | --force | -u | --set-upstream-to* | --unset-upstream | --edit-description) return 0 ;;
-          -*) ;;
-          *) pos=$((pos + 1)) ;;
-        esac
-      done
-      [ "$pos" -ge 1 ] && [ "$has_read" = 0 ] && return 0
-      return 1
-      ;;
-    remote)
-      case "${1:-}" in add | remove | rm | rename | set-url | set-head | set-branches | prune) return 0 ;; esac
-      return 1
-      ;;
-    worktree)
-      case "${1:-}" in add | remove | move | prune | lock | unlock | repair) return 0 ;; esac
-      return 1
-      ;;
-  esac
-  return 1
-}
-
 # on_command <command words...>: judge one simple command. The parser has skipped assignments, wrappers and keywords,
 # applied cd, pushd and popd to CWD, and read bash -c and eval strings.
 on_command() {
@@ -705,61 +585,25 @@ on_command() {
         case "$a" in -fprint | -fprint0 | -fprintf | -fls) nextf=1 ;; esac
       done
       ;;
-    xargs)
-      while [ "$#" -gt 0 ]; do
-        case "$1" in
-          -I | -n | -P | -L | -d | -E | -s | -a) shift; shift ;;
-          -*) shift ;;
-          *) break ;;
-        esac
-      done
-      [ "$#" -gt 0 ] && sp_command "$@"
-      ;;
-    git)
-      analyse_git "$@"
-      ;;
+    xargs) sp_xargs "$@" ;;
   esac
   return 0
 }
 
-# judge_push <repo dir> <git push args...>: a push whose target resolves to a local path inside a protected place
-# writes refs and objects there, so it is judged like any other write. The target is the --repo option or the first
-# operand, else the repo's push remote (branch pushRemote, remote.pushDefault, branch remote, origin). A configured
+# judge_push <repo dir> <remote name or url, may be empty>: a git MCP push whose target resolves to a local path inside
+# a protected place writes refs and objects there, so it is judged like any other write. The target is the call's
+# remote, else the repo's push remote (branch pushRemote, remote.pushDefault, branch remote, origin). A configured
 # remote is read as its push URL (rewrites applied); anything else is taken as written. A network URL (scheme://,
 # or host:path) is not judged. A relative path resolves against the repo dir.
 judge_push() {
-  local dir=$1 a rem="" ropt="" opt="" cur top skipn=0 dd=0
-  shift
-  for a in "$@"; do
-    if [ "$skipn" = 1 ]; then
-      skipn=0
-      [ "$opt" = --repo ] && ropt=$a
-      continue
-    fi
-    if [ "$dd" = 0 ]; then
-      case "$a" in
-        --) dd=1; continue ;;
-        --repo=*) ropt=${a#*=}; continue ;;
-        --repo | --push-option | --receive-pack | --exec) opt=$a; skipn=1; continue ;;
-        -o) opt=-o; skipn=1; continue ;;
-        -[!-]*o)
-          # a cluster takes the next word only when its first o is the last letter (-fo); -oVALUE carries its own
-          case "${a%o}" in *o*) ;; *) opt=-o; skipn=1 ;; esac
-          continue
-          ;;
-        -*) continue ;;
-      esac
-    fi
-    [ -n "$rem" ] || rem=$a
-  done
+  local dir=$1 rem=$2 cur top
   # A folder that does not exist (yet) or is unknown has no config to read: only an explicit target can be judged.
   if [ -z "$dir" ] || [ ! -d "$dir" ]; then
     push_target "" "" "$rem"
-    push_target "" "" "$ropt"
     return 0
   fi
   top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || top=$dir
-  if [ -z "$rem" ] && [ -z "$ropt" ]; then
+  if [ -z "$rem" ]; then
     cur=$(git -C "$dir" symbolic-ref -q HEAD 2>/dev/null)
     cur=${cur#refs/heads/}
     [ -z "$cur" ] || rem=$(git -C "$dir" config --get "branch.$cur.pushRemote" 2>/dev/null)
@@ -768,11 +612,9 @@ judge_push() {
     [ -n "$rem" ] || rem=origin
   fi
   push_target "$dir" "$top" "$rem"
-  push_target "$dir" "$top" "$ropt"
 }
 
-# push_target <repo dir> <work tree top> <remote name or url, may be empty>: judge one push target. Both the
-# --repo option and the operand are judged, since which one git uses is not worth getting wrong.
+# push_target <repo dir> <work tree top> <remote name or url, may be empty>: judge one push target.
 push_target() {
   local dir=$1 top=$2 rem=$3 urls url p
   [ -n "$rem" ] || return 0
@@ -797,111 +639,6 @@ push_target() {
   done <<EOF
 $urls
 EOF
-}
-
-analyse_git() {
-  local wt=$CWD gd="" a sub="" subargs=() next="" base
-  for a in "$@"; do
-    if [ -n "$next" ]; then
-      case "$next" in
-        -C)
-          case "$a" in
-            '~') a=$HOME_R ;;
-            '~/'*) a="$HOME_R/${a#\~/}" ;;
-            '$HOME') a=$HOME_R ;;
-            '$HOME/'*) a="$HOME_R/${a#\$HOME/}" ;;
-          esac
-          case "$a" in
-            /*) wt=$a ;;
-            *) if [ -n "$wt" ]; then wt="$wt/$a"; fi ;;
-          esac
-          ;;
-        --work-tree) wt=$a ;;
-        --git-dir) gd=$a ;;
-      esac
-      next=""
-      continue
-    fi
-    if [ -n "$sub" ]; then
-      subargs[${#subargs[@]}]=$a
-      continue
-    fi
-    case "$a" in
-      -C | --work-tree | --git-dir) next=$a ;;
-      -C?*)
-        a=${a#-C}
-        case "$a" in
-          '~') a=$HOME_R ;;
-          '~/'*) a="$HOME_R/${a#\~/}" ;;
-          '$HOME') a=$HOME_R ;;
-          '$HOME/'*) a="$HOME_R/${a#\$HOME/}" ;;
-        esac
-        case "$a" in /*) wt=$a ;; *) if [ -n "$wt" ]; then wt="$wt/$a"; fi ;; esac
-        ;;
-      --work-tree=*) wt=${a#*=} ;;
-      --git-dir=*) gd=${a#*=} ;;
-      -c | --exec-path | --namespace) next=skip ;;
-      -*) ;;
-      *) sub=$a ;;
-    esac
-  done
-  [ -n "$sub" ] || return 0
-  if [ "$sub" = config ]; then
-    local cf=0
-    for a in "${subargs[@]}"; do
-      if [ "$cf" = 1 ]; then judge_target "$a" "git config"; cf=0; continue; fi
-      case "$a" in
-        -f | --file) cf=1 ;;
-        --file=*) judge_target "${a#*=}" "git config" ;;
-      esac
-    done
-  fi
-  if [ "$sub" = push ]; then
-    judge_push "$wt" "${subargs[@]}"
-    return 0
-  fi
-  git_is_write "$sub" "${subargs[@]}" || return 0
-  case "$sub" in
-    clone)
-      local pos=() s skipn=0
-      for s in "${subargs[@]}"; do
-        if [ "$skipn" = 1 ]; then skipn=0; continue; fi
-        case "$s" in
-          -b | --branch | --depth | -o | --origin | -c | --config | --filter | --reference | --separate-git-dir | --template | -j | --jobs | -u | --upload-pack) skipn=1 ;;
-          -*) ;;
-          *) pos[${#pos[@]}]=$s ;;
-        esac
-      done
-      if [ "${#pos[@]}" -ge 2 ]; then
-        judge_target "${pos[1]}" "git clone"
-      elif [ "${#pos[@]}" -eq 1 ] && [ -n "$wt" ]; then
-        base=${pos[0]##*/}
-        base=${base%.git}
-        judge_target "$wt/$base" "git clone"
-      fi
-      return 0
-      ;;
-    init)
-      local pos=() s skipn=0
-      for s in "${subargs[@]}"; do
-        if [ "$skipn" = 1 ]; then skipn=0; continue; fi
-        case "$s" in
-          -b | --initial-branch | --template | --separate-git-dir | --object-format) skipn=1 ;;
-          -*) ;;
-          *) pos[${#pos[@]}]=$s ;;
-        esac
-      done
-      if [ "${#pos[@]}" -ge 1 ]; then
-        case "${pos[0]}" in /*) judge_target "${pos[0]}" "git init" ;; *) [ -n "$wt" ] && judge_target "$wt/${pos[0]}" "git init" ;; esac
-      elif [ -n "$wt" ]; then
-        judge_target "$wt" "git init"
-      fi
-      return 0
-      ;;
-  esac
-  [ -n "$wt" ] && judge_target "$(git_top "$wt")" "git $sub"
-  [ -n "$gd" ] && judge_target "$gd" "git $sub"
-  return 0
 }
 
 # ---- git MCP ----------------------------------------------------------------------------------------------------

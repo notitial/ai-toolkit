@@ -1,111 +1,114 @@
 #!/bin/bash
-# Pre-tool-use hook (PreToolUse on Bash): sends Bash git commands to the MCP git tools, whose guard checks
-# pushes and resets. Read-only plumbing with no MCP equivalent (rev-parse, ls-files, config --get, ...) passes.
-# git counts only in command position: at the start of a line or after a separator, behind VAR=value, env, sudo,
-# command or `timeout <duration>`. git inside a string or an argument is left alone.
-# This is an advisory redirect: without jq, or on input that is not a JSON object, it lets the call through.
-# Exit 0 always, also when lib/hook-common.sh is missing.
+# Pre-tool-use hook (PreToolUse on Bash and Monitor, which runs its command in a shell): the one owner of Bash git
+# (ADR 0010). It denies every Bash git command except read-only plumbing with no MCP equivalent (rev-parse, ls-files, config --get, ...), and sends the rest to the MCP git
+# tools, whose guard (hooks/git-mcp-guard.sh) checks pushes and resets. A subcommand nobody listed is denied.
+# lib/shell-parse.sh reads the command text, so git is found behind assignments, env, sudo, time, nohup, exec, xargs,
+# shell keywords, redirects, `!`, ( ), $( ), backticks, find -exec and a nested `bash -c`/`sh -c`/`eval` string (3 deep).
+# FAIL-CLOSED: without jq, on input that is not a JSON object, or without lib/hook-common.sh or lib/shell-parse.sh (or with
+# either empty or cut short) it denies or exits 1, which the `|| exit 2` wiring turns into a block. Runs on bash 3.2.
 #
-# Known gaps, kept on purpose so the hook stays simple. These shapes pass unredirected:
-#   - wrappers other than env, sudo, command and timeout: time, nohup, exec, nice, xargs;
-#   - options after a wrapper (sudo -u x, env -i, timeout -s KILL 5), and git inside a shell -c string;
-#   - a leading `!` (negation), and git behind a shell keyword (if, then, while, do, ...);
-#   - a leading redirect, as in `>/dev/null git push`;
-#   - a -c or -C value with a backslash-escaped space (git -c x.y=1\ rev-parse push ...): the value is cut at the
-#     space, so the word after it is read as the subcommand.
-# And one false deny: a -c value that holds a `;` (git -c 'a=b;c' status) is cut at the `;` and denied as
-# unclassifiable.
-# The backstops for a call that slips past: the setup template allows no Bash git, so it still needs approval (a
-# permission prompt, or the classifier in auto mode) unless the user allowed it; hooks/destructive-blocker.sh blocks
-# the long spellings (push --force, reset --hard, clean -f, branch -D) wherever they appear in the command, though
-# not every short flag behind these wrappers; and branch protection on the remote refuses a push to a protected
-# branch. The MCP route itself is guarded by hooks/git-mcp-guard.sh.
+# THE NET: every `git` word in the raw text must have been read as a git command, else deny (see the end of this file).
+# So a shape the parser misreads or a wrapper it does not know is denied when git is named; the price is a deny for git
+# named as plain text (grep git, which git, ls ~/git, a heredoc or message that says git). Residual: a git word the raw
+# text does not show whole (g''it, a variable) behind a shape the parser misses passes.
+#
+# Known gaps (a guard against mistakes, not a sandbox; the net narrows these to shapes that do not name git as a word): a git name built at run time ($g push, an alias), a script or
+# interpreter that runs git (python -c, make), a shell that reads its script from stdin (bash <<EOF), a wrapper the
+# parser does not know (xcrun, arch, watch, ...), a shell function body, ssh, `env -S 'git ...'`, a string nested more
+# than 3 bash -c deep, a git binary called by its dashed name (git-push), and config that runs a program set through
+# the environment or a config file (GIT_CONFIG_*) in front of help, cat-file or describe.
+# A command that holds a substitution where the subcommand should be (git -C "$(pwd)" push) has no readable subcommand
+# and is denied; so is git -c, which can set a config that runs a program.
 
-command -v jq >/dev/null 2>&1 || exit 0
 HOOK=git-mcp-redirect
-# Sourced before `set -e`: under it bash 3.2 exits 1 on a missing file even with `|| exit 0`.
 S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
-. "${S%/*}/lib/hook-common.sh" 2>/dev/null || exit 0
-set -euo pipefail
+. "${S%/*}/lib/hook-common.sh" && [ "${HOOK_COMMON_LOADED:-}" = 1 ] || exit 1
+. "${S%/*}/lib/shell-parse.sh" && [ "${SHELL_PARSE_LOADED:-}" = 1 ] || exit 1
 
-printf '%s' "$INPUT" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
+printf '%s' "$INPUT" | jq -e 'type == "object"' >/dev/null 2>&1 || deny "could not read the tool call (not a JSON object) - blocked (fail-closed)."
 COMMAND=$(field '.tool_input.command // empty')
 [ -n "$COMMAND" ] || exit 0
 
-# Turn /usr/bin/git and \git into plain git.
-SCAN=$(printf '%s' "$COMMAND" | sed -E -e 's#[^[:space:]]*/git([[:space:]]|$)#git\1#g' -e 's#\\git([[:space:]]|$)#git\1#g')
-
-# A command starts after a line start, | ; & ( { $( or a backtick, and may be led by assignments, env, sudo,
-# command or `timeout <duration>`. Each git invocation runs to the end of its segment.
-ANCHOR="(^|[|;&(\`{])"
-LEADER="([A-Za-z_][A-Za-z0-9_]*=(\"[^\"]*\"|'[^']*'|[^[:space:]'\"])*|env|sudo|command|timeout[[:space:]]+[0-9][0-9.]*[smhd]?)[[:space:]]+"
-INVOCATIONS=$(printf '%s\n' "$SCAN" | grep -oE "${ANCHOR}[[:space:]]*(${LEADER})*['\"]?git['\"]?[[:space:]]+[^|;&)\`]*" || true)
-[ -n "$INVOCATIONS" ] || exit 0
-
-# Read-only plumbing with no MCP equivalent, allowed as Bash.
+# Read-only plumbing with no MCP equivalent, allowed as Bash: is_plumbing <subcommand> <args after it...>
 is_plumbing() {
-  local sub="$1" args="$2" tok positionals=0
+  local sub="$1" tok positionals=0
+  shift
   case "$sub" in
     rev-parse|ls-files|describe|show-ref|var|help|check-ignore|cat-file|name-rev|merge-base|count-objects|shortlog) return 0 ;;
     --version|--help|--exec-path|--html-path) return 0 ;;
-    config)
-      # Read forms only, with the read flag first.
-      case "$args" in --get-all|--get-all\ *|--get|--get\ *|--list|--list\ *) return 0 ;; esac
-      return 1 ;;
+    config) case "${1:-}" in --get-all|--get|--list) return 0 ;; esac; return 1 ;;  # read forms only, with the read flag first
     symbolic-ref)
-      # Reading HEAD only: no delete flag, and a second ref would retarget it.
-      set -f
-      for tok in $args; do
+      # Reading HEAD only: read flags only (git accepts abbreviated and bundled options, so a delete flag is not looked
+      # for), and a second ref would retarget it.
+      for tok in "$@"; do
         case "$tok" in
-          -d|--delete) set +f; return 1 ;;
-          -*) ;;
+          -q|--quiet|--short|--no-recurse) ;;
+          -*) return 1 ;;
           *) positionals=$((positionals + 1)) ;;
         esac
       done
-      set +f
       [ "$positionals" -le 1 ] ;;
     *) return 1 ;;
   esac
 }
 
-BAD=""
-while IFS= read -r LINE; do
-  [ -n "$LINE" ] || continue
-  # A substitution inside the invocation (`git -C "$(pwd)" push`) hides the real subcommand.
-  case "$LINE" in *'$('*|*'`'*) BAD="__unclassifiable__"; break ;; esac
-  REST=$(printf '%s' "$LINE" | sed -E "s/^[|;&(\`{]?[[:space:]]*(${LEADER})*['\"]?git['\"]?[[:space:]]+//")
-  # Skip the global options that come before the subcommand.
-  while :; do
-    PREV="$REST"
-    REST=$(printf '%s' "$REST" | sed -E \
-      -e 's/^-[Cc][[:space:]]+[^[:space:]]+[[:space:]]+//' \
-      -e 's/^--(git-dir|work-tree)(=|[[:space:]]+)[^[:space:]]+[[:space:]]+//' \
-      -e 's/^(--no-pager|--paginate|-P|-p)[[:space:]]+//')
-    [ "$REST" = "$PREV" ] && break
+unclassifiable() {
+  deny "unclassifiable Bash git command" "This Bash git command cannot be safely classified (no readable subcommand: a command substitution, or a global option before the subcommand that this hook does not know). Use the MCP git tools (mcp__git-mcp__git_*) with an explicit path parameter instead."
+}
+
+# A git command: the global options before the subcommand are skipped, then the subcommand is judged. xargs hands the
+# words behind it back to the parser as a command of their own.
+on_command() {
+  local verb
+  verb=$(printf '%s' "${1##*/}" | tr '[:upper:]' '[:lower:]')  # a case-insensitive file system runs GIT and XARGS too
+  case "$verb" in
+    git) GITS=$((GITS + 1)) ;;
+    xargs) shift; sp_xargs "$@"; return 0 ;;
+    find)  # the words after each -exec/-execdir/-ok/-okdir are a command of their own
+      shift
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          -exec|-execdir|-ok|-okdir)
+            shift; sp_command "$@"
+            while [ "$#" -gt 0 ] && [ "$1" != ';' ] && [ "$1" != '+' ]; do shift; done  # past its terminator: no second count
+            ;;
+        esac
+        shift
+      done
+      return 0 ;;
+    *) return 0 ;;
+  esac
+  shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -C|--git-dir|--work-tree) shift; shift ;;
+      --git-dir=*|--work-tree=*|--no-pager|--paginate|-P|-p) shift ;;
+      *) break ;;
+    esac
   done
-  SUBCMD=$(printf '%s' "$REST" | awk '{print $1}')
-  ARGS=$(printf '%s' "$REST" | awk '{$1=""; sub(/^ /,""); print}')
-  [ -n "$SUBCMD" ] || continue
-  is_plumbing "$SUBCMD" "$ARGS" || { BAD="$SUBCMD"; break; }
-done <<EOF
-$INVOCATIONS
-EOF
+  [ "$#" -gt 0 ] || unclassifiable
+  is_plumbing "$@" && return 0
+  case "$1" in
+    -*) unclassifiable ;;
+    status|diff|log|show|blame|add|commit|push|pull|fetch|branch|checkout|merge|rebase|stash|tag|reset|remote|reflog|clean|worktree|clone|init)
+      deny "redirect Bash git $1 -> mcp__git-mcp__git_$1" "Use mcp__git-mcp__git_$1 instead of Bash git $1. Always pass the path parameter on every call — the server has one global cwd and does not inherit the working directory." ;;
+    cherry-pick)
+      deny "redirect Bash git cherry-pick -> mcp__git-mcp__git_cherry_pick" "Use mcp__git-mcp__git_cherry_pick instead of Bash git cherry-pick. Always pass the path parameter on every call — the server has one global cwd and does not inherit the working directory." ;;
+  esac
+  deny "blocked Bash git $1 (no MCP equivalent)" "Bash git $1 is blocked and has no MCP equivalent — ask the user or use a mapped subcommand."
+}
+on_redirect() { :; }
 
-[ -n "$BAD" ] || exit 0
+CWD=""
+GITS=0
+shell_parse "$COMMAND"
 
-case "$BAD" in
-  __unclassifiable__|-*)
-    deny "unclassifiable Bash git command" "This Bash git command cannot be safely classified (a command substitution, or a global option before the subcommand that this hook does not know). Use the MCP git tools (mcp__git-mcp__git_*) with an explicit path parameter instead." ;;
-esac
-
-case "$BAD" in
-  status|diff|log|show|blame|add|commit|push|pull|fetch|branch|checkout|merge|rebase|stash|tag|reset|remote|reflog|clean|worktree|clone|init)
-    MCP_TOOL="mcp__git-mcp__git_$BAD" ;;
-  cherry-pick) MCP_TOOL="mcp__git-mcp__git_cherry_pick" ;;
-  *) MCP_TOOL="" ;;
-esac
-
-if [ -n "$MCP_TOOL" ]; then
-  deny "redirect Bash git $BAD -> $MCP_TOOL" "Use $MCP_TOOL instead of Bash git $BAD. Always pass the path parameter on every call — the server has one global cwd and does not inherit the working directory."
-fi
-deny "blocked Bash git $BAD (no MCP equivalent)" "Bash git $BAD is blocked and has no MCP equivalent — ask the user or use a mapped subcommand."
+# The net: the parser can lose its place (an escaped quote in $'...', << inside $(( )), a heredoc fed to a shell) or not
+# know a wrapper (SUDO, nohup -f, su --command), and then it reports no git command. So every `git` word in the raw
+# text (a whole token `git`, or a path ending in /git; .git, git-notes and gitk are not one) must have been read as a
+# git command. More words than commands means one was not: deny. It also denies a git word that is only text (grep git,
+# which git, ls ~/git, echo "run git push", a heredoc naming git); the reason says what to use instead.
+SHOWN=$(printf '%s' "$COMMAND" | LC_ALL=C tr -cs '[:alnum:]_./+-' '\n' | grep -ciE '(^|/|^[-+])git$')
+# Inverted so that a count that cannot be read (no grep) denies instead of passing.
+[ "$SHOWN" -le "$GITS" ] 2>/dev/null || deny "a git word the parser did not read as a git command" "This command names git ($SHOWN times) but only $GITS of them were read as a git command, so it cannot be checked. Use the MCP git tools (mcp__git-mcp__git_*) for git (git --version passes); for a search use the Grep or Read tools; do not name git in other commands, heredocs or messages."
+exit 0

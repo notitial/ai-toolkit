@@ -30,7 +30,7 @@ Explorer was excluded — Claude Code's built-in Explore subagent already handle
 
 Two safety hooks complement the agents:
 - **Secret detector** — blocks Bash/Write/Edit containing secret patterns (AWS keys, GitHub PATs, PEM keys, etc.)
-- **Destructive blocker** — blocks dangerous Bash commands (rm -rf, force push, hard reset, SQL drops)
+- **Destructive blocker** — blocks dangerous Bash commands (rm -rf, SQL drops, disk writes; Bash git is denied by the git redirect hook)
 
 Design principles applied:
 - **Read-only by default** — no agent has Write, Edit, or Bash tools
