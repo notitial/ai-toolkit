@@ -22,14 +22,15 @@
 #   A hook that reads the words behind xargs hands them to `sp_xargs`, which skips xargs's own options and treats the
 #   rest like a command of their own (`sp_command`, cd included: it moves CWD for the commands after it).
 # Not read (a guard against mistakes, not a sandbox): a command name built from a substitution (`$(which rm) -rf p`), a
-# substitution spliced into the middle of a path (`settings$(:).json`), escaped nested backticks, a `)` inside a
-# substitution that is no paren (a case pattern's, `${x/)/}`) ends the group early, so the words after it are also judged as a
-# command of their own, which keeps what is inside from going unjudged; a shell fed by a pipe (echo cmd | sh), a heredoc named before its
+# substitution spliced into the middle of a path (`settings$(:).json`), escaped nested backticks, a shell fed by a pipe (echo cmd | sh), a heredoc named before its
 # shell (<<EOF bash) or opened after a quote that spans a newline, a here-string or body for a group ({ bash; } <<EOF),
 # a string nested more than 3 deep, `watch -x`, `su --session-command`, an attached `-c'cmd'`, `env -iS`, `$( )` and
 # backticks inside a heredoc body, and `\c` escapes in $'..'.
 # It refuses what it cannot read safely with `deny` (hook-common.sh, which must be sourced first): a control byte in
-# the text, or a tokenizer failure. HOME_R, the real path of $HOME, is set here; lexnorm is shared with the hook.
+# the text, a tokenizer failure, a `case` word anywhere inside a $( ), backtick, <( ) or >( ) (a case pattern's `)` ends
+# nothing, and the tokenizer cannot tell it from the end of the group) and a `)` right after an unclosed `${` inside one
+# (`$(echo ${x/)/})`). Nothing else lets a group end on a guess: a group ends exactly where its `)` or backtick is.
+# HOME_R, the real path of $HOME, is set here; lexnorm is shared with the hook.
 # Names it defines: HOME_R NEST SP_LC SP_STDIN SP_SEG_* lexnorm tokenise set_cwd sp_lc sp_command sp_watch sp_xargs read_nested sp_pop shell_parse.
 
 command -v deny >/dev/null 2>&1 || return 1
@@ -74,8 +75,12 @@ function subclose() {
   sb[sp + 1] = 0
   w = sw[sp] (sq[sp + 1] ? "$(...)" : "$(..)"); inw = 1; wq = 1; segsh = ssh[sp]
 }
+# A group ends where its ) is. The ) of a case pattern and a ) inside ${x/)/} are no group end, and the tokenizer cannot tell
+# them from one, so a `case` word or such a ) inside a substitution makes the text unreadable (exit 3: the hooks refuse it).
+function insub(   k) { for (k = 2; k <= sp; k++) if (sb[k]) return 1; return 0 }
 function flush(   b) {
   if (inw) {
+    if (w == "case" && insub()) exit 3
     gsub(/\n/, ";", w); print "W" w
     b = tolower(w); sub(/.*\//, "", b)
     if (b ~ /^(sh|bash|zsh|dash|ksh|su)$/) segsh = 1
@@ -180,6 +185,7 @@ function ansic(   t, d, v, k, m, ch, cut) {
       i++; continue
     }
     if (c == ")") {
+      if (w ~ /\$\{[^}]*$/ && insub()) exit 3
       flush(); sep(); print "C"
       if (top == "S" || top == "A") { if (pd[sp] > 0) pd[sp]--; else { sp--; if (sb[sp + 1]) subclose() } }
       i++; continue
@@ -455,29 +461,17 @@ read_nested() {
 }
 
 # sp_pop: shell_parse's helper (it uses that function's locals): a group closes, so what the O record parked comes back.
-# TAIL counts the words that were parked: the words that follow in the same segment are judged on their own as well
-# (sp_tail), because where a group ends is a guess (a case pattern's ) ends nothing, a `)` in a string may confuse it) and a
-# wrong guess must never glue inner words onto the outer command where nothing judges them.
 sp_pop() {
   local n=$((${#STK[@]} - 1))
-  CWD=${STK[n]} redir=${STR[n]} sin=${STI[n]} TAIL=${STT[n]}
+  CWD=${STK[n]} redir=${STR[n]} sin=${STI[n]}
   eval "SEG=(\${SP_SEG_${NEST}_$n[@]+\"\${SP_SEG_${NEST}_$n[@]}\"})"
-  [ "$TAIL" -gt 0 ] || TAIL=${#SEG[@]}
-  unset "STK[$n]" "STR[$n]" "STI[$n]" "STT[$n]" "SP_SEG_${NEST}_$n"
-}
-# sp_tail <words...>: the words after the first group close of a segment, as a command of their own. The first is the word
-# the group sat in (it holds a placeholder).
-sp_tail() {
-  case "${1:-}" in *'$('*) shift ;; esac
-  SP_STDIN=""
-  [ "$#" -gt 0 ] && sp_command "$@"
-  return 0
+  unset "STK[$n]" "STR[$n]" "STI[$n]" "SP_SEG_${NEST}_$n"
 }
 
 # shell_parse <command text>: read it, calling on_command and on_redirect as the interface above says.
 shell_parse() {
-  local cmd="$1" line w redir=0 tok n sin="" TAIL=0
-  local SEG=() STK=() STR=() STI=() STT=()
+  local cmd="$1" line w redir=0 tok n sin=""
+  local SEG=() STK=() STR=() STI=()
   if [ "$NEST" -eq 0 ]; then
     declare -F on_command on_redirect >/dev/null 2>&1 || deny "the hook defines no on_command or on_redirect - blocked (fail-closed)."
     tok=$(printf '%s' "$cmd" | LC_ALL=C tr -d '\011\012\040-\176\200-\377')
@@ -489,15 +483,14 @@ shell_parse() {
       S)
         SP_STDIN=$sin
         [ "${#SEG[@]}" -gt 0 ] && sp_command "${SEG[@]}"
-        [ "${#SEG[@]}" -gt "$TAIL" ] && [ "$TAIL" -gt 0 ] && sp_tail "${SEG[@]:TAIL}"
-        SEG=() sin="" TAIL=0
+        SEG=() sin=""
         redir=0
         ;;
       O)  # a group opens: the folder, the words of the command it sits in, a pending redirect and stdin wait
         n=${#STK[@]}
-        STK[n]=$CWD STR[n]=$redir STI[n]=$sin STT[n]=$TAIL
+        STK[n]=$CWD STR[n]=$redir STI[n]=$sin
         eval "SP_SEG_${NEST}_$n=(\${SEG[@]+\"\${SEG[@]}\"})"
-        SEG=() redir=0 sin="" TAIL=0
+        SEG=() redir=0 sin=""
         ;;
       C) [ "${#STK[@]}" -gt 0 ] && sp_pop ;;
       R) redir=1 ;;
@@ -523,8 +516,6 @@ shell_parse() {
   while :; do  # a group the text leaves open still gives back the words parked in front of it
     SP_STDIN=$sin
     [ "${#SEG[@]}" -gt 0 ] && sp_command "${SEG[@]}"
-    [ "${#SEG[@]}" -gt "$TAIL" ] && [ "$TAIL" -gt 0 ] && sp_tail "${SEG[@]:TAIL}"
-    TAIL=0
     [ "${#STK[@]}" -gt 0 ] || break
     sp_pop
   done
