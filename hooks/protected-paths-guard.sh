@@ -384,7 +384,8 @@ on_command() {
           if [ "$skip" = 1 ]; then skip=0; continue; fi
           case "$a" in
             --) seen=1; continue ;;
-            -m | --mode | -F | -g | -u) skip=1; continue ;;
+            -m | --mode | -F | -g | -u | -[A-Za-z]*[mFgu]) skip=1; continue ;;
+            -) ;;  # a lone - is an operand
             -*) continue ;;
           esac
           seen=1
