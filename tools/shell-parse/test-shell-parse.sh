@@ -119,7 +119,9 @@ expect "xargs option values skipped (BSD -J, GNU long)" 'xargs -J % --max-args 2
 expect "doas, caffeinate and their option values skipped" 'doas -u me caffeinate -i -t 5 rm x' 'C[/s] <rm> <x>'
 expect "su -c is a nested string" "su -c 'a > f' me" 'R[/s] <f>' 'C[/s] <a>' 'C[/s] <su> <-c> <a > f> <me>'
 expect "su --command forms" "su --command='a' me; su me --command 'b'; su --co 'c'" 'C[/s] <a>' 'C[/s] <su> <--command=a> <me>' 'C[/s] <b>' 'C[/s] <su> <me> <--command> <b>' 'C[/s] <c>' 'C[/s] <su> <--co> <c>'
-expect "env -S is a nested string" 'env -S "a" x; env -Sb\ y; env --split-string="c"; env -i -S "FOO=1 d"' 'C[/s] <a>' 'C[/s] <x>' 'C[/s] <b> <y>' 'C[/s] <c>' 'C[/s] <d>'
+# env -S splits its string and appends the words after it: one command line, read once
+expect "env -S is a nested string" 'env -S "a" x; env -Sb\ y; env --split-string="c"; env -i -S "FOO=1 d"' 'C[/s] <a> <x>' 'C[/s] <b> <y>' 'C[/s] <c>' 'C[/s] <d>'
+expect "env -S joins the words after the string" "env -S 'a b' c d; env -Sa b; env --split-string='a b' c" 'C[/s] <a> <b> <c> <d>' 'C[/s] <a> <b>' 'C[/s] <a> <b> <c>'
 
 # a shell with no -c string reads the heredoc or here-string it is given
 expect "bash <<EOF is read" $'bash <<EOF\na > f\nEOF\nb' 'R[/s] <f>' 'C[/s] <a>' 'C[/s] <bash>' 'C[/s] <b>'
