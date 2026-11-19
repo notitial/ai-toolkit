@@ -64,7 +64,7 @@ SOFT_PATTERNS=(
 # first quoted pattern after grep, egrep, fgrep, rg, ag or ack (and its options), and a quoted -m/--message value
 # (a one-line commit message). A double-quoted string holding $ or a backtick is never blanked: it may run a command.
 # So `rg -n "DROP TABLE" db/` passes, while `psql -c "DROP TABLE users"` is still denied. A real rm in the same
-# command is still seen here, and by the segment checks below.
+# command is still seen here, and by on_command below.
 PATTEXT=$(printf '%s\n' "$COMMAND" | sed -E \
   -e "s/(^|[;&|(\`[:space:]])(grep|egrep|fgrep|rg|ag|ack)(([[:space:]]+-[^[:space:]\"']+)*)[[:space:]]+(\"[^\"\$\`]*\"|'[^']*')/\1\2\3 Q/g" \
   -e "s/(^|[[:space:]])(-m|--message)([[:space:]]+|=)(\"[^\"\$\`]*\"|'[^']*')/\1\2 Q/g")
@@ -119,6 +119,7 @@ on_command() {
 }
 on_redirect() { :; }
 SP_ALL_HEREDOCS=1  # a heredoc body may reach a shell the parser cannot see (ssh host <<EOF, sudo -s, source /dev/stdin)
+CWD=""
 shell_parse "$COMMAND"
 # A python one-liner or heredoc that deletes files is rm by another name.
 if matches 'python[0-9.]*([[:space:]]+-[A-Za-z]*)*[[:space:]]+(-[A-Za-z]*c|<<)' "$COMMAND" &&

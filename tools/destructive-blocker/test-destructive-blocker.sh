@@ -60,6 +60,10 @@ check deny "rm in a heredoc to sudo -s" $'sudo -s <<EOF\nrm -r -f /x\nEOF'
 check deny "rm in a heredoc, shell named after" $'bash <<EOF\nrm -r -f /x\nEOF'
 check deny "rm in a heredoc, <<EOF bash" $'<<EOF bash\nrm -r -f /x\nEOF'
 check pass "plain heredoc text"        $'cat <<EOF\nhello\nEOF'
+# a body the parser refuses is prose or code no known shell runs: skipped, not denied
+check pass "a README heredoc with a fenced block" $'cat > README.md <<\'EOF\'\n```bash\n# install\nmake\n```\nEOF'
+check pass "a heredoc with a parenthesized case" $'cat <<EOF\nskip it (in that case).\nEOF'
+check pass "a here-string with a parenthesized case" 'cat <<< "(in that case)"'
 check deny "control byte in the text (fail-closed)" $'echo a\001b'
 check pass "prose naming a delete"     'echo "rows delete from the cache"'
 check pass "PR body naming a delete"   'gh pr create --title "fix: retries" --body "Failed jobs delete from the queue after 3 tries"'
@@ -202,8 +206,9 @@ else
 fi
 
 # A missing or cut lib makes the hook exit 1 (the wiring's `|| exit 2` then blocks).
-mkdir -p "$T/nolib/hooks"
+mkdir -p "$T/nolib/hooks/lib"
 cp "$T/hooks/destructive-blocker.sh" "$T/nolib/hooks/"
+cp "$T/hooks/lib/hook-common.sh" "$T/nolib/hooks/lib/"
 bash_in 'ls' | env -i PATH="$PATH" HOME="$T" "$SH" "$T/nolib/hooks/destructive-blocker.sh" >/dev/null 2>&1
 result 1 "$?" "missing lib exits 1"
 mkdir -p "$T/cutlib/hooks"

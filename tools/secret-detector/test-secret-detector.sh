@@ -343,8 +343,22 @@ check deny "grep -r behind xargs -n1"        "echo src | xargs -n 1 grep -r KEY"
 check deny "grep -r behind find -exec"       "find . -name x -exec grep -r KEY {} +"
 check deny "grep -r in a docker exec sh -c"  "docker exec c sh -c 'grep -r KEY .'"
 check pass "xargs grep -r with exclude"      "echo src | xargs grep -r --exclude='*.env*' KEY"
+# a grep or rg among the words of another command is judged from there (the old scan read any word)
+check deny "grep -r behind ssh"                "ssh prod grep -r KEY /srv/app"
+check deny "grep -r behind docker exec"        "docker exec web grep -r KEY /app"
+check deny "grep -r behind kubectl exec"       "kubectl exec pod -- grep -r KEY ."
+check deny "grep -r behind gtimeout"           "gtimeout 5 grep -r KEY ."
+check deny "rg --hidden behind uv run"         "uv run rg --hidden KEY ."
+check pass "grep -r with exclude behind ssh"   "ssh prod grep -r --exclude='*.env*' KEY /srv/app"
+check pass "grep without -r behind ssh"        "ssh prod grep KEY /srv/app/a.log"
+# a text the parser refuses, and a control byte, are denied when it also holds a recursive search
+check deny "grep -r with a case in a substitution" 'grep -r x $(case y in y) :;; esac)'
+check deny "grep -r with a control byte"       $'grep -r x . --exclude=\'*.env*\'\001'
+# a heredoc body the parser refuses is prose or code no known shell runs: skipped, not denied
+check pass "a README heredoc with a fenced block" $'grep -rn x src --exclude=\'*.env*\' && cat > README.md <<\'EOF\'\n```bash\n# install\nmake\n```\nEOF'
+check pass "a heredoc with a parenthesized case" $'grep -rn x src --exclude=\'*.env*\' && cat <<EOF\nskip it (in that case).\nEOF'
 check pass "find -exec grep, not recursive"  "find . -exec grep KEY {} +"
-check pass "git grep -r (tracked files only)" "git grep -r KEY"
+check deny "git grep -r (the old scan read any word named grep)" "git grep -r KEY"
 check deny "grep -r in a heredoc to ssh"     $'ssh host <<EOF\ngrep -r KEY .\nEOF'
 check deny "grep -r in a heredoc, <<EOF bash" $'<<EOF bash\ngrep -r KEY .\nEOF'
 check pass "grep -r with exclude in a heredoc" $'ssh host <<EOF\ngrep -r --exclude=\'*.env*\' KEY .\nEOF'
@@ -531,8 +545,9 @@ check deny "keychain: wildcard flag [w]"             "security find-generic-pass
 check deny "keychain: wildcard flag ?"               "security find-generic-password -s svc -?"
 
 # A missing or cut lib makes the hook exit 1 (the wiring's `|| exit 2` then blocks).
-mkdir -p "$T/nolib/hooks" "$T/cutlib/hooks"
+mkdir -p "$T/nolib/hooks/lib" "$T/cutlib/hooks"
 cp "$T/hooks/secret-detector.sh" "$T/nolib/hooks/"
+cp "$T/hooks/lib/hook-common.sh" "$T/nolib/hooks/lib/"
 cp "$T/hooks/secret-detector.sh" "$T/cutlib/hooks/"
 cp -R "$T/hooks/lib" "$T/cutlib/hooks/lib"
 head -n 20 "$T/hooks/lib/shell-parse.sh" >"$T/cutlib/hooks/lib/shell-parse.sh"

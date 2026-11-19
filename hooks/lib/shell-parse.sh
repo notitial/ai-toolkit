@@ -513,15 +513,15 @@ shell_parse() {
   tok=$(printf '%s' "$cmd" | tokenise)
   case $? in
     0) ;;
-    3) deny "a case word in a substitution, a paren inside \${ }, or a heredoc ended by EOF) cannot be read exactly - blocked (fail-closed)." ;;
-    *) deny "could not read the command text - blocked (fail-closed)." ;;
+    3) [ -z "${SP_LENIENT:-}" ] || return 0; deny "a case word in a substitution, a paren inside \${ }, or a heredoc ended by EOF) cannot be read exactly - blocked (fail-closed)." ;;
+    *) [ -z "${SP_LENIENT:-}" ] || return 0; deny "could not read the command text - blocked (fail-closed)." ;;
   esac
   while IFS= read -r line; do
     case "$line" in
       S)
         SP_STDIN=$sin
         [ "${#SEG[@]}" -gt 0 ] && sp_command "${SEG[@]}"
-        [ -n "$sin" ] && [ -n "${SP_ALL_HEREDOCS:-}" ] && read_nested "$sin"  # opt-in: every heredoc body is a script
+        [ -n "$sin" ] && [ -n "${SP_ALL_HEREDOCS:-}" ] && SP_LENIENT=1 read_nested "$sin"  # opt-in: every heredoc body is a script; one the parser refuses is skipped (prose, a README)
         SEG=() sin=""
         redir=0
         ;;

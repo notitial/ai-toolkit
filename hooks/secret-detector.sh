@@ -127,8 +127,8 @@ env_clean() {
 # skipped, `sh -c` strings and $( ) read too). A recursive grep, or an rg that also reads hidden or ignored files, may read
 # a .env below whatever path it is given, so it needs an exclude: --exclude='*.env*' (grep), -g '!*.env*' (rg).
 # `.env*` is not enough: it misses <name>.env files such as prod.env, which ENVTOK treats as secret too.
-# A grep behind xargs or find -exec is read as a command of its own, and a shell further along (docker exec c sh -c 'grep -r x .')
-# runs its string; a grep directly behind ssh, docker exec, kubectl exec or busybox is not read (the Grep tool is the way).
+# A grep behind xargs or find -exec is read as a command of its own, a shell further along (docker exec c sh -c 'grep -r x .')
+# runs its string, and a grep or rg anywhere among a command's words (ssh h grep -r x ., gtimeout 5 grep -r x .) is judged from there.
 on_command() {
   local kind="" a prev="" rec=0 ex=0
   case "${1##*/}" in
@@ -145,7 +145,10 @@ on_command() {
     *)
       shift
       while [ "$#" -gt 0 ]; do
-        case "${1##*/}" in sh | bash | zsh | dash | ksh | su) sp_command "$@"; break ;; esac
+        case "${1##*/}" in
+          sh | bash | zsh | dash | ksh | su) sp_command "$@"; break ;;
+          grep | egrep | fgrep | rg) on_command "$@"; break ;;
+        esac
         shift
       done
       return 0 ;;

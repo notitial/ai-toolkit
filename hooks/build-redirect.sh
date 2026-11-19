@@ -18,7 +18,8 @@
 # or braces, spans several lines, sits in a heredoc body or in a # comment.
 # This is an advisory redirect: without jq, or on input that is not a JSON object, it lets the call through.
 # Exit 0 always, also when lib/hook-common.sh or lib/shell-parse.sh is missing or cut short, and when the parser refuses the
-# text (a control byte): this hook never denies on a parse failure.
+# text (a control byte, a case word in a substitution, and the other shapes its header lists): this hook never denies on a
+# parse failure, and a text it refuses is not redirected.
 #
 # Known gaps, kept on purpose so the hook stays simple. These shapes pass:
 #   - a variable as the task or an argument (./gradlew $TASK), Gradle's camel-case task abbreviations (./gradlew aD),
