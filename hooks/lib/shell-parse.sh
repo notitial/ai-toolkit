@@ -22,15 +22,16 @@
 #   A hook that reads the words behind xargs hands them to `sp_xargs`, which skips xargs's own options and treats the
 #   rest like a command of their own (`sp_command`, cd included: it moves CWD for the commands after it).
 # Not read (a guard against mistakes, not a sandbox): a command name built from a substitution (`$(which rm) -rf p`), a
-# substitution spliced into the middle of a path (`settings$(:).json`), escaped nested backticks, a shell fed by a pipe (echo cmd | sh), a heredoc named before its
+# substitution spliced into the middle of a path (`settings$(:).json`), a ( or ) inside ${ } outside any group (`rm ${x#(} -rf p`), escaped nested backticks, a shell fed by a pipe (echo cmd | sh), a heredoc named before its
 # shell (<<EOF bash) or opened after a quote that spans a newline, a here-string or body for a group ({ bash; } <<EOF),
 # a string nested more than 3 deep, `watch -x`, `su --session-command`, an attached `-c'cmd'`, `env -iS`, `$( )` and
 # backticks inside a heredoc body, and `\c` escapes in $'..'.
 # It refuses what it cannot read safely with `deny` (hook-common.sh, which must be sourced first): a control byte in
 # the text, a tokenizer failure, and the shapes where it could only guess where a group ends: a `case` word (also as an
-# argument) inside any ( ), $( ), backtick, <( ) or >( ) (the `)` of a case pattern ends nothing), a ( or ) inside ${ }
-# (`${x/)/}`), an escaped backtick inside backticks, and a heredoc ended by `EOF)` inside a substitution. With these refused a
-# group ends exactly at its `)` or backtick, and a stray `)` at the top level closes nothing.
+# argument) inside any ( ), $( ), backtick, <( ) or >( ) (the `)` of a case pattern ends nothing), a ( or ) inside ${ } and a
+# quote inside ${ } inside a string, in a group (`${x/)/}`), an escaped backtick, a `#` comment, a heredoc or a nested
+# backtick inside backticks, and a heredoc ended by `EOF)` inside a substitution. With these refused a group ends exactly at
+# its `)` or backtick, and a stray `)` at the top level closes nothing.
 # HOME_R, the real path of $HOME, is set here; lexnorm is shared with the hook.
 # Names it defines: HOME_R NEST SP_LC SP_STDIN SP_SEG_* lexnorm tokenise set_cwd sp_lc sp_command sp_watch sp_xargs read_nested sp_pop shell_parse.
 
@@ -81,6 +82,7 @@ function subclose() {
 # refuse it). A stray ) at the top level closes nothing.
 function insub(   k) { for (k = 2; k <= sp; k++) if (sb[k]) return 1; return 0 }
 function ingroup() { return pd[1] > 0 || insub() }
+function inb(   k) { for (k = 2; k <= sp; k++) if (st[k] == "B") return 1; return 0 }
 function flush(   b) {
   if (inw) {
     if (w == "case" && ingroup()) exit 3
@@ -141,9 +143,12 @@ function ansic(   t, d, v, k, m, ch, cut) {
         if (nx ~ /[$`"\\]/) { w = w nx; i += 2; continue }
         w = w c; i++; continue
       }
+      if (c == "$" && substr(s, i + 1, 1) == "{") { bd[sp]++; w = w "${"; inw = 1; i += 2; continue }
+      if (c == "}" && bd[sp] > 0) { bd[sp]--; w = w c; inw = 1; i++; continue }
+      if (c == "\"" && bd[sp] > 0 && insub()) exit 3  # a quote inside ${ } inside a string: the tokenizer would end the string here
       if (c == "\"") { sp--; i++; continue }
       if (c == "$" && substr(s, i + 1, 1) == "(") { subopen((substr(s, i + 2, 1) == "(") ? "A" : "S", 1); i += 2; continue }
-      if (c == "`") { subopen("B", 1); i++; continue }
+      if (c == "`") { if (inb()) exit 3; subopen("B", 1); i++; continue }
       w = w c; inw = 1; i++; continue
     }
     if (c == "\\") {
@@ -157,7 +162,7 @@ function ansic(   t, d, v, k, m, ch, cut) {
       if (j == 0) { w = w substr(s, i + 1); i = n + 1 } else { w = w substr(s, i + 1, j - 1); i += j + 1 }
       inw = 1; wq = 1; continue
     }
-    if (c == "\"") { sp++; st[sp] = "D"; inw = 1; wq = 1; i++; continue }
+    if (c == "\"") { sp++; st[sp] = "D"; bd[sp] = 0; inw = 1; wq = 1; i++; continue }
     if (c == "$") {
       nx = substr(s, i + 1, 1)
       if (nx == "(") { subopen((substr(s, i + 2, 1) == "(") ? "A" : "S", 0); i += 2; continue }
@@ -168,13 +173,14 @@ function ansic(   t, d, v, k, m, ch, cut) {
       w = w c; inw = 1; i++; continue
     }
     if (c == "`") {
-      if (top == "B") { flush(); sep(); sp--; print "C"; subclose() } else subopen("B", 0)
+      if (top == "B") { flush(); sep(); sp--; print "C"; subclose() } else { if (inb()) exit 3; subopen("B", 0) }
       i++; continue
     }
     if (c == "}" && bd[sp] > 0) { bd[sp]--; w = w c; inw = 1; i++; continue }
     if (c == " " || c == "\t") { flush(); i++; continue }
     if (c == "\n") { flush(); sep(); i++; if (hd != "") { hdscan(i); i = hdend; hd = "" }; continue }
     if (c == "#" && !inw) {
+      if (inb()) exit 3  # a comment inside backticks would end at the closing backtick: the tokenizer would not
       j = index(substr(s, i), "\n")
       if (j == 0) i = n + 1; else i += j - 1
       continue
@@ -186,14 +192,14 @@ function ansic(   t, d, v, k, m, ch, cut) {
       flush(); sep(); i++; if (substr(s, i, 1) == "&") i++; continue
     }
     if (c == "(") {
-      if (bd[sp] > 0) exit 3
+      if (bd[sp] > 0 && ingroup()) exit 3
       flush(); sep(); print "O"
       if (top == "S" || top == "A" || top == "N") pd[sp]++
       if (substr(s, i + 1, 1) == "(") { sep(); print "O"; sp++; st[sp] = "A"; pd[sp] = 0; bd[sp] = 0; i++ }  # (( )): << is a shift
       i++; continue
     }
     if (c == ")") {
-      if (bd[sp] > 0) exit 3
+      if (bd[sp] > 0 && ingroup()) exit 3
       flush(); sep()
       if (top == "S" || top == "A") { print "C"; if (pd[sp] > 0) pd[sp]--; else { sp--; if (sb[sp + 1]) subclose() } }
       else if (top == "N") { if (pd[1] > 0) { print "C"; pd[1]-- } }
@@ -229,6 +235,7 @@ function ansic(   t, d, v, k, m, ch, cut) {
           dl = dl d; i++
         }
         hd = dl
+        if (hd != "" && inb()) exit 3  # a heredoc inside backticks ends with them
         if (hd != "" && segsh && (j = index(substr(s, i), "\n")) > 0) { print "Y"; hdscan(i + j, 1) }
         continue
       }
@@ -392,7 +399,13 @@ sp_command() {
   sp_lc "$w"
   vl=$SP_LC
   shift
-  case "$w" in '$(..)') sp_command "$@" ;; esac  # an unquoted substitution may expand to nothing: what follows may be the command
+  case "$w" in  # a substitution in the verb word may expand to nothing: what is left of the word, or what follows, may be the command
+    *'$(..)'* | *'$(...)'*)
+      sv=${w//'$(...)'/}  # a quoted one is an empty string, which stays a word
+      script=${sv//'$(..)'/}
+      if [ -n "$script" ]; then sp_command "$script" "$@"; elif [ -n "$sv" ]; then sp_command "$@"; fi
+      ;;
+  esac
 
   case "$verb" in
     cd | pushd)
