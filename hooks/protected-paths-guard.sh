@@ -16,7 +16,8 @@
 #   git_pull with fastForwardOnly are allowed (they move a checkout to a reviewed commit and nothing else).
 #
 # NEVER ASKS. Every decision is a deny or silence. It names no repository or tool of any project.
-# FAIL-CLOSED without jq (as git-mcp-guard): the input cannot be read, so the call is denied.
+# FAIL-CLOSED without jq (as git-mcp-guard): the input cannot be read, so the call is denied. Without lib/hook-common.sh
+# it exits 1, which the `|| exit 2` wiring turns into a block.
 #
 # WHAT COUNTS AS A WRITE (reads are never denied)
 #   - Edit, Write, MultiEdit, NotebookEdit: the target's real path (symlinks followed, case-insensitive compare).
@@ -44,46 +45,21 @@
 #   recursive delete or move of a folder that contains a protected root is caught only for the session's own root
 #   and for ~/.claude.
 #
-# Reads JSON from stdin. Returns a JSON deny decision or nothing; exit 0 always.
-# No `set -e`: it would break the exit-0-always contract. Runs on bash 3.2.
+# Reads JSON from stdin. Returns a JSON deny decision or nothing; exit 0 always (but `exit 1` when lib/hook-common.sh is
+# missing: the `|| exit 2` wiring blocks the call). No `set -e`: it would break the exit-0-always contract. Runs on bash 3.2.
 
 MARKER=.protected-checkout
 
-if ! command -v jq >/dev/null 2>&1; then
-  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"protected-paths-guard: jq unavailable - writes blocked (fail-closed). Install jq or make the change yourself."}}'
-  exit 0
-fi
-
-INPUT=$(cat)
-TOOL=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty')
-
-audit_deny() {
-  local logger
-  logger="$(dirname "${BASH_SOURCE[0]}")/audit-logger.sh"
-  [ -r "$logger" ] || return 0
-  printf '%s' "$INPUT" \
-    | jq -c --arg r "$1" --arg h "protected-paths-guard" \
-        '. + {_audit_event:"deny",_deny_reason:$r,_deny_hook:$h}' 2>/dev/null \
-    | bash "$logger" >/dev/null 2>&1 || true
-}
-
-deny() {
-  audit_deny "$1"
-  jq -n --arg reason "$1" '{
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: "deny",
-      permissionDecisionReason: ("protected-paths-guard: " + $reason)
-    }
-  }'
-  exit 0
-}
+HOOK=protected-paths-guard
+S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
+. "${S%/*}/lib/hook-common.sh" || exit 1
+TOOL=$(field '.tool_name // empty')
 
 if [ -z "$TOOL" ]; then
   deny "could not read the tool call (empty or malformed stdin) - blocked (fail-closed)."
 fi
 
-ti() { printf '%s' "$INPUT" | jq -r "(.tool_input${1}) // empty" 2>/dev/null; }
+ti() { field "(.tool_input${1}) // empty"; }
 
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
@@ -93,7 +69,7 @@ HOME_R=$(cd -P -- "$HOME" 2>/dev/null && pwd -P) || HOME_R=$HOME
 LHOME=$(lower "$HOME")
 LHOME_R=$(lower "$HOME_R")
 
-SESSION_CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty')
+SESSION_CWD=$(field '.cwd // empty')
 [ -n "$SESSION_CWD" ] || SESSION_CWD=$PWD
 CWD=$SESSION_CWD
 

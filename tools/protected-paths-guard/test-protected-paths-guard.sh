@@ -14,6 +14,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/protected-paths-guard-XXXXXX")
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/hooks"
 cp "$HOOK" "$T/hooks/protected-paths-guard.sh"
+cp -R "${HOOK%/*}/lib" "$T/hooks/lib"
 
 H="$T/home"
 LIVE="$T/live"
@@ -612,10 +613,11 @@ fi
 # ---- the settings command is fail-closed: a guard that cannot run blocks (exit 2), a deny or pass still exits 0 ----
 TPL="$HERE/../../.claude/skills/setup-claude/templates/safe-permissions.json"
 CMD=$(jq -r '[.hooks.PreToolUse[]?.hooks[]?.command | select(type == "string" and test("protected-paths-guard[.]sh"))] | first // empty' "$TPL" 2>/dev/null)
-mkhome() {  # mkhome <name> <install: link|crash|none>: a HOME whose hooks/protected-paths-guard.sh is the guard, a crashing stub, or absent
+mkhome() {  # mkhome <name> <install: link|nolib|crash|none>: a HOME whose hooks/protected-paths-guard.sh links to the guard (nolib: a copy with no lib beside it), a crashing stub, or absent
   mkdir -p "$T/$1/.claude/hooks"
   case $2 in
     link) ln -s "$T/hooks/protected-paths-guard.sh" "$T/$1/.claude/hooks/protected-paths-guard.sh" ;;
+    nolib) mkdir -p "$T/$1/bare" && cp "$HOOK" "$T/$1/bare/" && ln -s "$T/$1/bare/protected-paths-guard.sh" "$T/$1/.claude/hooks/protected-paths-guard.sh" ;;
     crash) printf '#!/bin/bash\nexit 1\n' >"$T/$1/.claude/hooks/protected-paths-guard.sh" ;;
   esac
 }
@@ -640,6 +642,9 @@ else
   mkhome hm none
   runcmd hm "$(call Write "{\"file_path\":\"$CLONE/tools/a.ts\"}" "$CLONE")"
   check "settings command: a missing hook link blocks with exit 2" 2 no
+  mkhome hl nolib
+  runcmd hl "$(call Write "{\"file_path\":\"$CLONE/tools/a.ts\"}" "$CLONE")"
+  check "settings command: a missing lib beside the linked hook blocks with exit 2" 2 no
   mkhome hc crash
   runcmd hc "$(call Write "{\"file_path\":\"$CLONE/tools/a.ts\"}" "$CLONE")"
   check "settings command: a hook that exits non-zero blocks with exit 2" 2 no

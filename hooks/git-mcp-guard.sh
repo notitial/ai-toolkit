@@ -31,40 +31,12 @@
 # Reads JSON from stdin. Returns JSON deny decision; exit 0 always.
 # No `set -e` — it would break the exit-0-always contract.
 
-# Fail-closed preamble: without jq the input cannot be inspected, so block.
-# Static literal JSON (no jq available to build it).
-if ! command -v jq >/dev/null 2>&1; then
-  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"git-mcp-guard: jq unavailable - push/reset/clean blocked (fail-closed). Install jq or run the operation manually."}}'
-  exit 0
-fi
-
-INPUT=$(cat)
-TOOL_NAME=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty')
-
-# Best-effort record of a deny into the audit log (never blocks this hook).
-audit_deny() {
-  local logger
-  logger="$(dirname "${BASH_SOURCE[0]}")/audit-logger.sh"
-  [ -r "$logger" ] || return 0
-  printf '%s' "$INPUT" \
-    | jq -c --arg r "$1" --arg h "git-mcp-guard" \
-        '. + {_audit_event:"deny",_deny_reason:$r,_deny_hook:$h}' 2>/dev/null \
-    | bash "$logger" >/dev/null 2>&1 || true
-}
-
-deny() {
-  audit_deny "$1"
-  jq -n --arg reason "$1" '{
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: "deny",
-      permissionDecisionReason: ("git-mcp-guard: " + $reason)
-    }
-  }'
-  exit 0
-}
-
-jqin() { printf '%s' "$INPUT" | jq -r "$1"; }
+# Fail-closed preamble: without jq, or without lib/hook-common.sh (`exit 1`, which the `|| exit 2` wiring blocks),
+# the input cannot be inspected, so block.
+HOOK=git-mcp-guard
+S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
+. "${S%/*}/lib/hook-common.sh" || exit 1
+TOOL_NAME=$(field '.tool_name // empty')
 
 # Normalize a ref to a plain branch name: refs/heads/main, heads/main -> main.
 # Applied to every value before the protected-branch match so qualified-ref
@@ -90,7 +62,7 @@ fi
 # resolves against its own cwd (the git MCP server has one global cwd and concurrent agents race on it, and
 # resolves a relative path such as ./ or a subfolder against that cwd, not this one).
 require_abs_path() {
-  case "$(jqin '.tool_input.path // empty')" in
+  case "$(field '.tool_input.path // empty')" in
     /*) ;;
     *) deny "pass an absolute repo path — the git MCP has one global cwd and concurrent agents race on it." ;;
   esac
@@ -116,17 +88,17 @@ case "$TOOL_NAME" in
 
   mcp__git-mcp__git_push)
     # 1. Dry runs are always safe.
-    [ "$(jqin '.tool_input.dryRun // false')" = "true" ] && exit 0
+    [ "$(field '.tool_input.dryRun // false')" = "true" ] && exit 0
 
     # 2. Force / delete pushes are never agent work.
-    if [ "$(jqin '.tool_input.force // false')" = "true" ] \
-      || [ "$(jqin '.tool_input.forceWithLease // false')" = "true" ] \
-      || [ "$(jqin '.tool_input.delete // false')" = "true" ]; then
+    if [ "$(field '.tool_input.force // false')" = "true" ] \
+      || [ "$(field '.tool_input.forceWithLease // false')" = "true" ] \
+      || [ "$(field '.tool_input.delete // false')" = "true" ]; then
       deny "force/delete push blocked; a human runs these."
     fi
 
     # 3. The repo path is already known to be absolute (checked above for every tool).
-    PATH_ARG=$(jqin '.tool_input.path // empty')
+    PATH_ARG=$(field '.tool_input.path // empty')
 
     # Ground truth for remote-prefix stripping: the repo's actual remote names.
     # A blind prefix strip can't distinguish origin/main (remote-qualified main)
@@ -148,7 +120,7 @@ case "$TOOL_NAME" in
     # 3b. The remote, when given, must be one of the repo's configured remotes (exact name). A URL, a path or
     #     anything else would push the repo's commits to a host nobody approved. Left out, git uses the branch's
     #     configured remote or origin. A non-string value fails the match and is denied.
-    REMOTE_ARG=$(jqin '.tool_input.remote // empty')
+    REMOTE_ARG=$(field '.tool_input.remote // empty')
     if [ -n "$REMOTE_ARG" ]; then
       REMOTE_OK=0
       while IFS= read -r rem; do
@@ -160,8 +132,8 @@ case "$TOOL_NAME" in
     # 4. Explicit protected-branch targets — normalized (refs/heads/main,
     #    heads/main) AND remote-prefix-stripped against the real remote list
     #    (origin/main), so qualified forms cannot bypass the match.
-    BRANCH=$(jqin '.tool_input.branch // empty')
-    REMOTE_BRANCH=$(jqin '.tool_input.remoteBranch // empty')
+    BRANCH=$(field '.tool_input.branch // empty')
+    REMOTE_BRANCH=$(field '.tool_input.remoteBranch // empty')
     # HEAD and @ name the current branch: treat them as no branch, so step 5 resolves the real destination.
     case "$(norm_ref "$BRANCH")" in HEAD|@) BRANCH="" ;; esac
     case "$(norm_ref "$REMOTE_BRANCH")" in HEAD|@) REMOTE_BRANCH="" ;; esac
@@ -189,7 +161,7 @@ case "$TOOL_NAME" in
     ;;
 
   mcp__git-mcp__git_reset)
-    MODE=$(jqin '.tool_input.mode // empty')
+    MODE=$(field '.tool_input.mode // empty')
     case "$MODE" in
       hard|merge) deny "git reset --$MODE discards work; blocked — a human runs these." ;;
     esac
@@ -197,7 +169,7 @@ case "$TOOL_NAME" in
     ;;
 
   mcp__git-mcp__git_clean)
-    [ "$(jqin '.tool_input.dryRun // false')" = "true" ] && exit 0
+    [ "$(field '.tool_input.dryRun // false')" = "true" ] && exit 0
     deny "git clean deletes untracked files; blocked — preview with dryRun:true, a human runs the real clean."
     ;;
 

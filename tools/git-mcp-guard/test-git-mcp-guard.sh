@@ -17,6 +17,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/git-mcp-guard-XXXXXX")
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/hooks" "$T/work"
 cp "$HOOK" "$T/hooks/git-mcp-guard.sh"
+cp -R "${HOOK%/*}/lib" "$T/hooks/lib"
 HAVE_LOGGER=0
 [ -f "$LOGGER" ] && cp "$LOGGER" "$T/hooks/audit-logger.sh" && HAVE_LOGGER=1
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1

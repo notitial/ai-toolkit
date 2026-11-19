@@ -9,48 +9,21 @@
 # nobody may be there to answer an ask. Hard matches are checked first, so a soft one never hides a hard one.
 #
 # This catches the commands an agent types by mistake, not a command built to slip past it. Decisions are
-# recorded through the sibling audit-logger.sh when it is present. Reads JSON from stdin; exit 0 always.
+# recorded through the sibling audit-logger.sh when it is present. Reads JSON from stdin; exit 0 always (`exit 1` if
+# lib/hook-common.sh is missing, which the `|| exit 2` wiring blocks).
 
-if ! command -v jq >/dev/null 2>&1; then
-  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"destructive-blocker: jq unavailable — Bash commands blocked (fail-closed). Install jq or ask the user to run the command manually."}}'
-  exit 0
-fi
-
-INPUT=$(cat) || true
+HOOK=destructive-blocker
+S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
+. "${S%/*}/lib/hook-common.sh" || exit 1
 
 case $INPUT in
   *[![:space:]]*)
-    if ! printf '%s' "$INPUT" | jq -e 'type == "object"' >/dev/null 2>&1; then
-      printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"destructive-blocker: unreadable hook input — Bash command blocked (fail-closed)."}}'
-      exit 0
-    fi
-    ;;
+    printf '%s' "$INPUT" | jq -e 'type == "object"' >/dev/null 2>&1 \
+      || { decide deny "destructive-blocker: unreadable hook input — Bash command blocked (fail-closed)."; exit 0; } ;;
 esac
 
-COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
+COMMAND=$(field '.tool_input.command // empty')
 [ -n "$COMMAND" ] || exit 0
-
-# audit <event> <reason>: best-effort record in the audit log; never blocks the decision.
-audit() {
-  local logger
-  logger="$(dirname "${BASH_SOURCE[0]}")/audit-logger.sh"
-  [ -r "$logger" ] || return 0
-  printf '%s' "$INPUT" \
-    | jq -c --arg e "$1" --arg r "$2" --arg h "destructive-blocker" \
-        '. + {_audit_event:$e,_deny_reason:$r,_deny_hook:$h}' 2>/dev/null \
-    | bash "$logger" >/dev/null 2>&1 || true
-}
-
-decide() {  # decide <deny|ask> <message>
-  jq -n --arg d "$1" --arg reason "$2" \
-    '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: $d, permissionDecisionReason: $reason}}' 2>/dev/null
-}
-
-deny() {  # deny <short reason for the log> <message for the agent>
-  audit deny "$1"
-  decide deny "$2"
-  exit 0
-}
 
 blocked() { deny "$1" "Destructive command blocked: $1. If this is intentional, ask the user to run it manually."; }
 
@@ -65,7 +38,7 @@ ask_or_deny() {
   case "${CLAUDE_CODE_ENTRYPOINT:-}" in
     cli | claude-vscode | claude-desktop)
       decide ask "$2"
-      audit ask "$1"
+      audit_deny "$1" ask
       exit 0 ;;
   esac
   blocked "$1"

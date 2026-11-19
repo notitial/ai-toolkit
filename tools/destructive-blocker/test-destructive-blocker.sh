@@ -15,6 +15,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/destructive-blocker-XXXXXX")
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/hooks" "$T/work"
 cp "$HOOK" "$T/hooks/destructive-blocker.sh"
+cp -R "${HOOK%/*}/lib" "$T/hooks/lib"
 cp "$LOGGER" "$T/hooks/audit-logger.sh"
 PASS=0
 FAIL=0
@@ -274,6 +275,12 @@ fi
 out=$(printf '%s' "$(bash_in 'ls')" | env -i PATH=/nonexistent HOME="$T" "$SH" "$T/hooks/destructive-blocker.sh" 2>/dev/null)
 rc=$?
 if [ "$rc" = 0 ] && printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: no jq should deny (rc=$rc): $out"; fi
+
+# A jq that is on the PATH but fails must not read as an allow: the hook exits 1, which its `|| exit 2` wiring blocks.
+mkdir -p "$T/badjq" && printf '#!/bin/sh\nexit 1\n' >"$T/badjq/jq" && chmod +x "$T/badjq/jq"
+out=$(printf '%s' "$(bash_in 'ls')" | env -i PATH="$T/badjq:$PATH" HOME="$T" "$SH" "$T/hooks/destructive-blocker.sh" 2>/dev/null)
+rc=$?
+if [ "$rc" = 1 ] && [ -z "$out" ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: a failing jq should exit 1 (rc=$rc): $out"; fi
 
 # A deny and an ask are recorded in the audit log under the input's cwd, tagged with this hook; an allowed call
 # writes nothing.

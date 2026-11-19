@@ -7,33 +7,29 @@
 # Bash|Write|Edit|MultiEdit|NotebookEdit|Read|Grep|mcp__git-mcp__git_commit.
 # An exact example file name (.env.example, .env.sample, .env.template, .env.dist) may be read, searched and written.
 #
-# Reads JSON from stdin and prints a deny decision, or nothing to allow. Exit 0 always.
+# Reads JSON from stdin and prints a deny decision, or nothing to allow. Exit 0 always (`exit 1` if lib/hook-common.sh is
+# missing, which the `|| exit 2` wiring blocks).
 
 set -uo pipefail
 
-# Audit row for a fail-closed deny. The input may be unreadable, so the row carries none of it: only the cwd
-# and the tool name when jq can read them.
-audit_unscannable() {
-  local logger cwd tool
-  command -v jq >/dev/null 2>&1 || return 0
-  logger="$(dirname "${BASH_SOURCE[0]}")/audit-logger.sh"
-  [ -r "$logger" ] || return 0
-  cwd=$(printf '%s' "${INPUT:-}" | jq -r '(.cwd | strings | select(startswith("/"))) // empty' 2>/dev/null || true)
-  tool=$(printf '%s' "${INPUT:-}" | jq -r '(.tool_name | strings | select(test("^[A-Za-z0-9_-]+$")) | .[0:64]) // empty' 2>/dev/null || true)
-  jq -nc --arg c "${cwd:-$PWD}" --arg t "${tool:-unknown}" --arg r "unscannable input blocked (fail-closed)" --arg h "secret-detector" \
-    '{cwd: $c, tool_name: $t, _audit_event: "deny", _deny_reason: $r, _deny_hook: $h}' 2>/dev/null \
-    | bash "$logger" >/dev/null 2>&1 || true
-}
+HOOK=secret-detector
+S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
+. "${S%/*}/lib/hook-common.sh" || exit 1
 
-# Without jq, or with input that is not a JSON object, nothing can be scanned: deny.
+# Input that is not a JSON object cannot be scanned: deny. The audit row carries none of that input, only the cwd
+# and the tool name when jq can read them.
 deny_unscannable() {
-  audit_unscannable
-  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"secret-detector: jq unavailable or the input is not a JSON object - secret scanning blocked (fail-closed). Install jq or ask the user to review the content manually."}}'
+  local cwd tool
+  if [ -r "$HOOK_DIR/audit-logger.sh" ]; then
+    cwd=$(field '(.cwd | strings | select(startswith("/"))) // empty')
+    tool=$(field '(.tool_name | strings | select(test("^[A-Za-z0-9_-]+$")) | .[0:64]) // empty')
+    jq -nc --arg c "${cwd:-$PWD}" --arg t "${tool:-unknown}" --arg r "unscannable input blocked (fail-closed)" --arg h "$HOOK" \
+      '{cwd: $c, tool_name: $t, _audit_event: "deny", _deny_reason: $r, _deny_hook: $h}' 2>/dev/null \
+      | bash "$HOOK_DIR/audit-logger.sh" >/dev/null 2>&1 || true
+  fi
+  decide deny "secret-detector: the input is not a JSON object - secret scanning blocked (fail-closed). Ask the user to review the content manually."
   exit 0
 }
-command -v jq >/dev/null 2>&1 || deny_unscannable
-
-INPUT=$(cat) || true
 case $INPUT in
   *[![:space:]]*) printf '%s' "$INPUT" | jq -e 'type == "object"' >/dev/null 2>&1 || deny_unscannable ;;
 esac
@@ -45,13 +41,12 @@ match_in() {  # match_in <grep flags> <pattern> <text>
   return "${PIPESTATUS[1]}"
 }
 
-TOOL_NAME=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null || true)
+TOOL_NAME=$(field '.tool_name // empty')
 
 # The text to scan, and the file written, per tool.
 CONTENT=""
 FILE_PATH=""
 GLOB=""
-field() { printf '%s' "$INPUT" | jq -r "$1" 2>/dev/null || true; }
 case "$TOOL_NAME" in
   Bash)         CONTENT=$(field '.tool_input.command // empty') ;;
   Write)        CONTENT=$(field '.tool_input.content // empty');    FILE_PATH=$(field '.tool_input.file_path // empty') ;;
@@ -71,23 +66,6 @@ esac
 if [ -z "$CONTENT" ] && [ -z "$FILE_PATH" ] && [ -z "$GLOB" ] && [ "$TOOL_NAME" != Grep ]; then
   exit 0
 fi
-
-# Best-effort record of a deny in the audit log; never blocks this hook.
-audit_deny() {
-  local logger
-  logger="$(dirname "${BASH_SOURCE[0]}")/audit-logger.sh"
-  [ -r "$logger" ] || return 0
-  printf '%s' "$INPUT" \
-    | jq -c --arg r "$1" --arg h "secret-detector" \
-        '. + {_audit_event:"deny",_deny_reason:$r,_deny_hook:$h}' 2>/dev/null \
-    | bash "$logger" >/dev/null 2>&1 || true
-}
-
-deny() {  # deny <audit reason> <reason shown to the agent>
-  audit_deny "$1"
-  jq -n --arg r "$2" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
-  exit 0
-}
 
 # Secret patterns (extended regex, POSIX classes). Keep in step with audit-logger.sh's redact() set.
 JWT_PATTERN='(^|[^a-zA-Z0-9_-])eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+'

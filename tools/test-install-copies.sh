@@ -607,7 +607,7 @@ expect_true "only <username>, <host> and <router.ip> are placeholders, nothing l
 # the hook suites cannot see it, since they run each hook as `bash <file>`.
 case_start "this repository: scripts run by their path are committed 100755"
 REPO=$(cd "$(dirname "$SCRIPT_SRC")/.." && pwd -P)
-MODES=$(git -C "$REPO" ls-files -s -- 'hooks/*.sh' tools/workspace-lock/workspace-lock.sh tools/github-mcp/launch)
+MODES=$(git -C "$REPO" ls-files -s -- ':(glob)hooks/*.sh' tools/workspace-lock/workspace-lock.sh tools/github-mcp/launch)
 expect_has "the hooks are listed" "$MODES" "hooks/secret-detector.sh"
 expect_has "the lock script is listed" "$MODES" "tools/workspace-lock/workspace-lock.sh"
 expect_has "the launcher is listed" "$MODES" "tools/github-mcp/launch"

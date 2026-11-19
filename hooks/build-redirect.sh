@@ -16,7 +16,7 @@
 # string or an argument is left alone, also when the string holds | ; & ( ) or braces, spans several lines, sits in a
 # heredoc body or in a # comment.
 # This is an advisory redirect: without jq, or on input that is not a JSON object, it lets the call through.
-# Exit 0 always.
+# Exit 0 always, also when lib/hook-common.sh is missing.
 #
 # Known gaps, kept on purpose so the hook stays simple (same family as git-mcp-redirect.sh). These shapes pass:
 #   - wrappers other than the ones above (time, nohup, exec, nice, xargs), options after a wrapper (sudo -u x),
@@ -32,40 +32,25 @@
 #     scanned again at the end when none comes).
 # The redirect is a convenience, not a sandbox: the allow-lists in build-kit protect the calls that go through it.
 
+command -v jq >/dev/null 2>&1 || exit 0
+HOOK=build-redirect
+# Sourced before `set -e`: under it bash 3.2 exits 1 on a missing file even with `|| exit 0`.
+S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
+. "${S%/*}/lib/hook-common.sh" 2>/dev/null || exit 0
 set -euo pipefail
 
-command -v jq >/dev/null 2>&1 || exit 0
-
-INPUT=$(cat)
 printf '%s' "$INPUT" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
-COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')
+COMMAND=$(field '.tool_input.command // empty')
 [ -n "$COMMAND" ] || exit 0
 
 # Opt-in: .build-kit.json at the call's working directory or above it (an absolute directory only). The input's cwd
 # comes first, so a clone of another repo is judged by its own folder (a `cd /project && xcodebuild` from outside the
 # project passes, as the cwd decides); CLAUDE_PROJECT_DIR is the fallback when the input has no absolute cwd.
-DIR=$(printf '%s' "$INPUT" | jq -r '(.cwd | strings | select(startswith("/"))) // empty')
+DIR=$(field '(.cwd | strings | select(startswith("/"))) // empty')
 [ -n "$DIR" ] || DIR=${CLAUDE_PROJECT_DIR:-}
 case "$DIR" in /*) ;; *) exit 0 ;; esac
 while [ -n "$DIR" ] && [ "$DIR" != / ] && [ ! -f "$DIR/.build-kit.json" ]; do DIR=$(dirname "$DIR"); done
 [ -n "$DIR" ] && [ -f "$DIR/.build-kit.json" ] || exit 0
-
-# Best-effort record of a deny in the audit log (never blocks this hook).
-audit_deny() {
-  local logger
-  logger="$(dirname "${BASH_SOURCE[0]}")/audit-logger.sh"
-  [ -r "$logger" ] || return 0
-  printf '%s' "$INPUT" \
-    | jq -c --arg r "$1" --arg h "build-redirect" \
-        '. + {_audit_event:"deny",_deny_reason:$r,_deny_hook:$h}' 2>/dev/null \
-    | bash "$logger" >/dev/null 2>&1 || true
-}
-
-deny() {
-  audit_deny "$1"
-  jq -n --arg r "$2" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
-  exit 0
-}
 
 redirect() {  # redirect <tool> <platform> <action>
   deny "redirect Bash $1 -> build-kit $2 $3" "This project uses build-kit. Run \`python3 tools/build-kit/build.py $2 $3\` (or the MCP tool mcp__$2__$3) instead of $1 directly: it applies the allow-lists in .build-kit.json, a timeout and a lock, and returns structured results. Read-only queries (xcodebuild -list, -version, -showsdks; xcrun simctl list; gradlew tasks, --version) are not redirected."

@@ -4,7 +4,7 @@
 # git counts only in command position: at the start of a line or after a separator, behind VAR=value, env, sudo,
 # command or `timeout <duration>`. git inside a string or an argument is left alone.
 # This is an advisory redirect: without jq, or on input that is not a JSON object, it lets the call through.
-# Exit 0 always.
+# Exit 0 always, also when lib/hook-common.sh is missing.
 #
 # Known gaps, kept on purpose so the hook stays simple. These shapes pass unredirected:
 #   - wrappers other than env, sudo, command and timeout: time, nohup, exec, nice, xargs;
@@ -21,31 +21,16 @@
 # not every short flag behind these wrappers; and branch protection on the remote refuses a push to a protected
 # branch. The MCP route itself is guarded by hooks/git-mcp-guard.sh.
 
+command -v jq >/dev/null 2>&1 || exit 0
+HOOK=git-mcp-redirect
+# Sourced before `set -e`: under it bash 3.2 exits 1 on a missing file even with `|| exit 0`.
+S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
+. "${S%/*}/lib/hook-common.sh" 2>/dev/null || exit 0
 set -euo pipefail
 
-command -v jq >/dev/null 2>&1 || exit 0
-
-INPUT=$(cat)
 printf '%s' "$INPUT" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
-COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')
+COMMAND=$(field '.tool_input.command // empty')
 [ -n "$COMMAND" ] || exit 0
-
-# Best-effort record of a deny in the audit log (never blocks this hook).
-audit_deny() {
-  local logger
-  logger="$(dirname "${BASH_SOURCE[0]}")/audit-logger.sh"
-  [ -r "$logger" ] || return 0
-  printf '%s' "$INPUT" \
-    | jq -c --arg r "$1" --arg h "git-mcp-redirect" \
-        '. + {_audit_event:"deny",_deny_reason:$r,_deny_hook:$h}' 2>/dev/null \
-    | bash "$logger" >/dev/null 2>&1 || true
-}
-
-deny() {
-  audit_deny "$1"
-  jq -n --arg r "$2" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
-  exit 0
-}
 
 # Turn /usr/bin/git and \git into plain git.
 SCAN=$(printf '%s' "$COMMAND" | sed -E -e 's#[^[:space:]]*/git([[:space:]]|$)#git\1#g' -e 's#\\git([[:space:]]|$)#git\1#g')
