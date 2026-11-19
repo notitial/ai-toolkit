@@ -24,6 +24,7 @@ HOME="$T/home"
 on_command() { local o="C[\$CWD]" w; for w in "\$@"; do o="\$o <\$w>"; done; echo "\$o"; if [ "\$1" = xargs ]; then shift; sp_xargs "\$@"; fi; }
 on_redirect() { echo "R[\$CWD] <\$1>"; }
 CWD=/s
+[ -z "\${PARSE_SET_U:-}" ] || set -u
 shell_parse "\$1"
 RUN
 
@@ -123,6 +124,8 @@ expect "a case pattern's ) does not close the substitution" 'echo $(case x in x)
 expect "case as an argument does not count as a case" 'echo $(echo case; a) b' 'C[/s] <echo> <case>' 'C[/s] <a>' 'C[/s] <echo> <$(..)> <b>'
 expect "a shell keeps its heredoc across a substitution" $'bash -s "$(mk)" <<EOF\na > f\nEOF' 'C[/s] <mk>' 'R[/s] <f>' 'C[/s] <a>' 'C[/s] <bash> <-s> <$(...)>'
 expect "a substitution that is the whole -c string is not read again" 'bash -c "$(mk)"' 'C[/s] <mk>' 'C[/s] <bash> <-c> <$(...)>'
+# a hook that runs under set -u (secret-detector) parses a group whose parked words are empty
+PARSE_SET_U=1 expect "groups under set -u" '(a; b) c; echo "$(mk)" x; cp $(mk) y' 'C[/s] <a>' 'C[/s] <b>' 'C[/s] <c>' 'C[/s] <mk>' 'C[/s] <echo> <$(...)> <x>' 'C[/s] <mk>' 'C[/s] <cp> <$(..)> <y>'
 expect "a group the text leaves open gives back the words parked in front of it" 'cp x $(mk' 'C[/s] <mk>' 'C[/s] <cp> <x>'
 
 # nested strings
