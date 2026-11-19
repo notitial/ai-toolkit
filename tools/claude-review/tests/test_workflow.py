@@ -1,10 +1,10 @@
 """Static checks on the reusable kit workflow, this repo's caller of it and the command: YAML parses, the scripts
-compile and run from the kit's own checkout, the schema is in sync, and the security rules hold (no posting tool, no `${{ }}` in a `run:`, the App key only
+compile and run from the kit's own checkout, Claude reads the command from there, and the security rules hold (no posting tool, no `${{ }}` in a `run:`, the App key only
 in `appcheck` and `publish`, whose runner is the optional key pool, every job's permissions declared and inside the
 caller's ceiling, the caller's credentials mapped by name, pinned actions)."""
 import json, re, unittest
 
-from workflow import CALLER, COLLECT, COMMAND, HERE, PUBLISH, WORKFLOW, command_schema, parse_yaml, triggers
+from workflow import CALLER, COLLECT, COMMAND, HERE, PUBLISH, WORKFLOW, parse_yaml, triggers
 
 
 class Workflow(unittest.TestCase):
@@ -27,12 +27,14 @@ class Workflow(unittest.TestCase):
                 compile(path.read_text(encoding="utf-8"), path.name, "exec")
 
     def test_scripts_run_from_the_kits_own_checkout(self):
-        # `review` (comment runs) and `publish` check the kit's scripts out at the commit of the workflow file that
-        # defines the job (a caller's pinned SHA, or its own commit for a local call), under the workspace, and run
-        # them from there, each job only its own script. `review` checks the PR out first: the PR checkout's clean-up would remove the kit's folder.
+        # `review` and `publish` check the kit out at the commit of the workflow file that defines the job (a caller's
+        # pinned SHA, or its own commit for a local call), under the workspace, and run the scripts from there, each
+        # job only the files it uses (`review` also the command Claude reads). `review` checks the PR out first: the
+        # PR checkout's clean-up would remove the kit's folder.
         self.need_yaml()
         self.assertEqual(re.findall(r"python3 -I (\S+)", self.text),
                          [f".claude-review-kit/tools/claude-review/{n}" for n in ("collect.py", "publish.py")])
+        files = {"review": ["claude-pr-review.md", "collect.py"], "publish": ["publish.py"]}
         for job, script in (("review", "collect.py"), ("publish", "publish.py")):
             steps = self.wf["jobs"][job]["steps"]
             [checkout] = [s for s in steps if s.get("name") == "Check out the kit's scripts"]
@@ -43,18 +45,54 @@ class Workflow(unittest.TestCase):
             self.assertIs(checkout["with"]["persist-credentials"], False)
             [run] = [s for s in steps if script in s.get("run", "")]
             self.assertLess(steps.index(checkout), steps.index(run))
-            self.assertEqual(checkout["if"], run["if"])   # review: comment runs only; publish: when it posts
             self.assertIs(checkout["with"]["sparse-checkout-cone-mode"], False)   # cone mode takes folders, not files
-            self.assertEqual(checkout["with"]["sparse-checkout"], f"tools/claude-review/{script}")
-            if job == "review":   # the PR first, then a guard against the PR holding the kit's folder, then the kit
+            self.assertEqual(checkout["with"]["sparse-checkout"].split(), [f"tools/claude-review/{f}" for f in files[job]])
+            if job == "publish":
+                self.assertEqual(checkout["if"], run["if"])   # when it posts
+            else:   # every review run: the PR first, then a guard against the PR holding the kit's folder, then the kit
                 names = [s.get("name") for s in steps]
-                self.assertLess(names.index("Check out the PR"), names.index("Check the PR does not use the kit's folder"))
-                self.assertLess(names.index("Check the PR does not use the kit's folder"), steps.index(checkout))
+                guard = steps[names.index("Check the PR does not use the kit's folder")]
+                self.assertLess(names.index("Check out the PR"), steps.index(guard))
+                self.assertLess(steps.index(guard), steps.index(checkout))
+                self.assertEqual(guard["if"], "steps.regate.outputs.skip != 'true'")
+                self.assertEqual(checkout["if"], guard["if"])
+                self.assertLess(steps.index(checkout), steps.index(next(s for s in steps if s.get("id") == "review")))
 
-    def test_schema_matches_the_command(self):
+    def test_the_guard_fails_when_the_pr_holds_the_kits_folder(self):
+        self.need_yaml()
+        import subprocess, tempfile, pathlib
+        steps = self.wf["jobs"]["review"]["steps"]
+        run = next(s for s in steps if s.get("name") == "Check the PR does not use the kit's folder")["run"]
+        with tempfile.TemporaryDirectory() as d:
+            def guard():
+                return subprocess.run(["bash", "-e", "-c", run], cwd=d, capture_output=True).returncode
+            self.assertEqual(guard(), 0)
+            link = pathlib.Path(d, ".claude-review-kit")
+            link.symlink_to(pathlib.Path(d, "nowhere"))   # dangling: `-e` alone would miss it
+            self.assertNotEqual(guard(), 0)
+            link.unlink()
+            link.mkdir()
+            self.assertNotEqual(guard(), 0)
+
+    def test_claude_reads_the_command_from_the_kit_checkout(self):
+        # No slash command and no copy in the repo (the action restores .claude/ from the default branch): the prompt
+        # names the kit's file, which the review job checks out.
+        self.need_yaml()
+        prompt = next(s for s in self.wf["jobs"]["review"]["steps"] if s.get("id") == "review")["with"]["prompt"]
+        self.assertTrue(prompt.startswith("Follow the instructions in .claude-review-kit/tools/claude-review/claude-pr-review.md."))
+        self.assertFalse(prompt.startswith("/"))
+        # The prompt defines $ARGUMENTS for the file; the file must still use it (it goes with the frozen v3.4 copy).
+        self.assertIn("$ARGUMENTS", prompt)
+        # The prompt is the one instruction channel the PR cannot write to: only these expressions, never PR or comment text.
+        self.assertEqual(re.findall(r"\$\{\{ (.*?) \}\}", prompt), [
+            "github.repository", "env.PR_NUMBER", "env.REVIEW_MODE", "env.REVIEW_DIR",
+            "github.event_name == 'issue_comment' && format(' --threads {0}/threads.json', env.REVIEW_DIR) || ''"])
+        self.assertIn("\nArguments: $ARGUMENTS\n", COMMAND.read_text(encoding="utf-8"))
+
+    def test_result_schema_is_valid_and_shell_safe(self):
+        # The one copy of the schema: Claude gets it through --json-schema, and the command no longer repeats it.
         self.need_yaml()
         schema = self.wf["jobs"]["review"]["env"]["RESULT_SCHEMA"]
-        self.assertEqual(schema, command_schema())
         parsed = json.loads(schema)
         self.assertEqual(parsed["required"], ["no_issues", "stopped", "findings", "threads", "overview"])
         self.assertNotIn("'", schema)

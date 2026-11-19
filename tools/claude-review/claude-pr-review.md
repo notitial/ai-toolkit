@@ -46,11 +46,7 @@ The working directory is a checkout of the PR head, called CHECKOUT below.
 
 ## 4. The result
 
-Every run ends with one JSON object as your final structured output, a run that stops early included. It must match this schema:
-
-```json
-{"type":"object","properties":{"no_issues":{"type":"boolean"},"stopped":{"type":"boolean"},"findings":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"path":{"type":"string","maxLength":512},"line":{"type":"integer"},"side":{"type":"string","enum":["LEFT","RIGHT"]},"start_line":{"type":"integer"},"start_side":{"type":"string","enum":["LEFT","RIGHT"]},"body":{"type":"string","maxLength":4000},"line_text":{"type":"string","maxLength":500},"reopens":{"type":"string","maxLength":200}},"required":["path","line","side","body","line_text"],"additionalProperties":false}},"threads":{"type":"array","maxItems":100,"items":{"type":"object","properties":{"thread_id":{"type":"string"},"verdict":{"type":"string","enum":["resolved","open"]},"reply":{"type":"string","maxLength":800}},"required":["thread_id","verdict","reply"],"additionalProperties":false}},"overview":{"type":"string","maxLength":600}},"required":["no_issues","stopped","findings","threads","overview"],"additionalProperties":false}
-```
+Every run ends with one JSON object as your final structured output, a run that stops early included. The workflow gives you its shape as the structured-output schema (`--json-schema`): the five keys and their types, enums, lengths and counts. This file says what goes in them.
 
 What each mode returns:
 

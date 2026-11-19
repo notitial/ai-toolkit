@@ -13,8 +13,6 @@ FROZEN = HERE.parent / "claude-review.yml"       # v3.4, the vendored copy for r
 COMMAND = HERE.parent / "claude-pr-review.md"
 COLLECT = HERE.parent / "collect.py"             # the review job's thread collection (a script: run it as __main__)
 PUBLISH = HERE.parent / "publish.py"             # the publish job's script
-# The command is still installed by copy (the reusable workflow runs the calling repo's copy).
-INSTALLED = {COMMAND: ROOT / ".claude" / "commands" / "claude-pr-review.md"}
 
 
 def load_publish():
@@ -39,12 +37,6 @@ def parse_yaml(path=WORKFLOW):
     out = subprocess.run([ruby, "-ryaml", "-rjson", "-e", "puts JSON.dump(YAML.load_file(ARGV[0]))", str(path)],
                          capture_output=True, text=True, check=True)
     return json.loads(out.stdout)
-
-
-def command_schema():
-    """The one-line schema in the command's "The result" section."""
-    text = COMMAND.read_text(encoding="utf-8")
-    return re.search(r'^(\{"type":"object".*\})$', text, re.M).group(1)
 
 
 def save_threads(collected):

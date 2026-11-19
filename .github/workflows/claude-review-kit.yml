@@ -1,7 +1,7 @@
 # Claude PR review, owned by a GitHub App, as a reusable workflow (`on: workflow_call`). A repo calls it from a thin
 # caller, .github/workflows/claude-review.yml, which owns the triggers, the permission ceiling and the secrets (the
-# kit's README shows one). Runs the calling repo's review command, .claude/commands/claude-pr-review.md (canonical
-# copy in ai-toolkit tools/claude-review/). Claude only reads the PR and returns a
+# kit's README shows one). Runs the review command, tools/claude-review/claude-pr-review.md, from the kit's own
+# checkout (no copy in the calling repo). Claude only reads the PR and returns a
 # structured result (findings, thread verdicts, a short overview). This workflow checks that result and posts all of
 # it as the repo's reviewer App: the inline findings, the thread replies, one overview comment edited on every run,
 # and an APPROVE or REQUEST_CHANGES review. Nothing is posted as claude[bot] or github-actions[bot].
@@ -58,9 +58,9 @@
 #
 # issue_comment runs always use the caller from the default branch, and the action restores .claude and CLAUDE.md from
 # main too. Which copy of this file runs is the caller's `uses:` ref: a pinned SHA, or, for a repo that calls its own
-# copy by a local `./` path, the caller's own commit. No step executes anything from the PR checkout: the thread and
-# publish logic is tools/claude-review/collect.py and publish.py, checked out from the commit of this file (see the
-# step "Check out the kit's scripts"), and PR, comment and Claude text reaches it only through files and env vars,
+# copy by a local `./` path, the caller's own commit. No step executes anything from the PR checkout: the review command and the
+# thread and publish logic are in tools/claude-review/ (claude-pr-review.md, collect.py, publish.py), checked out from the commit of
+# this file (see the step "Check out the kit's scripts"), and PR, comment and Claude text reaches it only through files and env vars,
 # never through `${{ }}` in a `run:`. A PR that changes the caller, or a local copy of this file or its scripts, runs
 # its own copy, with the Claude key in `review` and the App key in `appcheck` and `publish`.
 # (The runner container may also be shared with CI jobs that do run PR code. Accepted because the owner is the only
@@ -296,9 +296,9 @@ jobs:
       # Claude's tools, the same in every mode: none of them can post. Read, Glob and Grep need no allow rule inside
       # the checkout and REVIEW_DIR, and must not get a bare one (that allows every path).
       TOOLS: 'Agent,Task'
-      # What every run returns (keep it byte-identical with the command's "The result"): whether it found no issues,
-      # whether it stopped as ineligible, the findings, one verdict per open thread it judged (comment runs), and a short
-      # overview. Kept out of the `${{ }}` below, where its braces could end the expression. The limits keep the
+      # What every run returns (Claude gets it through --json-schema; the command describes the fields): whether it
+      # found no issues, whether it stopped as ineligible, the findings, one verdict per open thread it judged (comment
+      # runs), and a short overview. Kept out of the `${{ }}` below, where its braces could end the expression. The limits keep the
       # result well under the 1 MiB `publish` accepts.
       RESULT_SCHEMA: '{"type":"object","properties":{"no_issues":{"type":"boolean"},"stopped":{"type":"boolean"},"findings":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"path":{"type":"string","maxLength":512},"line":{"type":"integer"},"side":{"type":"string","enum":["LEFT","RIGHT"]},"start_line":{"type":"integer"},"start_side":{"type":"string","enum":["LEFT","RIGHT"]},"body":{"type":"string","maxLength":4000},"line_text":{"type":"string","maxLength":500},"reopens":{"type":"string","maxLength":200}},"required":["path","line","side","body","line_text"],"additionalProperties":false}},"threads":{"type":"array","maxItems":100,"items":{"type":"object","properties":{"thread_id":{"type":"string"},"verdict":{"type":"string","enum":["resolved","open"]},"reply":{"type":"string","maxLength":800}},"required":["thread_id","verdict","reply"],"additionalProperties":false}},"overview":{"type":"string","maxLength":600}},"required":["no_issues","stopped","findings","threads","overview"],"additionalProperties":false}'
     steps:
@@ -370,25 +370,28 @@ jobs:
       # The kit goes into the workspace beside the PR's files. A PR that commits this path (a symlink could aim the
       # checkout's clean-up elsewhere) fails the run before anything is written there.
       - name: Check the PR does not use the kit's folder
-        if: github.event_name == 'issue_comment'
+        if: steps.regate.outputs.skip != 'true'
         run: |
           if [ -e .claude-review-kit ] || [ -L .claude-review-kit ]; then
             echo "::error::The PR contains .claude-review-kit, the folder the review kit checks its scripts out into"
             exit 1
           fi
 
-      # The kit's scripts, from the commit of this workflow file: a caller's pinned SHA, or the caller's own commit for a
-      # local `./` call (on pull_request that is the PR's merge commit, so a PR that edits a script runs its edit). Not
-      # from a checkout of the PR. (job.workflow_repository and job.workflow_sha name the file that defines this job,
-      # not the caller.) An empty sha would check out the kit's default branch, so it falls back to a ref that fails.
+      # The kit's review command and thread script, from the commit of this workflow file: a caller's pinned SHA, or the
+      # caller's own commit for a local `./` call (on pull_request that is the PR's merge commit, so a PR that edits the
+      # command or a script runs its edit). Not from a checkout of the PR. (job.workflow_repository and job.workflow_sha
+      # name the file that defines this job, not the caller.) An empty sha would check out the kit's default branch, so
+      # it falls back to a ref that fails. Claude reads the command from here (the prompt below names the path).
       - name: Check out the kit's scripts
-        if: github.event_name == 'issue_comment'
+        if: steps.regate.outputs.skip != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha || 'job.workflow_sha-was-empty' }}
           path: .claude-review-kit
-          sparse-checkout: tools/claude-review/collect.py
+          sparse-checkout: |
+            tools/claude-review/claude-pr-review.md
+            tools/claude-review/collect.py
           sparse-checkout-cone-mode: false
           fetch-depth: 1
           persist-credentials: false
@@ -419,8 +422,10 @@ jobs:
           # The job's read-only token: with it the action skips its OIDC exchange, so there is no Claude App token and
           # no Claude App to install.
           github_token: ${{ github.token }}
+          # The command is a file Claude reads from the kit's checkout, not a slash command installed in the repo (the
+          # action restores .claude/ from the default branch). $ARGUMENTS is the placeholder the file uses for its arguments.
           # The mode is REVIEW_MODE (one of three fixed strings), never comment text.
-          prompt: "/claude-pr-review ${{ github.repository }}/pull/${{ env.PR_NUMBER }} --mode ${{ env.REVIEW_MODE }} --context ${{ env.REVIEW_DIR }}${{ github.event_name == 'issue_comment' && format(' --threads {0}/threads.json', env.REVIEW_DIR) || '' }}"
+          prompt: "Follow the instructions in .claude-review-kit/tools/claude-review/claude-pr-review.md. In that file, $ARGUMENTS is: ${{ github.repository }}/pull/${{ env.PR_NUMBER }} --mode ${{ env.REVIEW_MODE }} --context ${{ env.REVIEW_DIR }}${{ github.event_name == 'issue_comment' && format(' --threads {0}/threads.json', env.REVIEW_DIR) || '' }}"
           # The tools are set here, never in the command's frontmatter (it carries none; a test checks): TOOLS in the
           # job env. Keep it in sync with the tools the command's "Ground rules" section names.
           # The deny list removes the shell, the web, file writes and the action's GitHub tools outright. It also denies

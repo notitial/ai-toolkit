@@ -1,9 +1,9 @@
-"""This repo runs the kit it ships: its installed command equals the canonical one, and the README's SHA table is
-current for the two vendored files (the command, and the frozen v3.4 workflow that repos not yet on the reusable kit
-still copy). This repo's own review workflow is a thin caller of the reusable kit (test_workflow.py)."""
+"""The README's SHA table is current for the two vendored files (the command, and the frozen v3.4 workflow that repos
+not yet on the reusable kit still copy). This repo's own review workflow is a thin caller of the reusable kit
+(test_workflow.py), and the kit reads the command from its own checkout: this repo installs no copy."""
 import hashlib, re, unittest
 
-from workflow import COMMAND, FROZEN, HERE, INSTALLED
+from workflow import COMMAND, FROZEN, HERE
 
 
 def sha256(path):
@@ -11,13 +11,6 @@ def sha256(path):
 
 
 class Install(unittest.TestCase):
-    def test_installed_copies_equal_the_canonical_files(self):
-        for canonical, installed in INSTALLED.items():
-            with self.subTest(file=canonical.name):
-                self.assertTrue(installed.is_file(), f"{installed} is missing")
-                self.assertEqual(installed.read_bytes(), canonical.read_bytes(),
-                                 f"{installed} differs from the kit's {canonical.name}: copy it again")
-
     def test_readme_sha_table_is_current(self):
         readme = (HERE.parent / "README.md").read_text(encoding="utf-8")
         for canonical in (FROZEN, COMMAND):

@@ -75,7 +75,6 @@ Copy these when adding the same kind of file:
 | `tools/README.md` | Every tool: what it does, its README, and the test suite to run after a change |
 | `.claude/settings.json` | Project-level permissions allowlist (no hooks) |
 | `.claude/rules/` | Path-scoped rules (loaded on demand) |
-| `.claude/commands/` | Project command claude-pr-review (a fork of the code-review command from Anthropic's Claude Code plugins) |
 | `.github/workflows/` | Automatic Claude PR review workflow (ADR 0013); `ci.yml`, the test suites on every PR |
 | `assets/icon/` | The project icon (SVG, mono variant, PNGs from 16 to 1024 px) |
 | `README.md` | Repo overview, install table and links |
