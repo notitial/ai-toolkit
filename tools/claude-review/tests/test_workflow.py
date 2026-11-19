@@ -316,6 +316,14 @@ class Workflow(unittest.TestCase):
         self.assertIn("If the PR touches it, the PR would be writing its own review rules", text)
         self.assertIn("A `CLAUDE.md` that this PR adds, edits, renames or deletes is not a rule source for this run", text)
 
+    def test_least_code_no_caller_never_blocks(self):
+        # v4.3: a piece nothing uses is a suggestion (a PR in a stack may add the caller next), on a sonnet verifier,
+        # set apart from the findings like a simplification.
+        text = COMMAND.read_text(encoding="utf-8")
+        self.assertIn("- **No caller** (a non-blocking suggestion).", text)
+        self.assertIn("`sonnet` for a defect, written-rule, private-data, simplification or no-caller candidate", text)
+        self.assertIn("Set apart the confirmed simplifications and no-caller candidates", text)
+
     def test_app_key_only_in_the_key_jobs(self):
         # v3.3: appcheck and publish run on ubuntu-latest unless the repo variable holds a label array (a dedicated
         # pool); no other job may use that variable or the key.
