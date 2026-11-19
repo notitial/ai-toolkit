@@ -28,7 +28,7 @@
 #   - Bash and Monitor, one simple rule (lib/shell-parse.sh reads the text, this file judges what it finds): the command is split into segments (; && || | & newline, and the insides of
 #     $( ), backticks and ( )), `cd <dir>` is tracked left to right, and a segment is denied when it is a write
 #     shape and a target resolves into a protected place. Write shapes: a > >> >| &> redirect; rm rmdir unlink shred
-#     touch mkdir chmod chown chgrp truncate tee mv cp install ln rsync dd patch; sed -i and perl -i; tar x, unzip,
+#     touch mkdir mkfifo mknod chmod chown chgrp truncate tee mv cp install ln rsync dd patch; sed -i and perl -i; tar x, unzip,
 #     curl -o/-O, wget; find with -delete, -fprint or -exec of a write verb; xargs of those.
 #     `bash -c STRING` and `eval STRING` are read recursively.
 #     Relative operands resolve against the tracked folder; a glob is judged by its directory prefix.
@@ -374,6 +374,14 @@ on_command() {
       parse_args "-t -d -r" "$@"
       for a in "${NONOPT[@]}"; do judge_target "$a" "$verb"; done
       ;;
+    mkfifo)  # a FIFO at a protected path counts as the file being there: every operand is a target
+      parse_args "-m --mode -Z --context" "$@"
+      for a in "${NONOPT[@]}"; do judge_target "$a" "$verb"; done
+      ;;
+    mknod)  # the same for a device node; the operands after the name are a type and numbers, not paths
+      parse_args "-m --mode -Z --context" "$@"
+      [ "${#NONOPT[@]}" -gt 0 ] && judge_target "${NONOPT[0]}" "$verb"
+      ;;
     mkdir)
       parse_args "-m" "$@"
       for a in "${NONOPT[@]}"; do judge_target "$a" "$verb"; done
@@ -562,7 +570,7 @@ on_command() {
         if [ "$inx" = 1 ]; then
           sp_lc "$a"
           case "$SP_LC" in
-            rm | rmdir | unlink | shred | touch | mkdir | chmod | chown | chgrp | truncate | tee | mv | cp | install | ln | rsync | dd | patch) writes=1 ;;
+            rm | rmdir | unlink | shred | touch | mkdir | mkfifo | mknod | chmod | chown | chgrp | truncate | tee | mv | cp | install | ln | rsync | dd | patch) writes=1 ;;
             sed | perl) xsed=1 ;;
           esac
           inx=0
