@@ -9,7 +9,7 @@
 #
 # Reads JSON from stdin and prints a deny decision, or nothing to allow. Exit 0 always (`exit 1` if lib/hook-common.sh is
 # missing, as is lib/shell-parse.sh, which the `|| exit 2` wiring blocks). For a command that names grep or rg, a control byte in
-# the text is denied, and every heredoc body is read as a script.
+# the text, or a shape the parser cannot read exactly (lib/shell-parse.sh lists them), is denied, and every heredoc body is read as a script.
 
 set -uo pipefail
 

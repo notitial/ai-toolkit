@@ -530,5 +530,16 @@ check pass "keychain: lookup after &&"               "true && which security"
 check deny "keychain: wildcard flag [w]"             "security find-generic-password -s svc -[w]"
 check deny "keychain: wildcard flag ?"               "security find-generic-password -s svc -?"
 
+# A missing or cut lib makes the hook exit 1 (the wiring's `|| exit 2` then blocks).
+mkdir -p "$T/nolib/hooks" "$T/cutlib/hooks"
+cp "$T/hooks/secret-detector.sh" "$T/nolib/hooks/"
+cp "$T/hooks/secret-detector.sh" "$T/cutlib/hooks/"
+cp -R "$T/hooks/lib" "$T/cutlib/hooks/lib"
+head -n 20 "$T/hooks/lib/shell-parse.sh" >"$T/cutlib/hooks/lib/shell-parse.sh"
+for v in nolib cutlib; do
+  bash_in 'ls' | (cd "$T/work" && HOME="$T" "$SH" "$T/$v/hooks/secret-detector.sh" >/dev/null 2>&1)
+  if [ "$?" = 1 ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: $v exits 1"; fi
+done
+
 echo "secret-detector: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

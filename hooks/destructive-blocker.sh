@@ -12,7 +12,7 @@
 # This catches the commands an agent types by mistake, not a command built to slip past it. Decisions are
 # recorded through the sibling audit-logger.sh when it is present. Reads JSON from stdin; exit 0 always (`exit 1` if
 # lib/hook-common.sh or lib/shell-parse.sh is missing or cut short, which the `|| exit 2` wiring blocks). A control byte in
-# the command text is denied (the parser cannot read it). Every heredoc body is read as a script (`ssh host <<EOF` and the like).
+# the command text, or a shape the parser cannot read exactly (lib/shell-parse.sh lists them), is denied. Every heredoc body is read as a script (`ssh host <<EOF` and the like).
 
 HOOK=destructive-blocker
 S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
