@@ -56,26 +56,26 @@
 #   secret    ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN   Claude credential (API key, or the subscription token
 #             from `claude setup-token`); both are passed below, and which one is set decides the credential
 #
-# issue_comment runs always use the caller from the default branch, and the action restores .claude and CLAUDE.md from
-# main too. Which copy of this file runs is the caller's `uses:` ref: a pinned SHA, or, for a repo that calls its own
+# issue_comment runs always use the caller from the default branch. Which copy of this file runs is the caller's `uses:` ref: a pinned SHA, or, for a repo that calls its own
 # copy by a local `./` path, the caller's own commit. No step executes anything from the PR checkout: the review command and the
-# thread and publish logic are in tools/claude-review/ (claude-pr-review.md, collect.py, publish.py, reviewer/result-schema.json), checked out from the commit of
+# thread and publish logic are in tools/claude-review/ (claude-pr-review.md, collect.py, publish.py, reviewer/), checked out from the commit of
 # this file (see the step "Check out the kit's scripts"), and PR, comment and Claude text reaches it only through files and env vars,
 # never through `${{ }}` in a `run:`. A PR that changes the caller, or a local copy of this file or its scripts, runs
 # its own copy, with the Claude key in `review` and the App key in `appcheck` and `publish`.
 # (The runner container may also be shared with CI jobs that do run PR code. Accepted because the owner is the only
 # one who pushes to these repos.)
 #
-# What Claude can do (the rules are in claude_args below):
-#   - no shell: Bash is denied outright, and so are web, write and edit tools and every GitHub tool. The workflow
-#     fetches the PR's details and diff into the review folder for it.
-#   - reads: the checkout (but not its .git, which holds the job's token while Claude runs) and the review folder
-#     (--add-dir) only, with token-bearing paths denied outright. Never deny the runner work dir (/_work/job on some
-#     runners, /tmp/runner/work on others).
-#   - mode: --permission-mode default, so a tool call outside the allow list is refused, never approved by the
-#     auto-mode safety review the action starts a session with a prompt in (v1.0.273 on).
-#   - settings: only the repo's own (from main), never user-level ones a previous job could have left on the runner.
-#     The repo's hooks are switched off.
+# What Claude can do (the flags are in tools/claude-review/reviewer/run.sh; the run step below starts it):
+#   - no shell: its tools are Read, Grep, Glob and Agent and nothing else (--tools), so no shell, web, write, edit, MCP or
+#     GitHub tool exists for it. The workflow fetches the PR's details and diff into the review folder for it.
+#   - reads: the checkout (but not its .git) and the review folder only, by allow rules in a session that refuses anything
+#     else (--permission-mode dontAsk). Neither is added with --add-dir, so nothing the PR holds can load as a setting,
+#     agent, skill or CLAUDE.md.
+#   - config: the kit's own only. The session starts in a copy of tools/claude-review/reviewer/ (its CLAUDE.md, the
+#     pinned CLI) taken from the commit of this file, with a fresh CLAUDE_CONFIG_DIR, so no user-level config a previous
+#     job left on the runner loads (managed settings under /etc would still). The calling repo's .claude/ and CLAUDE.md never configure its reviewer. Hooks are off.
+#   - environment: no GitHub token. The session runs under `env -i` with PATH, HOME, its config folder and the Claude
+#     credential, and writes its transcript to a file in a mode-700 folder, not to the log.
 #   - posting: none. Its findings, verdicts and overview are data that `publish` checks and sanitizes (no links,
 #     images, HTML or mentions) before posting them as the App.
 #   Residual: steered by text in the PR or a reply, Claude can still return misleading findings, judge one of its own
@@ -268,7 +268,7 @@ jobs:
     needs: [preflight, appcheck]
     if: needs.preflight.outputs.run == 'true' && needs.appcheck.result == 'success'
     runs-on: ${{ fromJSON(inputs.runs-on) }}
-    timeout-minutes: 25
+    timeout-minutes: 30
     # One review at a time per PR, never cancelled (see the header).
     concurrency:
       group: claude-review-${{ github.event.pull_request.number || github.event.issue.number }}
@@ -293,9 +293,6 @@ jobs:
       REVIEW_MODE: >-
         ${{ github.event_name == 'pull_request' && 'initial'
             || (startsWith(github.event.comment.body, '@claude review --comments') && 'followup' || 'rereview') }}
-      # Claude's tools, the same in every mode: none of them can post. Read, Glob and Grep need no allow rule inside
-      # the checkout and REVIEW_DIR, and must not get a bare one (that allows every path).
-      TOOLS: 'Agent,Task'
     steps:
       # REVIEW_DIR is the folder Claude may read besides the checkout: the PR's details and diff, and in comment runs
       # the threads. It's set here because a job's own env can't use the runner context.
@@ -372,11 +369,11 @@ jobs:
             exit 1
           fi
 
-      # The kit's review command, thread script and result schema, from the commit of this workflow file: a caller's pinned SHA, or the
+      # The kit's review command, thread script and reviewer folder, from the commit of this workflow file: a caller's pinned SHA, or the
       # caller's own commit for a local `./` call (on pull_request that is the PR's merge commit, so a PR that edits the
       # command or a script runs its edit). Not from a checkout of the PR. (job.workflow_repository and job.workflow_sha
       # name the file that defines this job, not the caller.) An empty sha would check out the kit's default branch, so
-      # it falls back to a ref that fails. Claude reads the command from here (the prompt below names the path).
+      # it falls back to a ref that fails. The reviewer folder and the command are copied out of here for Claude (below).
       - name: Check out the kit's scripts
         if: steps.regate.outputs.skip != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -387,20 +384,10 @@ jobs:
           sparse-checkout: |
             tools/claude-review/claude-pr-review.md
             tools/claude-review/collect.py
-            tools/claude-review/reviewer/result-schema.json
+            tools/claude-review/reviewer/
           sparse-checkout-cone-mode: false
           fetch-depth: 1
           persist-credentials: false
-
-      # What every run returns, from the kit's schema file (publish checks the result against the same file): whether it
-      # found no issues, whether it stopped as ineligible, the findings, one verdict per open thread it judged (comment
-      # runs), and a short overview. Claude gets it through --json-schema, as one line from the env; the file has no
-      # single quote, which a test checks. The limits keep the result well under the 1 MiB `publish` accepts.
-      - name: Load the result schema
-        if: steps.regate.outputs.skip != 'true'
-        run: |
-          schema=$(jq -c . .claude-review-kit/tools/claude-review/reviewer/result-schema.json)
-          echo "RESULT_SCHEMA=${schema}" >> "$GITHUB_ENV"
 
       # Comment runs only. Writes the review's earlier threads to a file for the review command: `open` ones to judge (with
       # replies, last comment id), `raised` ones (unresolved but not followable) as context only. Resolved threads are left out. A thread is
@@ -413,48 +400,71 @@ jobs:
           THREADS_FILE: ${{ runner.temp }}/claude-review/threads.json
         run: HEAD_SHA="$(git rev-parse HEAD)" python3 -I .claude-review-kit/tools/claude-review/collect.py
 
+      # Claude Code is the version the kit pins in reviewer/package.json and package-lock.json (an integrity hash per
+      # package), installed with `npm ci`. The reviewer folder and the command are copied out of the kit's checkout
+      # because that checkout sits inside the PR's workspace: a session started there would load the PR's root CLAUDE.md as
+      # a parent folder's memory. The copy's own folder holds the kit's CLAUDE.md and nothing the PR wrote.
+      - name: Set up Node
+        if: steps.regate.outputs.skip != 'true' && steps.collect.outputs.covered != 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Install Claude Code
+        if: steps.regate.outputs.skip != 'true' && steps.collect.outputs.covered != 'true'
+        run: |
+          set -o pipefail
+          cp -R .claude-review-kit/tools/claude-review/reviewer "${RUNNER_TEMP}/claude-review-setup"
+          cp .claude-review-kit/tools/claude-review/claude-pr-review.md "${RUNNER_TEMP}/claude-review-setup/"
+          cd "${RUNNER_TEMP}/claude-review-setup"
+          npm ci --no-audit --no-fund
+          ./node_modules/.bin/claude --version
+
+      # The command is a file Claude reads from the copy above; $ARGUMENTS is the placeholder it uses for its arguments.
+      # The mode is REVIEW_MODE (one of three fixed strings), never comment text. Everything the prompt holds comes from
+      # fixed variables. The transcript goes to a mode-700 folder, and its path to the steps below. A run that fails
+      # logs the exit status and the result's subtype only.
       - name: Run the Claude code review
         id: review
         if: steps.regate.outputs.skip != 'true' && steps.collect.outputs.covered != 'true'
-        uses: anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc  # v1.0.276
+        timeout-minutes: 24
         env:
-          # Workaround for anthropics/claude-code-action#1499 (open as of 2026-10-19): the action
-          # stops at Claude's first result, so background review agents are orphaned and nothing is
-          # posted. This documented switch keeps subagents in the foreground. Remove once it's fixed.
-          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # The job's read-only token: with it the action skips its OIDC exchange, so there is no Claude App token and
-          # no Claude App to install.
-          github_token: ${{ github.token }}
-          # The command is a file Claude reads from the kit's checkout, not a slash command installed in the repo (the
-          # action restores .claude/ from the default branch). $ARGUMENTS is the placeholder the file uses for its arguments.
-          # The mode is REVIEW_MODE (one of three fixed strings), never comment text.
-          prompt: "Follow the instructions in .claude-review-kit/tools/claude-review/claude-pr-review.md. In that file, $ARGUMENTS is: ${{ github.repository }}/pull/${{ env.PR_NUMBER }} --mode ${{ env.REVIEW_MODE }} --context ${{ env.REVIEW_DIR }}${{ github.event_name == 'issue_comment' && format(' --threads {0}/threads.json', env.REVIEW_DIR) || '' }}"
-          # The tools are set here, never in the command's frontmatter (it carries none; a test checks): TOOLS in the
-          # job env. Keep it in sync with the tools the command's "Ground rules" section names.
-          # The deny list removes the shell, the web, file writes and the action's GitHub tools outright. It also denies
-          # the reads that would reach a token: the checkout's .git (the action writes the job's token into
-          # .git/config's remote URL), the runner's step-output files, SSH and gh config, /run/secrets, /proc,
-          # /actions-runner and /etc. Reads anywhere else outside the checkout and REVIEW_DIR need an approval that
-          # this headless run never gets. /root isn't denied: on a runner that runs as root, Claude Code keeps its own
-          # saved tool output there. --setting-sources project loads only the repo's settings (restored from main),
-          # never user-level ones left on the runner, and --settings switches the repo's hooks off.
-          # --permission-mode default: since v1.0.273 the action starts a session that has a prompt in auto mode, where a
-          # tool call no allow rule covers can be approved by a safety review instead of refused. default keeps
-          # --allowedTools a strict list, as the paragraph above describes.
-          claude_args: |
-            --permission-mode default
-            --setting-sources project
-            --settings '{"disableAllHooks":true}'
-            --allowedTools "${{ env.TOOLS }}"
-            --disallowedTools "Bash,PowerShell,Monitor,WebFetch,WebSearch,Write,Edit,NotebookEdit,mcp__github__*,mcp__github_comment__*,mcp__github_file_ops__*,mcp__github_ci__*,mcp__github_inline_comment__*,Read(./.git/**),Read(//**/_runner_file_commands/**),Read(//**/.ssh/**),Read(//**/.config/gh/**),Read(//run/secrets/**),Read(//proc/**),Read(//actions-runner/**),Read(//etc/**)"
-            --add-dir ${{ env.REVIEW_DIR }}
-            --json-schema '${{ env.RESULT_SCHEMA }}'
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          set -o pipefail
+          if [ -z "${ANTHROPIC_API_KEY}${CLAUDE_CODE_OAUTH_TOKEN}" ]; then
+            echo "::error::No Claude credential: set the secret ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN"
+            exit 1
+          fi
+          setup="${RUNNER_TEMP}/claude-review-setup"
+          out=$(mktemp -d "${RUNNER_TEMP}/claude-review-stream.XXXXXXXX")
+          echo "stream_file=$out/stream.jsonl" >> "$GITHUB_OUTPUT"
+          prompt="Follow the instructions in claude-pr-review.md. In that file, \$ARGUMENTS is: ${GITHUB_REPOSITORY}/pull/${PR_NUMBER} --mode ${REVIEW_MODE} --checkout ${GITHUB_WORKSPACE} --context ${REVIEW_DIR}"
+          [ "$GITHUB_EVENT_NAME" != issue_comment ] || prompt="$prompt --threads ${REVIEW_DIR}/threads.json"
+          cd "$setup"
+          # env -i: only these variables reach Claude. CLAUDE_CODE_DISABLE_BACKGROUND_TASKS keeps subagents in the
+          # foreground (the documented switch for a headless run that ends at its first result); DISABLE_AUTOUPDATER keeps the pinned CLI as it is.
+          # The credential Claude uses is the API key when both are set, so the other never enters its environment.
+          [ -z "$ANTHROPIC_API_KEY" ] || CLAUDE_CODE_OAUTH_TOKEN=
+          # Claude's stderr goes to the log: no workflow command in it may act while it runs.
+          token=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+          echo "::stop-commands::${token}"
+          status=0
+          env -i "PATH=${setup}/node_modules/.bin:${PATH}" "HOME=${HOME}" "CLAUDE_CONFIG_DIR=${setup}/config" \
+            CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 DISABLE_AUTOUPDATER=1 \
+            ${ANTHROPIC_API_KEY:+"ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"} \
+            ${CLAUDE_CODE_OAUTH_TOKEN:+"CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}"} \
+            bash run.sh "$prompt" "$GITHUB_WORKSPACE" "$REVIEW_DIR" > "$out/stream.jsonl" || status=$?
+          echo "::${token}::"
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Claude exited with status ${status} (result: $(jq -rs '[.[] | select(type == "object" and .type == "result")] | last | .subtype // "none"' "$out/stream.jsonl" 2>/dev/null || echo unreadable))"
+            exit 1
+          fi
 
       # Hands Claude's result to `publish`, which runs on another runner: the structured output of the transcript's
-      # result message (read with jq from the execution file, never through an env var, which would cap it at
+      # result message (read with jq from the stream file, never through an env var, which would cap it at
       # 128 KiB), plus the collected thread ids (open ones with their last comment id), in a
       # fresh mode-700 folder uploaded as an artifact for one day. No result (Claude stopped without one) uploads nothing, and
       # `publish` posts no verdict. Logs sizes only.
@@ -462,16 +472,16 @@ jobs:
         id: result
         if: steps.review.outcome == 'success'
         env:
-          EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
+          STREAM_FILE: ${{ steps.review.outputs.stream_file }}
           THREADS_FILE: ${{ runner.temp }}/claude-review/threads.json
         run: |
           set -o pipefail
           dir=$(mktemp -d "${RUNNER_TEMP}/claude-review-result.XXXXXXXX")
           chmod 700 "$dir"
-          if [ -n "$EXECUTION_FILE" ] && jq -ce '
-              (if type == "array" then [.[] | select(type == "object" and .type == "result")] else [] end | last)
+          if jq -sce '
+              [.[] | select(type == "object" and .type == "result")] | last
               | .structured_output? | if type == "string" then (fromjson? // null) else . end | objects' \
-              "$EXECUTION_FILE" > "$dir/result.json"; then
+              "$STREAM_FILE" > "$dir/result.json"; then
             echo "Saved Claude's result: $(wc -c < "$dir/result.json") bytes"
           else
             echo "::warning::Claude returned no structured result, so no verdict will be posted"
@@ -492,14 +502,14 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-      # Every mode. Numbers and enums only: the execution file holds the whole transcript, so no text from it may
+      # Every mode. Numbers and enums only: the stream file holds the whole transcript, so no text from it may
       # reach the log or the artifact. Missing fields are null. Never fails the job.
       - name: Log the review's cost
         id: cost
-        if: always() && steps.review.outputs.execution_file != ''
+        if: always() && steps.review.outputs.stream_file != ''
         continue-on-error: true
         env:
-          EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
+          STREAM_FILE: ${{ steps.review.outputs.stream_file }}
           MODE: ${{ env.REVIEW_MODE }}
           COST_FILE: ${{ runner.temp }}/claude-review-cost.json
         run: |
@@ -507,13 +517,14 @@ jobs:
           # How many subagents Claude launched (Agent/Task tool calls): a full review (initial or rereview) launches at
           # least 8, plus one verifier per candidate issue and, in a rereview, its thread judges, so a lower count means the pipeline was
           # cut short. A followup launches none or a few. A count only, no text.
-          agents=$(jq '[.. | objects | select(.type? == "tool_use" and ((.name? // "") | test("^(Agent|Task)$")))] | length' \
-            "$EXECUTION_FILE") || agents=null
-          jq -c \
+          agents=$(jq -s '[.. | objects | select(.type? == "tool_use" and ((.name? // "") | test("^(Agent|Task)$")))] | length' \
+            "$STREAM_FILE") || agents=null
+          jq -sc \
             --argjson agents "${agents:-null}" \
             --arg repo "$GITHUB_REPOSITORY" --arg pr "$PR_NUMBER" --arg run_id "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
             --arg mode "$MODE" --arg event "$GITHUB_EVENT_NAME" --arg head "$(git rev-parse HEAD 2>/dev/null)" \
-            '(if type == "array" then [.[] | select(type == "object" and .type == "result")] else [] end | last) // {}
+            '([.[] | select(type == "object" and .type == "system" and .subtype == "init") | .claude_code_version | strings | select(. != "")] | first) as $version
+             | ([.[] | select(type == "object" and .type == "result")] | last) // {}
              | {
                  repo: $repo,
                  pr: ($pr | tonumber? // null),
@@ -523,7 +534,7 @@ jobs:
                  event: $event,
                  head_sha: ($head | if test("^[0-9a-f]{40}$") then . else null end),
                  reviewer: "claude-pr-review@v4.0",
-                 action: "anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc",
+                 claude_code: $version,
                  total_cost_usd: ((.total_cost_usd | numbers) // null),
                  duration_ms: ((.duration_ms | numbers) // null),
                  num_turns: ((.num_turns | numbers) // null),
@@ -535,12 +546,12 @@ jobs:
                  findings_returned: ((.structured_output? | objects | .findings | arrays | length) // null),
                  threads_judged: ((.structured_output? | objects | .threads | arrays | length) // null),
                  stopped: ([.structured_output? | objects | .stopped | booleans] | if length > 0 then .[0] else null end)
-               }' "$EXECUTION_FILE" > "$COST_FILE"
+               }' "$STREAM_FILE" > "$COST_FILE"
           jq -r '"Claude review (\(.mode)): $\(.total_cost_usd // "?"), \(if .duration_ms then "\(.duration_ms / 1000 | floor) s" else "? s" end), \(.num_turns // "?") turns, \(.agent_calls // "?") agents, \(.findings_returned // "?") findings, \(.threads_judged // "-") threads judged"' \
             "$COST_FILE" | tee -a "$GITHUB_STEP_SUMMARY"
           # Detection only: the command makes every step mandatory, but a model can still cut the pipeline short.
           case "$MODE" in initial | rereview) min=8 ;; *) min=0 ;; esac
-          jq -r --argjson min "$min" 'select(.agent_calls != null and .stopped != true and .agent_calls < $min)
+          jq -r --argjson min "$min" 'select(.num_turns != null and .agent_calls != null and .stopped != true and .agent_calls < $min)
             | "::warning::Claude launched \(.agent_calls) agents; a full review (\(.mode)) launches at least \($min), so it may have skipped steps"' \
             "$COST_FILE"
 
