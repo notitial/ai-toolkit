@@ -63,7 +63,8 @@ bash_ $d "RM -f $LIVE/tools/a.ts"
 bash_ $d "Cp /tmp/x $LIVE/tools/a.ts"
 bash_ $d "find $LIVE/tools -exec RM {} +"
 # ---- substitutions: the text is denied when it could touch a protected place, whatever the parse says ----
-# (the simple shapes below are also denied by the parser; the case-pattern, backtick, quoted and cwd ones need sub_guard)
+# (many of the shapes below are also denied by the parser alone, so they pin that the deny stays; the ones only sub_guard
+# denies are the read-only, glued-continuation, $''(, =( ), ~/.claude, relative and cwd ones near the end of this block)
 bash_ $d "cp \"\$(mktemp)\" $LIVE/tools/a.ts"
 bash_ $d "cp \$(mktemp) $LIVE/tools/a.ts"
 bash_ $d "cp \`mktemp\` $LIVE/tools/a.ts"
@@ -104,6 +105,7 @@ bash_ $d "echo \$(case x in x) :;; esac); cd $LIVE/../live; rm hooks/x.sh"
 bash_ $d "echo \$(case x in x) :;; esac); cd ../live; rm hooks/x.sh" "$T/other"
 bash_ $d "echo \$(date) >>/dev/null; rm -f a.ts" "$LIVE/tools"
 bash_ $d "echo =(date) > x" "$LIVE"
+bash_ $d "cat =(date) $LIVE/tools/a.ts"
 bash_ $d "git commit -m \"\$(cat <<'EOF'
 fix: say rm tools/a.ts and echo x > b
 EOF
@@ -116,6 +118,14 @@ bash_ $p "echo \$(date); cp /tmp/x ../clone/a.ts" "$CLONE/tools"
 NL=$'\n'
 bash_ $d "echo \"\$\\${NL}(rm -f $LIVE/tools/a.ts)\""
 bash_ $d "eval 'echo \"\$''(case x in x) rm -f $LIVE/tools/a.ts;; esac)\"'"
+bash_ $d "cat $LIVE/tools/a.ts; eval 'echo \"\$''(date)\"'"
+bash_ $d "cat \$(ls) $LIVE/tools/a.ts"
+bash_ $p "cat $LIVE/tools/a.ts"
+bash_ $p "echo \"Done... \$(date)\"" "$LIVE"
+bash_ $p "cd .. && cp \$(x) y" "$H/proj"
+bash_ $p "find . -name a \$(x)" "$CLONE"
+bash_ $p "curl -s https://\$(cat /tmp/h)/api"
+bash_ $d "cd .. && cp \$(x) y" "$LIVE/tools"
 bash_ $d "cp \"\$(mktemp)\" \$'$LIVE/tools/a.ts'"
 bash_ $d "curl -fsSL \"\$(cat /tmp/u)\" -o$LIVE/tools/a.ts"
 bash_ $d "cp \"\$(git rev-parse --show-toplevel)/.claude/settings.json\" ~/.claude/"
@@ -127,6 +137,15 @@ bash_ $d "echo \$(date); cp /tmp/x live/tools/b.ts" "$T"
 bash_ $p "echo \$(date); cp /tmp/x clone/tools/b.ts" "$T"
 bash_ $p "cp \"\$(mktemp)\" ~/notes.txt"
 bash_ $p "ls -la \$(pwd) ~/.claude"
+bash_ $p "sed -i '' \"s/0\\.1\\.0/\$(cat VERSION)/\" package.json" "$CLONE"
+bash_ $p "cp build.log \"\$(mktemp -d)/\"" "$CLONE"
+bash_ $p "echo \$((n / 2)) > half.txt" "$CLONE"
+bash_ $p "cat <<'EOF' > $CLONE/n.txt
+$(printf 'word%s /tmp/a/b ' $(seq 1 300))
+\$(date)
+EOF" "$CLONE"
+bash_ $p "cp \$(x) y; $(printf ' /tmp/a%s' $(seq 1 60))" "$CLONE"
+bash_ $d "cp \$(x) y; $(printf ' /tmp/a%s' $(seq 1 320))" "$CLONE"
 bash_ $p "echo \$(date)"
 bash_ $p "ls \$(pwd) | head"
 bash_ $p "cp \"\$(mktemp)\" $CLONE/tools/b.ts"
