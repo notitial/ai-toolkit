@@ -41,7 +41,8 @@
 #   write on their own, paths built at run time ($VAR, $(...) output), a `cd` to a variable or glob (the folder is
 #   then unknown and only absolute operands are judged), file names fed to xargs on stdin, $(...) inside a heredoc,
 #   hard links, the target of a find -exec, programs that write on their own (archive creators, compressors,
-#   formatters with an in-place flag), env -C, a < or > inside a standalone (( )) arithmetic command. A
+#   formatters with an in-place flag), env -C, a < or > inside a standalone (( )) arithmetic command, a tilde form other than
+#   ~ and ~/ (~+, ~-, ~user), g-prefixed coreutils names (gmkfifo, grm), CDPATH, and FIFOs made by cpio, pax or bsdtar. A
 #   recursive delete or move of a folder that contains a protected root is caught only for the session's own root
 #   and for ~/.claude.
 #
@@ -374,13 +375,25 @@ on_command() {
       parse_args "-t -d -r" "$@"
       for a in "${NONOPT[@]}"; do judge_target "$a" "$verb"; done
       ;;
-    mkfifo | mknod)  # a FIFO or device node at a protected path counts as the file being there: every operand is a target
-      parse_args "-m --mode" "$@"
-      for a in "${NONOPT[@]}"; do
-        if [ "$verb" = mknod ]; then  # mknod's type and major/minor words are not paths; an option value missed above is judged, not hidden
+    mkfifo | mknod)  # a FIFO or device node at a protected path counts as the file being there
+      # Options come before the first operand (BSD getopt stops there, so an option word after it is another operand):
+      # from the first operand on, every word is a target. mknod's words after the name are a type and numbers.
+      local seen=0 skip=0 first=1
+      for a in "$@"; do
+        if [ "$seen" = 0 ]; then
+          if [ "$skip" = 1 ]; then skip=0; continue; fi
+          case "$a" in
+            --) seen=1; continue ;;
+            -m | --mode | -F | -g | -u) skip=1; continue ;;
+            -*) continue ;;
+          esac
+          seen=1
+        fi
+        if [ "$verb" = mknod ] && [ "$first" = 0 ]; then
           case "$a" in p | b | c | u) continue ;; esac
           [[ "$a" =~ ^[0-9]+$ ]] && continue
         fi
+        first=0
         judge_target "$a" "$verb"
       done
       ;;
