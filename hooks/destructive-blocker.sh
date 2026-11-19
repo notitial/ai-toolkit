@@ -12,7 +12,8 @@
 # This catches the commands an agent types by mistake, not a command built to slip past it. Decisions are
 # recorded through the sibling audit-logger.sh when it is present. Reads JSON from stdin; exit 0 always (`exit 1` if
 # lib/hook-common.sh or lib/shell-parse.sh is missing or cut short, which the `|| exit 2` wiring blocks). A control byte in
-# the command text, or a shape the parser cannot read exactly (lib/shell-parse.sh lists them), is denied. Every heredoc body is read as a script (`ssh host <<EOF` and the like).
+# the command text, or a shape the parser cannot read exactly (lib/shell-parse.sh lists them), is denied. Every heredoc body and here-string is read as a script (`ssh host <<EOF` and the like).
+# A text with a backtick, where the parser may misplace a group end, is also denied when an rm, a -r and a -f are among its words.
 
 HOOK=destructive-blocker
 S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
@@ -121,6 +122,14 @@ on_redirect() { :; }
 SP_ALL_HEREDOCS=1  # a heredoc body may reach a shell the parser cannot see (ssh host <<EOF, sudo -s, source /dev/stdin)
 CWD=""
 shell_parse "$COMMAND"
+# Backticks: the parse may misplace a group end inside them (the header of lib/shell-parse.sh), so a text that holds one and has an rm, a -r
+# and a -f among its words, wherever they sit, is denied (deliberately coarse: prose that names rm and two flags is denied too, where a bulk delete
+# only asks). Only this hard check: a name built to slip past is out of scope.
+case $COMMAND in
+  *'`'*) if sp_raw_has "$COMMAND" '(.*/)?rm' && sp_raw_has "$COMMAND" '-[a-z]*r[a-z]*|--recursive' && sp_raw_has "$COMMAND" '-[a-z]*f[a-z]*|--force'; then
+    blocked "Recursive forced deletion (a text with backticks, not read exactly)"
+  fi ;;
+esac
 # A python one-liner or heredoc that deletes files is rm by another name.
 if matches 'python[0-9.]*([[:space:]]+-[A-Za-z]*)*[[:space:]]+(-[A-Za-z]*c|<<)' "$COMMAND" &&
   matches 'rmtree|os\.(remove|unlink|rmdir|removedirs)|\.unlink\(' "$COMMAND"; then

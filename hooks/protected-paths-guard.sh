@@ -45,17 +45,17 @@
 #   then unknown and only absolute operands are judged), file names fed to xargs on stdin, $(...) inside a heredoc,
 #   hard links, the target of a find -exec, programs that write on their own (archive creators, compressors,
 #   formatters with an in-place flag), env -C, a < or > inside a standalone (( )) arithmetic command, a tilde form other than
-#   ~ and ~/ (~+, ~-, ~user), g-prefixed coreutils names (gmkfifo, grm), CDPATH, and FIFOs made by cpio, pax or bsdtar. A
+#   ~ and ~/ (~+ and ~user are read, ~- is not), g-prefixed coreutils names (gmkfifo, grm), CDPATH, and FIFOs made by cpio, pax or bsdtar. A
 #   recursive delete or move of a folder that contains a protected root is caught only for the session's own root
-#   and for ~/.claude. A `~user`, `~+` or `~-` spelling is read as no path. A glob in a settings file name (settings.js?n) is
-#   judged by its folder, not as the file. At most 80 words are judged in one call, and a text with a substitution and over
+#   and for ~/.claude. A `~-` (the folder before the last cd, not tracked), a `~N` and a `~+N` or `~-N` (the directory stack) are read as no path, and `~+` is the tracked folder even after a PWD= assignment. A glob in the last
+#   component of a name in ~/.claude (settings.js?n, settings*) judges each settings file it matches; a glob in a folder name (~/.cl*/settings.json) is judged by its folder. At most 80 words are judged in one call, and a text with a substitution and over
 #   150 distinct path-like words is denied: each word costs about 40 ms and a hook past its 10 s timeout lets the call through.
 #   On bash 3.2 a `< <(cmd)` leaks a descriptor, and the hook crashed (exit 133, the call goes through) after about 250 of them:
 #   none are left in the guard or in lib/shell-parse.sh; a here-document does not leak (and a probe denies when one cannot be
 #   written). A call whose parse takes over 6 s is denied (lib/shell-parse.sh sp_budget); a path over 1024 characters is denied.
 #   Not read, single calls: a recursive copy or extract of a folder that holds a protected place into an ancestor of it
 #   (cp -R /tmp/x/ ~ with /tmp/x/.claude/settings.json made earlier; rsync, tar -xf -C ~, unzip -d ~), brace expansion
-#   (~/.claude{,}/settings.json), a leading $VAR other than $HOME ($PWD/hooks/x, ${HOME%/}/..), ~+, a bundled option with its
+#   (~/.claude{,}/settings.json), a leading $VAR other than $HOME ($PWD/hooks/x, ${HOME%/}/..), a bundled option with its
 #   value attached (curl -so/path, tar -xC/path).
 #
 # Reads JSON from stdin. Returns a JSON deny decision or nothing; exit 0 always (but `exit 1` when a lib file is
@@ -252,12 +252,9 @@ judge_into() {
     dest=${srcs[$((n - 1))]}
     last=$((n - 1))
   fi
+  expand_home "$dest" || return 0
+  dest=$EH
   case "$dest" in
-    '$HOME' | '${HOME}') d=$HOME_R ;;
-    '$HOME/'*) d="$HOME_R/${dest#\$HOME/}" ;;
-    '${HOME}/'*) d="$HOME_R/${dest#\$\{HOME\}/}" ;;
-    "~") d=$HOME_R ;;
-    "~/"*) d="$HOME_R/${dest#\~/}" ;;
     *'$'* | *'`'* | *[\*\?\[]*) return 0 ;;
     /*) d=$dest ;;
     *) [ -n "$CWD" ] || return 0; d="$CWD/$dest" ;;
@@ -283,10 +280,33 @@ JUDGED=0
 JC=()
 JA=()
 JP=()
+# expand_home <word>: EH is the word with a leading ~, ~+, ~user, $HOME or ${HOME} spelled out; 1 when it names no folder that is known (~-, a ~user
+# the shell does not know, ~+ with no tracked folder). ~user is looked up by the shell: the name is checked first, so the eval holds nothing else.
+EH=""
+expand_home() {
+  local w=$1 name h
+  EH=$w
+  case "$w" in
+    '$HOME' | '${HOME}' | "~") EH=$HOME_R ;;
+    '$HOME/'*) EH="$HOME_R/${w#\$HOME/}" ;;
+    '${HOME}/'*) EH="$HOME_R/${w#\$\{HOME\}/}" ;;
+    "~/"*) EH="$HOME_R/${w#\~/}" ;;
+    "~+" | "~+/"*) [ -n "$CWD" ] || return 1; EH="$CWD${w#\~+}" ;;
+    "~"*)
+      name=${w%%/*}
+      name=${name#\~}
+      case "$name" in "" | -* | [0-9]* | *[!A-Za-z0-9._-]*) return 1 ;; esac  # (~0, ~1: the directory stack, not an account)
+      eval "h=~$name"
+      case "$h" in /*) EH=$h${w#\~"$name"} ;; *) return 1 ;; esac
+      ;;
+  esac
+}
+
 judge_target() {
-  local p="$1" verb="$2" c k
+  local p="$1" verb="$2" c k d l f
   [ -n "$p" ] || return 0
   case "$p" in /dev/*) return 0 ;; esac
+  sp_budget  # before the dedupe loop: a repeated word is cheap alone, but tens of thousands of them are not
   for ((k = 0; k < JUDGED; k++)); do  # a judgement with the ancestor check (ANC=1) covers one without
     if [ "${JP[k]}" = "$p" ] && [ "${JC[k]}" = "$CWD" ] && { [ "${JA[k]}" = 1 ] || [ "$ANC" != 1 ]; }; then return 0; fi
   done
@@ -297,15 +317,8 @@ judge_target() {
   sp_budget
   [ "${#p}" -le 1024 ] || deny "a path of more than 1024 characters cannot be read within the hook's time limit - blocked (fail-closed)."
   [ "$JUDGED" -le 80 ] || deny "this call names more than 80 distinct paths to judge, which cannot be done within the hook's time limit (a call past it would go through unchecked). Split it into several calls."
-  case "$p" in
-    /dev/*) return 0 ;;
-    '$HOME' | '${HOME}') p=$HOME_R ;;
-    '$HOME/'*) p="$HOME_R/${p#\$HOME/}" ;;
-    '${HOME}/'*) p="$HOME_R/${p#\$\{HOME\}/}" ;;
-    "~") p=$HOME_R ;;
-    "~/"*) p="$HOME_R/${p#\~/}" ;;
-    "~"*) return 0 ;;
-  esac
+  expand_home "$p" || return 0
+  p=$EH
   case "$p" in
     *'$'* | *'`'*)
       p=${p%%[\$\`]*}
@@ -321,6 +334,25 @@ judge_target() {
   esac
   case "$p" in
     *[\*\?\[]*)
+      # A glob in the last component of a name in ~/.claude (settings.js?n, settings*, *): each existing settings file it matches is judged as that file.
+      # The shell never expands the agent's pattern: it is matched (by case) against the names of the settings files only, and a pattern of over 64
+      # characters or with over 3 wildcards is denied, since bash 3.2's matcher is exponential in the wildcards and a call past the timeout goes through.
+      d=${p%/*} l=${p##*/}
+      case "$d" in
+        *[\*\?\[]*) ;;
+        *) d=$(lexnorm "$d")  # ./ and // spellings of the folder
+          case "$(lower "$d")" in
+          "$LHOME_R/.claude" | "$(lexnorm "$LHOME")/.claude")
+            [ "${#l}" -le 64 ] || deny "a glob of over 64 characters in $d cannot be judged within the hook's time limit - blocked (fail-closed)."
+            f=${l//[^*?[]/}
+            [ "${#f}" -le 3 ] || deny "a glob with over 3 wildcards in $d cannot be judged within the hook's time limit - blocked (fail-closed)."
+            l=$(lower "$l")
+            for f in "$d"/[Ss][Ee][Tt][Tt][Ii][Nn][Gg][Ss]*; do
+              { [ -e "$f" ] || [ -L "$f" ]; } && [ "$f" != "$p" ] || continue
+              case "$(lower "${f##*/}")" in $l) judge_target "$f" "$verb" ;; esac
+            done ;;
+        esac ;;
+      esac
       p=${p%%[*?[]*}
       p=${p%/*}
       [ -n "$p" ] || p=/
@@ -774,6 +806,7 @@ EOF
   # word: that forks for every word with a capital, and 4500 of them took 13 s, past the hook's timeout.
   if printf '%s\n' "$t" | tr '[:upper:]' '[:lower:]' | grep -Eq '^(.*/)?(rm|rmdir|unlink|shred|touch|mkdir|mkfifo|mknod|chmod|chown|chgrp|truncate|tee|mv|cp|install|ln|rsync|dd|patch|sed|perl|tar|unzip|curl|wget|find|xargs)$'; then wr=1; fi
   while IFS= read -r w; do
+    sp_budget
     case "$w" in
       -[A-Za-z]/* | -[A-Za-z]'~'* | -[A-Za-z]'$HOME'* | -[A-Za-z]'${HOME}'*) w=${w#-?} ;;
       -* | "") continue ;;
@@ -781,9 +814,14 @@ EOF
     case "$w" in  # a word with a / or .., or in ~ or $HOME spelling, is judged; a bare word only when it is a name in the session folder (a cd target)
       / | '~') continue ;;
       */* | '~'* | '$HOME'* | '${HOME}'* | ..) ;;
-      *) [ -e "$SESSION_CWD/$w" ] && bw[${#bw[@]}]=$w; continue ;;
+      *)  # a name that exists, once (a bare word that does not is no path, and keeping it out of `seen` keeps that string short)
+        [ -e "$SESSION_CWD/$w" ] || continue
+        case "$seen" in *"|$w|"*) continue ;; esac
+        seen="$seen$w|"
+        bw[${#bw[@]}]=$w
+        continue ;;
     esac
-    case "$seen" in *"|$w|"*) continue ;; esac  # (only path-like words: bare ones in the string made the scan quadratic)
+    case "$seen" in *"|$w|"*) continue ;; esac
     seen="$seen$w|"
     [ "${#pw[@]}" -lt 150 ] || { big=1; break; }  # the scan itself slows with the words it keeps (5000 paths: 11 s)
     pw[${#pw[@]}]=$w

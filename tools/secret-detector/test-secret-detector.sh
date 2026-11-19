@@ -333,6 +333,15 @@ check deny "grep by absolute path"          "/usr/bin/grep -r KEY ."
 check deny "two greps, exclude on the second only" "grep -r 'TOKEN' src ; grep -r --exclude='*.env*' TOKEN src"
 check deny "grep -r excluding .env* only"   "grep -r KEY . --exclude='.env*'"
 check pass "grep -r with *.env* exclude"    "grep -r KEY . --exclude='*.env*'"
+# A text with a backtick, where the parser may misplace a group end: a recursive flag with no .env exclude anywhere is denied
+check deny "backtick text: grep -r after a lone quote"  "bash -c 'x=\`echo '\"'\"'; grep -r KEY .'"
+check pass "backtick text: grep -r with the exclude"    "bash -c 'x=\`echo '\"'\"'; grep -r KEY . --exclude=\"*.env*\"'"
+check pass "backtick text: grep with no recursion"      'echo `date`; grep KEY file.txt'
+check pass "backtick text: no grep at all"              'echo `date`; ls -r .'
+# A here-string and a heredoc body are read as scripts; an inherited SP_LENIENT or SP_ALL_HEREDOCS changes nothing
+check deny "a here-string is a script"                  "ssh h <<< 'grep -r KEY .'"
+got=$(cd "$T/work" && bash_in 'grep x $(case x in x) ls;; esac)' | SP_LENIENT=1 HOME="$T" "$SH" "$T/hooks/secret-detector.sh" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision // "pass"')
+if [ "$got" = deny ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: an inherited SP_LENIENT turned a refusal into a pass (got $got)"; fi
 check pass "rg -uu with negated glob"       "rg -uu KEY . -g '!*.env*'"
 check deny "rg -uu negated .env* only"     "rg -uu KEY . -g '!.env*'"
 check pass "plain rg (skips hidden)"        "rg KEY ."

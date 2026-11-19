@@ -65,6 +65,49 @@ p=pass
 bash_ $d "RM -f $LIVE/tools/a.ts"
 bash_ $d "Cp /tmp/x $LIVE/tools/a.ts"
 bash_ $d "find $LIVE/tools -exec RM {} +"
+# ---- one name repeated tens of thousands of times: each word was cheap alone, and 100 KB of them took 5 s, 400 KB passed the 10 s timeout ----
+# (the text goes in on stdin: it is too long for an argument). A name that exists in the session folder counts once; the clock is checked per word.
+# Only the time is pinned: the decision (a deny at the 6 s budget, or a pass on a quick machine) depends on the machine.
+t0=$SECONDS
+got=$(awk 'BEGIN { printf "echo $(date) "; for (i = 0; i < 60000; i++) printf "tools "; print "; touch x" }' \
+  | jq -Rs --arg w "$CLONE" '{tool_name: "Bash", tool_input: {command: .}, cwd: $w}' | HOME="$H" "$SH" "$T/hooks/protected-paths-guard.sh" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision // "pass"')
+if [ $((SECONDS - t0)) -lt 9 ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: 60000 repeated names took $((SECONDS - t0)) s (limit 9; got $got)"; fi
+# ---- ~+ and ~user, and a glob in the last component of a name in ~/.claude ----
+bash_ $d "cp /tmp/x ~+/a.ts" "$LIVE/tools"
+bash_ $p "cp /tmp/x ~+/a.ts" "$CLONE/tools"
+bash_ $d "cp /tmp/x ~+/../hooks/guard.sh" "$LIVE/tools"
+bash_ $p "cp /tmp/x ~-/a.ts" "$LIVE/tools"
+bash_ $p "cp /tmp/x ~nosuchaccount-zz/.claude/settings.json"
+bash_ $p "cp /tmp/x ~'a b'/x"
+bash_ $d "cp /tmp/x ~/.claude/settings.js?n"
+bash_ $d "cp /tmp/x ~/./.claude/settings.js?n"
+bash_ $d "cp /tmp/x ~//.claude/settings.*"
+bash_ $d "cp /tmp/settings.json ~/.claude/"
+bash_ $d "cp /tmp/x ~/.claude/settings.*"
+bash_ $d "rm -f ~/.claude/settings*"
+bash_ $d "rm -f ~/.claude/*"
+bash_ $d "touch \"$H\"/.claude/settings.local.js?n"
+bash_ $p "touch ~/.claude/settings.json.bak-*"
+bash_ $p "rm -f ~/.claude/hooks/*"
+bash_ $p "touch ~/.claude/nosuchfile*"
+bash_ $d "touch ~/.claude/*a*a*a*b"
+bash_ $d "touch ~/.claude/$(printf 'a%.0s' $(seq 1 65))*"
+bash_ $d "touch ~/.claude/\"x *a*a*a*a*a*a*a*a*a*a*a*b\"; cp /tmp/x ~/.claude/settings.json"
+bash_ $p "cp /tmp/x ~0/a"
+bash_ $p "cp /tmp/x ~+2/a"
+bash_ $p "cp /tmp/x $CLONE/tools/*.ts"
+# ~user: the shell looks the account up, so these run with HOME set to the current account's own home (no audit log is in the test copy)
+ME=$(id -un)
+MYHOME=$(eval "echo ~$ME")
+if [ -d "$MYHOME" ] && [ "$MYHOME" != "/" ]; then
+  H_SAVE=$H
+  H=$MYHOME
+  bash_ $d "cp /tmp/x ~$ME/.claude/settings.json"
+  bash_ $d "cp /tmp/x ~$ME/.claude/settings.js?n"
+  bash_ $d "cp /tmp/settings.json ~$ME/.claude/"
+  bash_ $p "cp /tmp/x ~$ME/.claude/nosuchfile-zz"
+  H=$H_SAVE
+fi
 # ---- substitutions: the text is denied when it could touch a protected place, whatever the parse says ----
 # (many of the shapes below are also denied by the parser alone, so they pin that the deny stays; the ones only sub_guard
 # denies are the read-only, glued-continuation, $''(, =( ), ~/.claude, relative and cwd ones near the end of this block)

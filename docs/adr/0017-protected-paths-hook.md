@@ -47,7 +47,7 @@ base install.
   write verbs. Bash git is not on that list: `hooks/git-mcp-redirect.sh` owns it (ADR 0010), denying every Bash git
   command but read-only plumbing, so this hook never reads a git subcommand in Bash (amended 2026-11-19: it used to
   keep its own list of git writes, a second and third reader of the same text). Reads are never denied (amended 2026-11-19: except in a text that holds a
-  substitution, `$( )` or backticks, whose parse is not trusted: it is denied when it names a protected place, even to read
+  substitution (`$( )`, backticks, `<( )`, `>( )` or `=( )`), whose parse is not trusted: it is denied when it names a protected place, even to read
   it, and from a protected folder when it also holds a write verb or a redirect, whatever its target). The exact
   list and the limits are in the hook's header and tested in `tools/protected-paths-guard/`.
 - **A push is judged by its remote.** A push from a clone writes into whatever its remote points at, and a clone made

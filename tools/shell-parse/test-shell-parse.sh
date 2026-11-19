@@ -26,6 +26,7 @@ on_redirect() { echo "R[\$CWD] <\$1>"; }
 CWD=/s
 [ -z "\${PARSE_SET_U:-}" ] || set -u
 [ -z "\${PARSE_STALE:-}" ] || SP_T0=\$((SECONDS - 10))
+[ -z "\${PARSE_ALLHD:-}" ] || SP_ALL_HEREDOCS=1
 shell_parse "\$1"
 RUN
 
@@ -136,9 +137,35 @@ expect "a group the text leaves open gives back the words parked in front of it"
 # a heredoc piped to a shell on the same line reaches that shell
 expect "heredoc piped to a shell" $'cat <<EOF | bash\nrm /x\nEOF' 'C[/s] <cat>' 'C[/s] <rm> </x>' 'C[/s] <bash>'
 expect "heredoc piped to a non-shell is skipped" $'cat <<EOF | wc\nrm /x\nEOF' 'C[/s] <cat>' 'C[/s] <wc>'
-SP_ALL_HEREDOCS=1 expect "opt-in: every heredoc body is a script" $'ssh h <<EOF\nrm /x\nEOF' 'C[/s] <ssh> <h>' 'C[/s] <rm> </x>'
-SP_ALL_HEREDOCS=1 expect "opt-in: a refused line drops only itself" $'ssh h <<EOF\necho done (in that case)\nrm /x\nEOF' 'C[/s] <ssh> <h>' 'C[/s] <rm> </x>'
-SP_ALL_HEREDOCS=1 expect "opt-in: a body of one refused line is skipped" $'cat <<EOF\nskip it (in that case).\nEOF' 'C[/s] <cat>'
+PARSE_ALLHD=1 expect "opt-in: every heredoc body is a script" $'ssh h <<EOF\nrm /x\nEOF' 'C[/s] <ssh> <h>' 'C[/s] <rm> </x>'
+PARSE_ALLHD=1 expect "opt-in: a refused line drops only itself" $'ssh h <<EOF\necho done (in that case)\nrm /x\nEOF' 'C[/s] <ssh> <h>' 'C[/s] <rm> </x>'
+PARSE_ALLHD=1 expect "opt-in: a body of one refused line is skipped" $'cat <<EOF\nskip it (in that case).\nEOF' 'C[/s] <cat>'
+PARSE_ALLHD=1 expect "opt-in: a here-string is read as a script" "ssh h <<< 'rm /x'" 'C[/s] <ssh> <h>' 'C[/s] <rm> </x>'
+PARSE_ALLHD=1 expect "opt-in: a here-string that is no script is read all the same" "cat <<< 'a b'" 'C[/s] <cat>' 'C[/s] <a> <b>'
+expect "no opt-in: a here-string is data" "ssh h <<< 'rm /x'" 'C[/s] <ssh> <h>'
+# a body of many refused lines is read line by line, with no cap (it took 100 lines to crash bash 3.2 once, and a cap denied what it could not read)
+BODY=$(awk 'BEGIN { for (i = 0; i < 400; i++) print "echo (in that case) " i; print "rm /x" }')
+PARSE_ALLHD=1 expect "opt-in: 400 refused lines, then a command" "ssh h <<EOF
+$BODY
+EOF" 'C[/s] <ssh> <h>' 'C[/s] <rm> </x>'
+# SP_LENIENT and SP_ALL_HEREDOCS in the environment are dropped when the lib is sourced: a hook sets them itself
+got=$(SP_LENIENT=1 "$SH" "$T/run.sh" 'echo $(case x in x) rm /p;; esac)' 2>&1)
+case "$got" in *'cannot be read exactly'*) PASS=$((PASS + 1)) ;; *) FAIL=$((FAIL + 1)); printf 'FAIL: an inherited SP_LENIENT turned a refusal into a pass\n%s\n' "$got" ;; esac
+got=$(SP_ALL_HEREDOCS=1 "$SH" "$T/run.sh" $'ssh h <<EOF\nrm /x\nEOF' 2>&1)
+check "an inherited SP_ALL_HEREDOCS reads no heredoc body" "$([ "$got" = 'C[/s] <ssh> <h>' ] && echo 1 || echo 0)"
+# sp_raw_has: a word of the raw text, split at blanks, operators, backticks, = : and quotes, in lower case
+cat >"$T/raw.sh" <<RAW
+HOOK=runner
+HOME="$T/home"
+. "$T/hooks/lib/hook-common.sh" </dev/null
+. "$T/hooks/lib/shell-parse.sh"
+sp_raw_has "\$1" "\$2"
+RAW
+for c in 'x `rm` y|(.*/)?rm|1' 'x /bin/RM -rf|(.*/)?rm|1' 'echo "rm"|rm|1' 'x --exclude=*.env*|!?\*\.env\*|1' 'form rms|rm|0' 'a.rm|rm|0' "x r''m|rm|1" 'x \rm -rf|rm|1' 'x -\r|-[a-z]*r[a-z]*|1'; do
+  IFS='|' read -r txt re want <<<"$c"
+  "$SH" "$T/raw.sh" "$txt" "$re" && got=1 || got=0
+  check "sp_raw_has '$txt' '$re'" "$([ "$got" = "$want" ] && echo 1 || echo 0)"
+done
 expect "a body does not reach a shell after &&" $'cat <<EOF > f && bash run.sh\nrm /x\nEOF' 'R[/s] <f>' 'C[/s] <cat>' 'C[/s] <bash> <run.sh>'
 expect "a body does not reach a shell after ;" $'cat <<EOF > f ; bash run.sh\nrm /x\nEOF' 'R[/s] <f>' 'C[/s] <cat>' 'C[/s] <bash> <run.sh>'
 expect "a body does not reach a shell after ||" $'cat <<EOF > f || bash run.sh\nrm /x\nEOF' 'R[/s] <f>' 'C[/s] <cat>' 'C[/s] <bash> <run.sh>'
