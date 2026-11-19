@@ -252,7 +252,7 @@ def is_int(v):
 
 
 def conforms(schema, value, root):
-    """Whether `value` fits `schema`: the JSON Schema subset result-schema.json uses (type, enum, maxLength, maxItems,
+    """Whether `value` fits `schema`: the JSON Schema subset result-schema.json uses (type, enum, minLength, maxLength, maxItems,
     properties, required, additionalProperties false, items, and a local $ref)."""
     if "$ref" in schema:
         node = root
@@ -268,7 +268,7 @@ def conforms(schema, value, root):
     if "enum" in schema and value not in schema["enum"]:
         return False
     if kind == "string":
-        return len(value) <= schema.get("maxLength", len(value))
+        return schema.get("minLength", 0) <= len(value) <= schema.get("maxLength", len(value))
     if kind == "array":
         return len(value) <= schema.get("maxItems", len(value)) and all(conforms(schema["items"], v, root) for v in value)
     if kind == "object":
@@ -293,8 +293,11 @@ def load_result(path):
             data = json.load(f)
     except (OSError, ValueError):
         return None, "not JSON"
-    with open(SCHEMA, encoding="utf-8") as f:
-        schema = json.load(f)
+    try:
+        with open(SCHEMA, encoding="utf-8") as f:
+            schema = json.load(f)
+    except (OSError, ValueError):
+        return None, "the result schema is missing"
     return (data, None) if conforms(schema, data, schema) else (None, "the wrong shape")
 
 
@@ -314,9 +317,9 @@ def contradiction(mode, data):
 
 def reply_text(ctx, text, verdict, head):
     """Claude's reply, sanitized like a finding and quoted, then this workflow's marker for the head."""
-    text = sanitize(text) or (
+    text = sanitize(text).strip() or (
         "The current code handles this." if verdict == "resolved" else "This still looks open in the current code.")
-    quoted = "\n".join("> " + line for line in text.splitlines())
+    quoted = "\n".join("> " + line for line in text.split("\n"))   # not splitlines(): sanitize() saw only "\n" as a line break
     return f"{quoted}\n\n— Claude review follow-up\n<!-- claude-review:followup verdict={verdict} sha={head} mode={ctx.mode} -->"
 
 

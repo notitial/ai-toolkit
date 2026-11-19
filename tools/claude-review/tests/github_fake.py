@@ -263,8 +263,7 @@ class FakeGitHub:
             first, last = th["comments"][0], th["comments"][-1]
             return 200, {"data": {"node": {
                 "isResolved": th["isResolved"],
-                **({"pullRequest": {"number": th["number"], "repository": {"nameWithOwner": th.get("repo", "o/r")}}}
-                   if "pullRequest { number" in q else {}),
+                "pullRequest": {"number": th["number"], "repository": {"nameWithOwner": th.get("repo", "o/r")}},
                 "first": {"nodes": [{"fullDatabaseId": first["fullDatabaseId"], "author": first["author"]}]},
                 "last": {"nodes": [{"fullDatabaseId": last["fullDatabaseId"], "author": last["author"],
                                     "body": last["body"]}]}}}}, headers({})

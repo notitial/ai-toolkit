@@ -422,6 +422,30 @@ class SchemaSubset(unittest.TestCase):
             with self.subTest(bad=bad):
                 self.assertFalse(conforms(schema, bad, schema))
 
+    def test_the_shipped_schema_uses_only_what_conforms_checks(self):
+        # A keyword conforms() skips would be enforced for Claude (--json-schema) but not here.
+        known = {"type", "enum", "minLength", "maxLength", "maxItems", "items", "properties", "required",
+                 "additionalProperties", "$ref", "$defs", "$schema", "description"}
+        def walk(node):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key == "properties":
+                        for sub in value.values():
+                            walk(sub)
+                    else:
+                        self.assertIn(key, known)
+                        if key in ("items", "$defs"):
+                            walk(value) if key == "items" else [walk(v) for v in value.values()]
+            return None
+        walk(json.loads(pathlib.Path(load_publish()["SCHEMA"]).read_text()))
+
+    def test_an_empty_path_is_the_wrong_shape(self):
+        ns = load_publish()
+        schema = json.loads(pathlib.Path(ns["SCHEMA"]).read_text())
+        bad = {"stopped": False, "no_issues": False, "overview": "", "threads": [],
+               "findings": [{"path": "", "line": 1, "side": "RIGHT", "body": "b", "line_text": ""}]}
+        self.assertFalse(ns["conforms"](schema, bad, schema))
+
 
 class ResultChecks(PublishCase):
     def assert_nothing_posted(self):
@@ -742,7 +766,7 @@ class PlacementByText(unittest.TestCase):
     def test_left_side(self):
         self.assertEqual(self.place(line=3, side="LEFT", line_text="old2")[1], {"path": "src/a.py", "line": 2, "side": "LEFT"})
 
-    def test_without_line_text_as_before(self):
+    def test_an_empty_line_text_skips_the_text_check(self):
         self.assertEqual(self.place(path="new.py", line=3)[0], "inline")
 
 

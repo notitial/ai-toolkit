@@ -119,6 +119,20 @@ class Sanitizer(unittest.TestCase):
         self.assertIn("\\$`\\href", out)   # the span is kept as code, the `$` around it is escaped
         self.assertNotIn(" $", out.replace("\\$", ""))
 
+    def test_reply_text_quotes_only_the_lines_the_sanitizer_saw(self):
+        # Other Unicode line breaks must not split a line after sanitize() judged it: a code span would end there.
+        import types
+        ctx = types.SimpleNamespace(mode="followup")
+        for sep in ("\x0b", "\x0c", "\x1c", "\x85", "\u2028", "\u2029"):
+            with self.subTest(sep=repr(sep)):
+                out = self.ns["reply_text"](ctx, f"`a{sep}{sep}![x](https://e.example/t.png) @someone`", "open", "a" * 40)
+                self.assertEqual(out.split("\n\n")[0].count("\n"), 0)
+
+    def test_reply_text_of_only_whitespace_gets_the_default(self):
+        import types
+        out = self.ns["reply_text"](types.SimpleNamespace(mode="followup"), "  \n ", "open", "a" * 40)
+        self.assertIn("> This still looks open", out)
+
 
 if __name__ == "__main__":
     unittest.main()

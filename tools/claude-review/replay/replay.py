@@ -3,7 +3,7 @@
 
 Builds the same context folder the workflow's prep steps build (pr.json, pr-files.json, pr.diff) from git alone,
 checks the PR head out in a clone under a work folder, puts the review command where the kit checkout has it and runs it with the
-workflow's tool limits and result schema. The result and the run's cost go to a results folder outside the repo.
+workflow's tool limits and the kit's result schema file. The result and the run's cost go to a results folder outside the repo.
 Nothing is posted anywhere. See README.md next to this file.
 """
 import argparse, datetime, gzip, hashlib, json, os, pathlib, re, shutil, subprocess, sys
