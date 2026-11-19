@@ -41,7 +41,7 @@
 #   write on their own, paths built at run time ($VAR, $(...) output), a `cd` to a variable or glob (the folder is
 #   then unknown and only absolute operands are judged), file names fed to xargs on stdin, $(...) inside a heredoc,
 #   hard links, the target of a find -exec, programs that write on their own (archive creators, compressors,
-#   formatters with an in-place flag), env -C and env -S, a < or > inside (( )) arithmetic. A
+#   formatters with an in-place flag), env -C, a < or > inside a standalone (( )) arithmetic command. A
 #   recursive delete or move of a folder that contains a protected root is caught only for the session's own root
 #   and for ~/.claude.
 #
