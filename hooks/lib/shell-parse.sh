@@ -16,7 +16,8 @@
 #                             not read), so their inner commands arrive before the command itself, which is passed on
 #                             like any. A shell with no -c string reads its heredoc or here-string as a script. A hook that
 #                             must also see a script behind a shell the parser cannot name (ssh host <<EOF, sudo -s,
-#                             source /dev/stdin) sets SP_ALL_HEREDOCS=1 before the call: every heredoc body is then read as a script.
+#                             source /dev/stdin) sets SP_ALL_HEREDOCS=1 before the call: every heredoc body is then read as a script. A body the parser
+#                             refuses is read line by line, and a line it refuses is skipped (prose is no script).
 #     on_redirect <target>    the target of an output redirect (> >> >| &> and N>). An input redirect or a here-string
 #                             is dropped, a heredoc body is skipped.
 #   CWD (global) is the tracked folder: the start folder, moved by cd/pushd/popd left to right, restored when a ( ),
@@ -35,7 +36,7 @@
 # backtick inside backticks, and a heredoc ended by `EOF)` inside a substitution. With these refused a group ends exactly at
 # its `)` or backtick, and a stray `)` at the top level closes nothing.
 # HOME_R, the real path of $HOME, is set here; lexnorm is shared with the hook.
-# Names it defines: HOME_R NEST SP_LC SP_STDIN SP_SEG_* lexnorm tokenise set_cwd sp_lc sp_command sp_watch sp_xargs read_nested sp_pop shell_parse.
+# Names it defines: HOME_R NEST SP_LC SP_STDIN SP_SEG_* lexnorm tokenise set_cwd sp_lc sp_command sp_watch sp_xargs read_nested sp_body sp_pop shell_parse.
 
 command -v deny >/dev/null 2>&1 || return 1
 
@@ -65,7 +66,7 @@ lexnorm() {
 # and octal, printable ASCII only), heredoc bodies are skipped, `<<` and `>` inside $(( )) are plain characters.
 tokenise() {
   awk -v allhd="${SP_ALL_HEREDOCS:-}" 'BEGIN { RS = "\001" }
-function sep() { print "S"; segsh = 0 }
+function sep(keep) { print "S"; segsh = 0; if (!keep) hdn = 0 }  # a heredoc body waits across a pipe (cat <<EOF | bash), not past ; && ||
 # A substitution ($( ), backticks, <( ), >( )) opens: the word being built waits, the words of the command around it wait
 # (the shell side keeps them), and the group starts clean. When it closes, the word goes on with a placeholder in it:
 # $(...) when the substitution was quoted (one word), $(..) when it was not (the shell may split it into several words).
@@ -189,7 +190,7 @@ function ansic(   t, d, v, k, m, ch, cut) {
       continue
     }
     if (c == ";") { flush(); sep(); i++; continue }
-    if (c == "|") { flush(); sep(); i++; if (substr(s, i, 1) == "|" || substr(s, i, 1) == "&") i++; continue }
+    if (c == "|") { flush(); sep(substr(s, i + 1, 1) != "|"); i++; if (substr(s, i, 1) == "|" || substr(s, i, 1) == "&") i++; continue }
     if (c == "&") {
       if (substr(s, i + 1, 1) == ">") { flush(); print "R"; i += 2; if (substr(s, i, 1) == ">") i++; continue }
       flush(); sep(); i++; if (substr(s, i, 1) == "&") i++; continue
@@ -493,6 +494,23 @@ read_nested() {
   [ -n "${2:-}" ] || CWD=$saved
 }
 
+# sp_body <text>: a heredoc body read as a script (the SP_ALL_HEREDOCS opt-in). A body the parser refuses (a README fence,
+# `(in that case)` prose) is read again line by line, so a refused line drops only itself, not the lines around it.
+sp_body() {
+  local l rest n=0 SP_REFUSED=""
+  SP_LENIENT=1 read_nested "$1"
+  [ -n "$SP_REFUSED" ] || return 0
+  rest=$1
+  while :; do
+    # bash 3.2 crashes (and the hook fails open) after about 250 parser calls in one function: a long refused body is denied
+    n=$((n + 1)); [ "$n" -le 100 ] || deny "a heredoc body of over 100 lines that cannot be read as one script - blocked (fail-closed); split the call."
+    l=${rest%%$'\n'*}
+    case "$rest" in *$'\n'*) rest=${rest#*$'\n'} ;; *) rest="" ;; esac
+    SP_LENIENT=1 read_nested "$l"
+    [ -n "$rest" ] || break
+  done
+}
+
 # sp_pop: shell_parse's helper (it uses that function's locals): a group closes, so what the O record parked comes back.
 sp_pop() {
   local n=$((${#STK[@]} - 1))
@@ -513,15 +531,15 @@ shell_parse() {
   tok=$(printf '%s' "$cmd" | tokenise)
   case $? in
     0) ;;
-    3) [ -z "${SP_LENIENT:-}" ] || return 0; deny "a case word in a substitution, a paren inside \${ }, or a heredoc ended by EOF) cannot be read exactly - blocked (fail-closed)." ;;
-    *) [ -z "${SP_LENIENT:-}" ] || return 0; deny "could not read the command text - blocked (fail-closed)." ;;
+    3) [ -z "${SP_LENIENT:-}" ] || { SP_REFUSED=1; return 0; }; deny "a case word in a substitution, a paren inside \${ }, or a heredoc ended by EOF) cannot be read exactly - blocked (fail-closed)." ;;
+    *) [ -z "${SP_LENIENT:-}" ] || { SP_REFUSED=1; return 0; }; deny "could not read the command text - blocked (fail-closed)." ;;
   esac
   while IFS= read -r line; do
     case "$line" in
       S)
         SP_STDIN=$sin
         [ "${#SEG[@]}" -gt 0 ] && sp_command "${SEG[@]}"
-        [ -n "$sin" ] && [ -n "${SP_ALL_HEREDOCS:-}" ] && SP_LENIENT=1 read_nested "$sin"  # opt-in: every heredoc body is a script; one the parser refuses is skipped (prose, a README)
+        [ -n "$sin" ] && [ -n "${SP_ALL_HEREDOCS:-}" ] && sp_body "$sin"
         SEG=() sin=""
         redir=0
         ;;

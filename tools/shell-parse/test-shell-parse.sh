@@ -136,6 +136,11 @@ expect "a group the text leaves open gives back the words parked in front of it"
 expect "heredoc piped to a shell" $'cat <<EOF | bash\nrm /x\nEOF' 'C[/s] <cat>' 'C[/s] <rm> </x>' 'C[/s] <bash>'
 expect "heredoc piped to a non-shell is skipped" $'cat <<EOF | wc\nrm /x\nEOF' 'C[/s] <cat>' 'C[/s] <wc>'
 SP_ALL_HEREDOCS=1 expect "opt-in: every heredoc body is a script" $'ssh h <<EOF\nrm /x\nEOF' 'C[/s] <ssh> <h>' 'C[/s] <rm> </x>'
+SP_ALL_HEREDOCS=1 expect "opt-in: a refused line drops only itself" $'ssh h <<EOF\necho done (in that case)\nrm /x\nEOF' 'C[/s] <ssh> <h>' 'C[/s] <rm> </x>'
+SP_ALL_HEREDOCS=1 expect "opt-in: a body of one refused line is skipped" $'cat <<EOF\nskip it (in that case).\nEOF' 'C[/s] <cat>'
+expect "a body does not reach a shell after &&" $'cat <<EOF > f && bash run.sh\nrm /x\nEOF' 'R[/s] <f>' 'C[/s] <cat>' 'C[/s] <bash> <run.sh>'
+expect "a body does not reach a shell after ;" $'cat <<EOF > f ; bash run.sh\nrm /x\nEOF' 'R[/s] <f>' 'C[/s] <cat>' 'C[/s] <bash> <run.sh>'
+expect "a body does not reach a shell after ||" $'cat <<EOF > f || bash run.sh\nrm /x\nEOF' 'R[/s] <f>' 'C[/s] <cat>' 'C[/s] <bash> <run.sh>'
 expect "without the opt-in a body for a non-shell is skipped" $'ssh h <<EOF\nrm /x\nEOF' 'C[/s] <ssh> <h>'
 # a group ends exactly at its ): a case pattern (whose ) ends nothing) or a ) inside ${x/)/} in a substitution is refused
 refuse "case in a substitution" 'echo $(case x in x) rm /p;; esac) y'

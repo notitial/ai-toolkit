@@ -61,6 +61,10 @@ check deny "rm in a heredoc, shell named after" $'bash <<EOF\nrm -r -f /x\nEOF'
 check deny "rm in a heredoc, <<EOF bash" $'<<EOF bash\nrm -r -f /x\nEOF'
 check pass "plain heredoc text"        $'cat <<EOF\nhello\nEOF'
 # a body the parser refuses is prose or code no known shell runs: skipped, not denied
+check deny "a refused line next to rm -r -f in a heredoc" $'ssh host <<\'EOF\'\necho done (in that case)\nrm -r -f /srv/app\nEOF'
+body() { awk -v n="$1" 'BEGIN { print "cat > README.md <<EOF"; print "skip it (in that case)."; for (k = 0; k < n; k++) print "line " k " some prose"; print "EOF" }'; }
+check pass "a refused heredoc body of 50 lines is read line by line" "$(body 50)"
+check deny "a refused heredoc body of 150 lines is denied (bash 3.2 cannot loop that far)" "$(body 150)"
 check pass "a README heredoc with a fenced block" $'cat > README.md <<\'EOF\'\n```bash\n# install\nmake\n```\nEOF'
 check pass "a heredoc with a parenthesized case" $'cat <<EOF\nskip it (in that case).\nEOF'
 check pass "a here-string with a parenthesized case" 'cat <<< "(in that case)"'

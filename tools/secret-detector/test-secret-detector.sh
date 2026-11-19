@@ -355,6 +355,7 @@ check pass "grep without -r behind ssh"        "ssh prod grep KEY /srv/app/a.log
 check deny "grep -r with a case in a substitution" 'grep -r x $(case y in y) :;; esac)'
 check deny "grep -r with a control byte"       $'grep -r x . --exclude=\'*.env*\'\001'
 # a heredoc body the parser refuses is prose or code no known shell runs: skipped, not denied
+check deny "a refused line next to grep -r in a heredoc" $'ssh host <<\'EOF\'\necho done (in that case)\ngrep -r KEY .\nEOF'
 check pass "a README heredoc with a fenced block" $'grep -rn x src --exclude=\'*.env*\' && cat > README.md <<\'EOF\'\n```bash\n# install\nmake\n```\nEOF'
 check pass "a heredoc with a parenthesized case" $'grep -rn x src --exclude=\'*.env*\' && cat <<EOF\nskip it (in that case).\nEOF'
 check pass "find -exec grep, not recursive"  "find . -exec grep KEY {} +"
