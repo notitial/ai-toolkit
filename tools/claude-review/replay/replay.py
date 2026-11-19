@@ -3,7 +3,7 @@
 
 Builds the same context folder the workflow's prep steps build (pr.json, pr-files.json, pr.diff) from git alone,
 checks the PR head out in a clone under a work folder, puts the review command where the kit checkout has it and runs it with the
-workflow's tool limits and result schema. The result and the run's cost go to a results folder outside the repo.
+workflow's tool limits and the kit's result schema file. The result and the run's cost go to a results folder outside the repo.
 Nothing is posted anywhere. See README.md next to this file.
 """
 import argparse, datetime, gzip, hashlib, json, os, pathlib, re, shutil, subprocess, sys
@@ -29,7 +29,7 @@ def patch_command(text, verifier_model):
 
 
 def workflow_settings(workflow_text):
-    """The tool limits and the result schema, read from the workflow so the replay cannot drift from it."""
+    """The tool limits from the workflow, and the result schema from the kit's file (one line, as the workflow gives it)."""
     def one(pattern, what):
         found = re.findall(pattern, workflow_text, re.M)
         if len(found) != 1:
@@ -37,8 +37,7 @@ def workflow_settings(workflow_text):
         return found[0]
     tools = one(r"^\s*TOOLS: '([^']*)'\s*$", "TOOLS")
     deny = one(r'^\s*--disallowedTools "([^"]*)"\s*$', "--disallowedTools")
-    schema = one(r"^\s*RESULT_SCHEMA: '(\{.*\})'\s*$", "RESULT_SCHEMA")
-    json.loads(schema)
+    schema = json.dumps(json.loads((KIT / "reviewer" / "result-schema.json").read_text()), separators=(",", ":"))
     return {"allowed": tools, "disallowed": deny, "schema": schema}
 
 

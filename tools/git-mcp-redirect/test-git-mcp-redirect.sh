@@ -108,6 +108,8 @@ check deny "env -S, words after the string" "env -S 'git symbolic-ref HEAD' refs
 check deny "env -S, words after (attached)" "env -S'git symbolic-ref HEAD' refs/heads/other"
 check deny "env --split-string=, words after" "env --split-string='git symbolic-ref HEAD' refs/heads/other"
 check pass "env -S with plumbing"           "env -S 'git rev-parse' HEAD"
+check deny "env -S, a trailing word with a separator" "env -S 'git rev-parse' 'a b'"
+check pass "plumbing through a bash heredoc" $'bash <<EOF\ngit rev-parse HEAD\nEOF'
 check pass "watch with plumbing"            'watch -n 5 git rev-parse HEAD'
 check deny "watch with a write"             'watch -n 5 git symbolic-ref HEAD refs/heads/other'
 check deny "net: \${VAR:-git} default"     'GIT_BIN= ${GIT_BIN:-git} push --force'

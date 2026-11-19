@@ -1,5 +1,5 @@
 """The `publish` script against a fake GitHub: the verdict table, idempotency, retries, dismissal, the overview
-comment, thread replies and resolve, and the legacy (v2.3) authors."""
+comment, thread replies and resolve."""
 import contextlib, io, json, os, pathlib, re, tempfile, unittest
 from unittest import mock
 
@@ -17,7 +17,7 @@ def result(**kw):
 
 
 def finding(path="src/a.py", line=2, side="RIGHT", body="Off by one.", **kw):
-    return {"path": path, "line": line, "side": side, "body": body, **kw}
+    return {"path": path, "line": line, "side": side, "body": body, "line_text": "", **kw}
 
 
 def followup_marker(verdict, sha=HEAD, mode="followup"):
@@ -31,7 +31,6 @@ class PublishCase(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.dir = pathlib.Path(tmp.name)
-        self.pauses = []
         self.env = {
             "GITHUB_REPOSITORY": "o/r", "PR_NUMBER": "7", "GITHUB_API_URL": API, "GITHUB_GRAPHQL_URL": GRAPHQL,
             "APP_TOKEN": APP_TOKEN, "GH_TOKEN": GH_TOKEN, "APP_LOGIN": APP,
@@ -50,7 +49,6 @@ class PublishCase(unittest.TestCase):
         if threads is not None:
             (self.dir / "threads.json").write_text(json.dumps(threads))
         ns = load_publish()
-        ns["pause"] = self.pauses.append
         out = io.StringIO()
         with mock.patch("urllib.request.urlopen", self.gh.urlopen), contextlib.redirect_stdout(out):
             rc = ns["main"](dict(self.env, **env))
@@ -98,7 +96,8 @@ class Verdicts(PublishCase):
         self.assertNotIn("elsewhere.py", review["body"])
         body = self.overview()
         self.assertIn("result=issues", body)
-        self.assertIn(f"**Result:** 2 findings: [1]({comment['html_url']}) (1 in the [review body]({review['html_url']}))", body)
+        self.assertIn(f"**Result:** 2 findings in the [review]({review['html_url']}).", body)
+        self.assertIn("**Threads:** 0 resolved · 1 still open: [`src/a.py:2`](" + comment["html_url"], body)
         self.assertIn("1 dropped", self.log)
 
     def test_no_issues_with_findings_never_approves(self):
@@ -221,13 +220,13 @@ class PushPath(PublishCase):
         self.run_publish(**self.PUSH)
         self.assertEqual(changes["state"], "CHANGES_REQUESTED")
 
-    def test_failed_dismissal_warns_and_notes_it_on_the_overview(self):
-        self.gh.add_review("APPROVED", commit_id=OLD)
-        self.gh.add_issue_comment(f"<!-- claude-review:summary sha={OLD} result=clean -->\n### x\n\n**Result:** No issues found.\n\nrest")
+    def test_failed_dismissal_fails_the_job(self):
+        approved = self.gh.add_review("APPROVED", commit_id=OLD)
         self.gh.fail("dismiss", 403, "Forbidden")
-        self.assertEqual(self.run_publish(**self.PUSH), 0)
-        self.assertIn("::warning::", self.log)
-        self.assertIn("**Result:** No issues found.\n\nApproval is stale: dismiss it manually.\n\nrest", self.overview())
+        self.assertEqual(self.run_publish(**self.PUSH), 1)
+        self.assertIn("::warning::Dismissing the App's review failed", self.log)
+        self.assertEqual(approved["state"], "APPROVED")
+        self.assertEqual(self.gh.issue_comments, [])
 
     def test_already_dismissed_is_a_no_op(self):
         self.gh.add_review("APPROVED", commit_id=OLD)
@@ -243,64 +242,39 @@ class PushPath(PublishCase):
 
 
 class Idempotency(PublishCase):
-    def test_rerun_finds_its_review_and_replaces_its_history_entry(self):
+    """The run marker on the review is the only key: a run that finds its review has done everything and stops."""
+
+    def test_rerun_finds_its_review_and_stops(self):
         self.run_publish(result(no_issues=False, findings=[finding()]))
         self.assertEqual(len(self.gh.app_reviews()), 1)
-        self.run_publish(result(no_issues=False, findings=[finding()]), GITHUB_RUN_ATTEMPT="2")
-        self.assertEqual(len(self.gh.app_reviews()), 1, self.log)
-        body = self.overview()
-        history = json.loads(re.search(r"<!-- claude-review:history (.*) -->", body).group(1))
-        self.assertEqual([(h["run"], h["attempt"]) for h in history], [(123, 2)])
-        self.assertIn(self.gh.review_comments[0]["html_url"], body)
-
-    def test_rerun_without_a_verdict_keeps_the_posted_result(self):
-        # Attempt 1's findings live only in the overview (the App's own PR); attempt 2 comes back incomplete.
-        self.gh.fail("submit review", 422, "Can not request changes on your own pull request")
-        self.run_publish(result(no_issues=False, findings=[finding()]))
         before = self.overview()
-        self.assertEqual(self.run_publish(result(no_issues=False), GITHUB_RUN_ATTEMPT="2"), 0, self.log)
-        self.assertIn("No verdict on a re-run: keeping this run's posted result", self.log)
+        calls = len(self.gh.calls)
+        self.assertEqual(self.run_publish(result(), GITHUB_RUN_ATTEMPT="2"), 0, self.log)
+        self.assertIn("already submitted", self.log)
+        self.assertEqual(len(self.gh.app_reviews()), 1)
         self.assertEqual(self.overview(), before)
-        self.assertIn("Off by one.", before)
-        history = json.loads(re.search(r"<!-- claude-review:history (.*) -->", before).group(1))
-        self.assertEqual([(h["run"], h["attempt"], h["n"]) for h in history], [(123, 1, 1)])
+        writes = {"submit review", "dismiss", "reply", "resolve", "post issue comment", "edit issue comment"}
+        self.assertEqual([c for c in self.gh.calls[calls:] if c[1] in writes], [])
 
-    def test_rerun_without_a_verdict_keeps_an_approval(self):
-        self.run_publish(result())
-        before = self.overview()
-        self.run_publish(result(no_issues=False), GITHUB_RUN_ATTEMPT="2")
-        self.assertIn("No verdict on a re-run: keeping this run's posted result", self.log)
-        self.assertEqual(self.overview(), before)
-        self.assertIn("No issues found.", before)
-
-    def test_rerun_without_a_verdict_on_another_commit_writes_the_note(self):
-        old = [{"sha": OLD[:7], "mode": "initial", "result": "issues", "n": 1, "b": 0, "run": 123, "attempt": 1}]
-        self.gh.add_issue_comment(f"<!-- claude-review:summary sha={OLD} result=issues -->\n"
-                                  f"<!-- claude-review:history {json.dumps(old)} -->")
-        self.run_publish(result(no_issues=False), GITHUB_RUN_ATTEMPT="2")
-        self.assertNotIn("No verdict on a re-run", self.log)
+    def test_rerun_after_an_attempt_that_ended_without_a_verdict_posts_the_review(self):
+        self.run_publish(result(no_issues=False, overview="One pass failed."))
+        self.assertEqual(self.new_reviews(), [])
         self.assertIn("Review incomplete", self.overview())
-        self.assertIn('"run":123,"attempt":2', self.overview())
+        self.run_publish(result(), GITHUB_RUN_ATTEMPT="2")
+        self.assertEqual([r["event"] for r in self.new_reviews()], ["APPROVE"])
+        self.assertIn("result=clean", self.overview())
 
     def test_run_marker_is_an_exact_token(self):
         self.gh.add_review("COMMENTED", body=f"<!-- claude-review:review run=1234 attempt=1 sha={HEAD} -->\nx")
         self.run_publish(result())
         self.assertEqual(self.gh.app_reviews()[-1]["event"], "APPROVE")
 
-    def test_history_keeps_ten_newest_first(self):
-        old = [{"sha": "bbbbbbb", "mode": "initial", "result": "issues", "n": 1, "run": r, "attempt": 1} for r in range(1, 13)]
-        self.gh.add_issue_comment(f"<!-- claude-review:summary sha={OLD} result=issues -->\n"
-                                  f"<!-- claude-review:history {json.dumps(old)} -->")
-        self.run_publish(result())
-        history = json.loads(re.search(r"<!-- claude-review:history (.*) -->", self.overview()).group(1))
-        self.assertEqual([h["run"] for h in history], [123] + list(range(1, 10)))
-
-    def test_unreadable_history_starts_again(self):
-        self.gh.add_issue_comment(f"<!-- claude-review:summary sha={OLD} result=issues -->\n"
-                                  "<!-- claude-review:history [not json] -->")
-        self.run_publish(result())
-        self.assertIn("::warning::The overview's history couldn't be read", self.log)
-        self.assertIn('"run":123', self.overview())
+    def test_a_review_that_landed_despite_a_5xx_is_not_posted_again(self):
+        self.gh.fail("submit review", 502, "", landed=True)
+        self.assertEqual(self.run_publish(result()), 1)
+        self.assertEqual(len(self.gh.app_reviews()), 1)
+        self.assertEqual(self.run_publish(result(), GITHUB_RUN_ATTEMPT="2"), 0, self.log)
+        self.assertEqual(len(self.gh.app_reviews()), 1)
 
 
 class RetryPolicy(PublishCase):
@@ -311,28 +285,19 @@ class RetryPolicy(PublishCase):
         self.assertEqual(self.gh.review_comments, [])
         self.assertIn("**`src/a.py` line 2**", review["body"])
 
-    def test_own_pr_warns_and_never_retries(self):
-        self.gh.fail("submit review", 422, "Can not request changes on your own pull request")
-        self.assertEqual(self.run_publish(result(no_issues=False, findings=[finding()])), 0)
-        self.assertEqual(len([c for c in self.gh.calls if c[1] == "submit review"]), 1)
-        self.assertIn("GitHub doesn't let the App review its own PR; the findings are below.", self.overview())
-        self.assertIn("Off by one.", self.overview())
-
-    def test_5xx_that_landed_is_not_submitted_again(self):
-        self.gh.fail("submit review", 502, "", landed=True)
-        self.assertEqual(self.run_publish(result()), 0, self.log)
-        self.assertEqual(len(self.gh.app_reviews()), 1)
-        self.assertEqual(len([c for c in self.gh.calls if c[1] == "submit review"]), 1)
-
-    def test_two_failures_put_the_findings_in_the_overview_and_fail(self):
+    def test_a_failed_submit_fails_the_job_and_the_rerun_posts_the_review(self):
         self.gh.fail("submit review", 502)
-        self.gh.fail("submit review", 503)
         self.assertEqual(self.run_publish(result(no_issues=False, findings=[finding()])), 1)
         self.assertEqual(self.gh.app_reviews(), [])
-        self.assertEqual(self.pauses, [5])
-        body = self.overview()
-        self.assertIn("Posting the review failed; the findings are below.", body)
-        self.assertIn("Off by one.", body)
+        self.assertIn("::warning::Submitting the review failed", self.log)
+        self.assertEqual(self.run_publish(result(no_issues=False, findings=[finding()]), GITHUB_RUN_ATTEMPT="2"), 0, self.log)
+        self.assertEqual([r["event"] for r in self.gh.app_reviews()], ["REQUEST_CHANGES"])
+
+    def test_a_422_with_nothing_inline_is_not_retried(self):
+        self.gh.fail("submit review", 422, "Can not approve your own pull request")
+        self.assertEqual(self.run_publish(result()), 1)
+        self.assertEqual(len([c for c in self.gh.calls if c[1] == "submit review"]), 1)
+        self.assertEqual(self.gh.app_reviews(), [])
 
 
 class Overview(PublishCase):
@@ -346,7 +311,7 @@ class Overview(PublishCase):
         body = self.overview()
         self.assertIn("result=clean", body)
         self.assertIn("**Threads:** 1 resolved · 0 still open", body)
-        self.assertIn("History (last 2 runs)", body)
+        self.assertNotIn("History", body)
         self.assertEqual(self.gh.app_reviews()[-1]["event"], "APPROVE")
 
     def test_overview_on_a_later_page_is_found(self):
@@ -392,13 +357,94 @@ class Overview(PublishCase):
         self.assertIn("<!-- claude-review:overview -->\nWhat the PR does.\n<!-- /claude-review:overview -->", self.overview())
         self.assertIn("result=followup", self.overview())
 
-    def test_overview_write_failure_drops_the_link_only(self):
+    def test_overview_write_failure_fails_the_job_but_never_holds_back_the_review(self):
         self.gh.fail("post issue comment", 500)
-        self.gh.fail("post issue comment", 500)
-        self.assertEqual(self.run_publish(result()), 0, self.log)
+        self.assertEqual(self.run_publish(result(no_issues=False, findings=[finding()])), 1)
         [review] = self.gh.app_reviews()
+        self.assertEqual(review["event"], "REQUEST_CHANGES")
         self.assertNotIn("review overview", review["body"])
         self.assertIn("::warning::Writing the overview comment failed", self.log)
+
+    def test_overview_write_failure_never_approves(self):
+        self.gh.fail("post issue comment", 500)
+        self.assertEqual(self.run_publish(result()), 1)
+        self.assertEqual(self.gh.app_reviews(), [])
+        self.assertEqual(self.run_publish(result(), GITHUB_RUN_ATTEMPT="2"), 0, self.log)
+        self.assertEqual([r["event"] for r in self.gh.app_reviews()], ["APPROVE"])
+        self.assertIn("result=clean", self.overview().splitlines()[0])
+
+    def test_a_failed_reply_never_approves_but_still_asks_for_changes(self):
+        tid = self.open_app_thread()
+        last = int(self.gh.threads[tid]["comments"][-1]["fullDatabaseId"])
+        threads = {"head_sha": HEAD, "open": [{"thread_id": tid, "last_comment_id": last}]}
+        self.gh.fail("reply", 500)
+        res = result(threads=[{"thread_id": tid, "verdict": "resolved", "reply": "x"}])
+        self.assertEqual(self.run_publish(res, threads, MODE="rereview"), 1)
+        self.assertEqual([r["event"] for r in self.gh.app_reviews()], ["REQUEST_CHANGES"])   # the thread is still open
+        self.assertIn("result=issues", self.overview().splitlines()[0])
+
+    def test_a_failed_reply_with_findings_still_posts_them_over_an_approval(self):
+        approved = self.gh.add_review("APPROVED", commit_id=HEAD)
+        tid = self.open_app_thread()
+        last = int(self.gh.threads[tid]["comments"][-1]["fullDatabaseId"])
+        threads = {"head_sha": HEAD, "open": [{"thread_id": tid, "last_comment_id": last}]}
+        self.gh.fail("reply", 500)
+        res = result(no_issues=False, findings=[finding()], threads=[{"thread_id": tid, "verdict": "open", "reply": "x"}])
+        self.assertEqual(self.run_publish(res, threads, MODE="rereview", CHANGES_EVENT="COMMENT"), 1)
+        self.assertEqual(approved["state"], "DISMISSED")
+        self.assertEqual(self.gh.app_reviews()[-1]["event"], "COMMENT")
+
+    def test_the_overview_is_a_fresh_render_with_no_history(self):
+        self.run_publish(result(overview="Adds X."))
+        self.run_publish(result(no_issues=False, findings=[finding()], overview="Adds Y."), GITHUB_RUN_ID="124",
+                         MODE="rereview", GITHUB_EVENT_NAME="issue_comment", EVENT_ACTION="created")
+        body = self.overview()
+        self.assertIn(f"<!-- claude-review:summary sha={HEAD} result=issues -->", body)
+        self.assertIn("### Claude review · `aaaaaaa` · rereview", body)
+        self.assertIn("Adds Y.", body)
+        self.assertNotIn("Adds X.", body)
+        self.assertNotIn("<details>", body)
+
+
+class SchemaSubset(unittest.TestCase):
+    """`conforms` checks a result against the schema file; it resolves a local $ref, which later schemas use."""
+
+    def test_ref_and_the_keywords_the_schema_uses(self):
+        conforms = load_publish()["conforms"]
+        schema = {"type": "object", "required": ["a"], "properties": {
+            "a": {"type": "array", "maxItems": 2, "items": {"$ref": "#/$defs/item"}}}, "$defs": {
+            "item": {"type": "object", "required": ["n"], "properties": {
+                "n": {"type": "integer"}, "s": {"type": "string", "maxLength": 3, "enum": ["x", "yy"]}}}}}
+        good = {"a": [{"n": 1, "s": "yy"}, {"n": 2}]}
+        self.assertTrue(conforms(schema, good, schema))
+        for bad in ({}, {"a": [{"n": 1}] * 3}, {"a": [{"n": True}]}, {"a": [{}]}, {"a": [{"n": 1, "s": "z"}]},
+                    {"a": [{"n": 1, "extra": 1}]}, {"a": [], "b": 1}, {"a": {}}, []):
+            with self.subTest(bad=bad):
+                self.assertFalse(conforms(schema, bad, schema))
+
+    def test_the_shipped_schema_uses_only_what_conforms_checks(self):
+        # A keyword conforms() skips would be enforced for Claude (--json-schema) but not here.
+        known = {"type", "enum", "minLength", "maxLength", "maxItems", "items", "properties", "required",
+                 "additionalProperties", "$ref", "$defs", "$schema", "description"}
+        def walk(node):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key == "properties":
+                        for sub in value.values():
+                            walk(sub)
+                    else:
+                        self.assertIn(key, known)
+                        if key in ("items", "$defs"):
+                            walk(value) if key == "items" else [walk(v) for v in value.values()]
+            return None
+        walk(json.loads(pathlib.Path(load_publish()["SCHEMA"]).read_text()))
+
+    def test_an_empty_path_is_the_wrong_shape(self):
+        ns = load_publish()
+        schema = json.loads(pathlib.Path(ns["SCHEMA"]).read_text())
+        bad = {"stopped": False, "no_issues": False, "overview": "", "threads": [],
+               "findings": [{"path": "", "line": 1, "side": "RIGHT", "body": "b", "line_text": ""}]}
+        self.assertFalse(ns["conforms"](schema, bad, schema))
 
 
 class ResultChecks(PublishCase):
@@ -426,6 +472,9 @@ class ResultChecks(PublishCase):
             result(findings=[finding(line=True)]),
             result(findings=[finding(body="x" * 4001)]),
             result(findings=[finding()] * 9),
+            result(findings=[{k: v for k, v in finding().items() if k != "line_text"}]),   # the schema requires it
+            result(findings=[finding(start_line="2")]),
+            result(threads=[{"thread_id": "t", "verdict": "open"}]),
             result(overview="x" * 601),
             result(threads=[{"thread_id": "t", "verdict": "maybe", "reply": ""}]),
         ]
@@ -445,18 +494,12 @@ class ResultChecks(PublishCase):
 
     def test_incomplete_review_says_so_without_a_verdict(self):
         # An incomplete full review fails closed: no_issues false with no findings gives no review in both full modes,
-        # but the overview comment still says the review ran, so nobody waits on silence. Another run's findings in the
-        # history don't hold the note back: only a re-run of the same run keeps what it posted.
-        earlier = [{"sha": "bbbbbbb", "mode": "initial", "result": "issues", "n": 1, "run": 99, "attempt": 1}]
+        # but the overview comment still says the review ran, so nobody waits on silence.
         for env in ({}, {"MODE": "rereview"}):
             with self.subTest(env=env):
                 self.setUp()
-                self.gh.add_issue_comment(f"<!-- claude-review:summary sha={OLD} result=issues -->\n"
-                                          f"<!-- claude-review:history {json.dumps(earlier)} -->")
                 self.assertEqual(self.run_publish(result(no_issues=False, overview="One pass failed."), **env), 0)
                 self.assertIn("No verdict: Claude's result has issues reported without findings", self.log)
-                self.assertNotIn("No verdict on a re-run", self.log)
-                self.assertIn('"n":0,"b":0,"run":123', self.overview())
                 self.assertEqual(self.new_reviews(), [])
                 self.assertIn("result=issues", self.overview())
                 self.assertIn("Review incomplete: issues reported without findings. No verdict.", self.overview())
@@ -504,21 +547,16 @@ class ThreadsAndMigration(PublishCase):
         self.assertEqual(self.gh.tokens("resolve"), {GH_TOKEN})
         self.assertIn("Follow-up: 1 resolved, 0 still open.", self.overview())
 
-    def test_legacy_claude_thread_is_replied_to_by_the_app_and_resolved(self):
-        tid = self.gh.add_thread(bot("claude"), "Legacy finding.")
-        last = int(self.gh.threads[tid]["comments"][-1]["fullDatabaseId"])
-        res = result(no_issues=False, threads=[{"thread_id": tid, "verdict": "resolved", "reply": "Fixed."}])
-        self.run_publish(res, {"head_sha": HEAD, "open": [{"thread_id": tid, "last_comment_id": last}]}, MODE="followup")
-        self.assertEqual(self.gh.threads[tid]["comments"][-1]["author"], bot(APP))
-        self.assertTrue(self.gh.threads[tid]["isResolved"])
-
-    def test_pending_legacy_resolved_marker_still_resolves_on_retry(self):
-        tid = self.gh.add_thread(bot("claude"), "Legacy finding.")
-        self.gh.thread_comment(tid, bot("github-actions"), followup_marker("resolved"))
-        rc = self.run_publish(HAS_RESULT="false", RAN="false", MODE="followup", RETRY_IDS=json.dumps([tid]))
-        self.assertEqual(rc, 0, self.log)
-        self.assertTrue(self.gh.threads[tid]["isResolved"])
-        self.assertIn("result=followup", self.overview())
+    def test_legacy_authors_are_not_this_reviews_threads_or_markers(self):
+        legacy = self.gh.add_thread(bot("claude"), "Legacy finding.")
+        last = int(self.gh.threads[legacy]["comments"][-1]["fullDatabaseId"])
+        res = result(no_issues=False, threads=[{"thread_id": legacy, "verdict": "resolved", "reply": "Fixed."}])
+        self.run_publish(res, {"head_sha": HEAD, "open": [{"thread_id": legacy, "last_comment_id": last}]}, MODE="followup")
+        self.assertEqual(len(self.gh.threads[legacy]["comments"]), 1)   # no reply: not a thread the App started
+        mine = self.open_app_thread()
+        self.gh.thread_comment(mine, bot("github-actions"), followup_marker("resolved"))
+        self.run_publish(HAS_RESULT="false", RAN="false", MODE="followup", RETRY_IDS=json.dumps([mine]))
+        self.assertFalse(self.gh.threads[mine]["isResolved"])   # a legacy reply is not this workflow's marker
 
     def test_resolve_refuses_threads_it_did_not_start_or_mark(self):
         theirs = self.gh.add_thread(user("someone"), "A person's thread.")
@@ -564,18 +602,38 @@ class ReviewGateFixes(PublishCase):
         self.assertTrue(self.gh.threads[tid]["isResolved"])
         self.assertEqual(len(self.gh.threads[tid]["comments"]), 2)   # one reply, not two
 
-    def test_failed_approval_does_not_leave_a_clean_overview(self):
-        self.gh.fail("submit review", 502)
+    def test_failed_approval_fails_the_job_and_the_rerun_approves(self):
         self.gh.fail("submit review", 502)
         self.assertEqual(self.run_publish(result()), 1)
-        body = self.overview()
-        self.assertIn("result=issues", body.splitlines()[0])
-        self.assertIn("No issues found, but posting the approval failed.", body)
-        self.assertIn('"result":"issues"', body)
+        self.assertEqual(self.gh.app_reviews(), [])
+        # `clean` would mark the head covered, so a new request could not retry: it is written only with the approval.
+        self.assertIn("result=issues", self.overview().splitlines()[0])
+        self.assertIn("**Result:** A write failed: re-run this job. No verdict.", self.overview())
+        self.assertEqual(self.run_publish(result(), GITHUB_RUN_ATTEMPT="2"), 0, self.log)
+        self.assertEqual([r["event"] for r in self.gh.app_reviews()], ["APPROVE"])
+        self.assertIn("result=clean", self.overview().splitlines()[0])
+        self.assertIn("**Result:** No issues found.", self.overview())
+
+    def test_failed_dismissal_still_posts_the_findings(self):
+        approved = self.gh.add_review("APPROVED", commit_id=HEAD)
+        self.gh.fail("dismiss", 403, "Forbidden")
+        self.assertEqual(self.run_publish(result(no_issues=False, findings=[finding()]), CHANGES_EVENT="COMMENT"), 1)
+        self.assertEqual(approved["state"], "APPROVED")
+        self.assertEqual(self.gh.app_reviews()[-1]["event"], "COMMENT")
+        self.assertIn("1 finding in the [review](", self.overview())
+
+    def test_failed_dismissal_of_a_change_request_posts_no_approval_comment(self):
+        changes = self.gh.add_review("CHANGES_REQUESTED", commit_id=OLD)
+        self.gh.fail("dismiss", 403, "Forbidden")
+        self.assertEqual(self.run_publish(result(), APPROVE_EVENT="COMMENT"), 1)
+        self.assertEqual(changes["state"], "CHANGES_REQUESTED")
+        self.assertEqual(len(self.gh.app_reviews()), 1)
 
     def test_dropped_findings_never_approve(self):
         self.run_publish(result(no_issues=True, findings=[finding(path="elsewhere.py")]))
         self.assertNotIn("APPROVE", [r["event"] for r in self.gh.app_reviews()])
+        self.assertIn("No finding named one of this PR's files. No verdict.", self.overview())
+        self.assertIn("result=issues", self.overview().splitlines()[0])
 
     def test_fork_pr_gets_a_comment_not_an_approval(self):
         self.gh.cross_repo = True
@@ -593,12 +651,6 @@ class ReviewGateFixes(PublishCase):
         self.run_publish(result())
         [review] = self.gh.app_reviews()
         self.assertEqual(review["state"], "DISMISSED")
-
-    def test_own_pr_with_githubs_error_shape(self):
-        self.gh.fail("submit review", 422, "Unprocessable Entity", errors=["Can not approve your own pull request"])
-        self.assertEqual(self.run_publish(result()), 0, self.log)
-        self.assertEqual(len([c for c in self.gh.calls if c[1] == "submit review"]), 1)
-        self.assertIn("own PR", self.log)
 
     def test_reply_refuses_a_thread_it_did_not_start(self):
         tid = self.gh.add_thread(user("someone"), "A person's thread.")
@@ -621,14 +673,6 @@ class ReviewGateFixes(PublishCase):
                 self.gh.thread_comment(tid, bot(APP), followup_marker("resolved"))
                 self.run_publish(HAS_RESULT="false", MODE="followup", RETRY_IDS=json.dumps([tid]))
                 self.assertFalse(self.gh.threads[tid]["isResolved"])
-
-    def test_landed_rerun_counts_the_landed_review(self):
-        self.run_publish(result(no_issues=False, findings=[finding(line=2), finding(line=3)]))
-        self.run_publish(result(no_issues=False, findings=[finding(line=2)]), GITHUB_RUN_ATTEMPT="2")
-        body = self.overview()
-        self.assertIn("**Result:** 2 findings: [1](", body)
-        self.assertIn('"n":2', body)
-
 
 class Placement(unittest.TestCase):
     def setUp(self):
@@ -722,12 +766,12 @@ class PlacementByText(unittest.TestCase):
     def test_left_side(self):
         self.assertEqual(self.place(line=3, side="LEFT", line_text="old2")[1], {"path": "src/a.py", "line": 2, "side": "LEFT"})
 
-    def test_without_line_text_as_before(self):
+    def test_an_empty_line_text_skips_the_text_check(self):
         self.assertEqual(self.place(path="new.py", line=3)[0], "inline")
 
 
 class FoldBack(PublishCase):
-    """Findings of the Wave 5 live test (L1, L6) and the delta re-review follow-ups (F1-F5)."""
+    """Findings of the Wave 5 live test (L1, L6) and the delta re-review follow-ups (F3, F5)."""
 
     def test_moved_finding_is_posted_on_the_right_line_and_counted(self):
         self.gh.add_file("new.py", NEW_FILE)
@@ -738,40 +782,6 @@ class FoldBack(PublishCase):
         self.assertNotIn("line_text", comment)
         self.assertIn("1 inline, 0 in body, 0 dropped, 1 moved,", self.log)
 
-    def initial_with_a_body_finding(self):
-        self.run_publish(result(no_issues=False, findings=[finding(), finding(line=40, body="Elsewhere.")]))
-        tid = next(iter(self.gh.threads))
-        last = int(self.gh.threads[tid]["comments"][-1]["fullDatabaseId"])
-        return tid, {"head_sha": HEAD, "open": [{"thread_id": tid, "last_comment_id": last}]}
-
-    def followup(self, tid, threads, run="124"):
-        res = result(no_issues=False, threads=[{"thread_id": tid, "verdict": "resolved", "reply": "Fixed."}])
-        return self.run_publish(res, threads, MODE="followup", GITHUB_RUN_ID=run,
-                                GITHUB_EVENT_NAME="issue_comment", EVENT_ACTION="created")
-
-    def test_history_counts_body_findings(self):
-        self.initial_with_a_body_finding()
-        history = json.loads(re.search(r"<!-- claude-review:history (.*) -->", self.overview()).group(1))
-        self.assertEqual((history[0]["n"], history[0]["b"]), (2, 1))
-
-    def test_followup_says_body_findings_were_not_rechecked(self):
-        tid, threads = self.initial_with_a_body_finding()
-        self.assertEqual(self.followup(tid, threads), 0, self.log)
-        first, comment = self.gh.app_reviews()
-        self.assertEqual(first["state"], "DISMISSED")
-        note = "1 finding without a review thread wasn't re-checked: only a full review checks it."
-        self.assertIn(note, comment["body"])
-        self.assertIn(note, self.overview())
-        self.assertNotIn("@claude", comment["body"] + self.overview())   # an App post must not trigger @claude workflows
-
-    def test_422_retry_then_followup_still_notes_the_findings(self):   # review S1
-        self.gh.fail("submit review", 422, "Validation Failed")
-        self.run_publish(result(no_issues=False, findings=[finding()]))
-        self.assertEqual(self.history()[0]["b"], 1, self.log)
-        self.run_publish(result(no_issues=False), {"head_sha": HEAD, "open": []}, MODE="followup", GITHUB_RUN_ID="124",
-                         GITHUB_EVENT_NAME="issue_comment", EVENT_ACTION="created")
-        self.assertIn("1 finding without a review thread wasn't re-checked", self.gh.app_reviews()[-1]["body"])
-
     def test_moved_counts_only_what_was_posted_inline(self):   # review C5
         self.gh.add_file("new.py", NEW_FILE)
         self.gh.fail("submit review", 422, "Validation Failed")
@@ -779,73 +789,10 @@ class FoldBack(PublishCase):
         self.assertIn("0 inline, 1 in body, 0 dropped, 0 moved,", self.log)
         self.assertIn("**`new.py` line 3**", self.gh.app_reviews()[-1]["body"])   # the body heading has the checked line
 
-    def test_retry_only_run_still_notes_the_findings(self):   # review C3, and the note on the retry-only path
-        tid, threads = self.initial_with_a_body_finding()
-        self.gh.thread_comment(tid, bot(APP), followup_marker("resolved"))
-        self.run_publish(HAS_RESULT="false", MODE="rereview", RETRY_IDS=json.dumps([tid]), GITHUB_RUN_ID="124",
-                         GITHUB_EVENT_NAME="issue_comment", EVENT_ACTION="created")
-        self.assertIn("wasn't re-checked", self.gh.app_reviews()[-1]["body"], self.log)
-        self.run_publish(result(no_issues=False), {"head_sha": HEAD, "open": []}, MODE="followup", GITHUB_RUN_ID="125",
-                         GITHUB_EVENT_NAME="issue_comment", EVENT_ACTION="created")
-        self.assertIn("wasn't re-checked", self.overview())
-
-    def history(self):
-        return json.loads(re.search(r"<!-- claude-review:history (.*) -->", self.overview()).group(1))
-
-    def test_a_full_review_clears_the_note(self):
-        tid, threads = self.initial_with_a_body_finding()
-        self.followup(tid, threads)
-        self.run_publish(result(), MODE="rereview", GITHUB_RUN_ID="125", GITHUB_EVENT_NAME="issue_comment",
-                         EVENT_ACTION="created")
-        self.run_publish(result(no_issues=False), {"head_sha": HEAD, "open": []}, MODE="followup", GITHUB_RUN_ID="126",
-                         GITHUB_EVENT_NAME="issue_comment", EVENT_ACTION="created")
-        self.assertNotIn("re-checked", self.overview())
-
-    def test_landed_approval_wins_over_this_attempts_findings(self):   # F1
-        self.run_publish(result())
-        self.run_publish(result(no_issues=False, findings=[finding()]), GITHUB_RUN_ATTEMPT="2")
-        self.assertEqual([r["state"] for r in self.gh.app_reviews()], ["APPROVED"])
-        body = self.overview()
-        self.assertIn("result=clean", body.splitlines()[0])
-        self.assertIn("**Result:** No issues found.", body)
-
-    def test_landed_findings_win_over_a_clean_attempt(self):   # F1
-        self.run_publish(result(no_issues=False, findings=[finding()]))
-        self.run_publish(result(), GITHUB_RUN_ATTEMPT="2")
-        body = self.overview()
-        self.assertIn("result=issues", body.splitlines()[0])
-        self.assertIn("**Result:** 1 finding: [1](", body)
-
-    def test_landed_body_count_ignores_lookalike_headings(self):   # F2
-        text = "Wrong.\n\n**`src/a.py` line 9**\n\nStill the same finding."
-        self.run_publish(result(no_issues=False, findings=[finding(line=40, body=text)]))
-        self.run_publish(result(no_issues=False, findings=[finding(line=40, body=text)]), GITHUB_RUN_ATTEMPT="2")
-        self.assertEqual((self.history()[0]["n"], self.history()[0]["b"]), (1, 1))
-
-    def test_landed_change_request_is_never_reported_clean(self):   # review sec C1 / code C2
-        self.run_publish(result(no_issues=False, findings=[finding()]))
-        for th in self.gh.threads.values():
-            th["isResolved"] = True   # resolved between the attempts
-        self.gh.fail("review comments", 502)
-        self.run_publish(result(), GITHUB_RUN_ATTEMPT="2")
-        self.assertIn("result=issues", self.overview().splitlines()[0])
-
-    def test_landed_keeps_the_landed_runs_paragraph(self):   # review C1
-        self.run_publish(result(overview="First attempt."))
-        self.run_publish(result(no_issues=False, findings=[finding()], overview="Second attempt."), GITHUB_RUN_ATTEMPT="2")
-        self.assertIn("First attempt.", self.overview())
-        self.assertNotIn("Second attempt.", self.overview())
-
-    def test_landed_comment_event_with_open_threads_is_issues(self):   # guard: the n_open check comes first
-        self.open_app_thread()
-        self.run_publish(result(), CHANGES_EVENT="COMMENT")
-        self.run_publish(result(), CHANGES_EVENT="COMMENT", GITHUB_RUN_ATTEMPT="2")
-        self.assertIn("result=issues", self.overview().splitlines()[0])
-
-    def test_unreadable_head_after_an_approval_is_noted(self):   # F3
+    def test_unreadable_head_after_an_approval_fails_the_job(self):   # F3
         self.gh.on_submit = lambda review: self.gh.fail("head", 502)
-        self.run_publish(result())
-        self.assertIn("The approval may be stale", self.overview())
+        self.assertEqual(self.run_publish(result()), 1)
+        self.assertIn("::warning::Re-reading the PR head after the approval failed", self.log)
 
     def test_moved_pr_still_dismisses_a_stale_approval(self):   # F3
         approval = self.gh.add_review("APPROVED", commit_id=HEAD)

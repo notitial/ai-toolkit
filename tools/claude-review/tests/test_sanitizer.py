@@ -116,8 +116,34 @@ class Sanitizer(unittest.TestCase):
     def test_reply_text_escapes_dollar(self):   # F4: inline math can't wrap a span in a reply either
         import types
         out = self.ns["reply_text"](types.SimpleNamespace(mode="followup"), "$`\\href{https://e}{x}`$", "open", "a" * 40)
-        self.assertIn("\\$\\`", out)
+        self.assertIn("\\$`\\href", out)   # the span is kept as code, the `$` around it is escaped
         self.assertNotIn(" $", out.replace("\\$", ""))
+
+    def test_reply_text_quotes_only_the_lines_the_sanitizer_saw(self):
+        # Other Unicode line breaks must not split a line after sanitize() judged it: a code span would end there.
+        import types
+        ctx = types.SimpleNamespace(mode="followup")
+        for sep in ("\x0b", "\x0c", "\x1c", "\x85", "\u2028", "\u2029"):
+            with self.subTest(sep=repr(sep)):
+                out = self.ns["reply_text"](ctx, f"`a{sep}{sep}![x](https://e.example/t.png) @someone`", "open", "a" * 40)
+                self.assertEqual(out.split("\n\n")[0].count("\n"), 0)
+
+    def test_reply_text_judges_tab_indented_fences_as_they_render_quoted(self):
+        # "> " moves a tab stop: a tab-indented closer/opener must be seen with the indentation it renders with.
+        import types
+        ctx = types.SimpleNamespace(mode="followup")
+        out = self.ns["reply_text"](ctx, "```\n\t```\n![x](https://e.example/t.png) @someone", "open", "a" * 40)
+        self.assertNotIn("\t", out)
+        quoted = out.split("\n\n")[0].split("\n")
+        self.assertEqual(quoted[:3], ["> ```", ">     ```", "> ![x](https://e.example/t.png) @someone"])
+        self.assertEqual(quoted[-1], "> ```")   # still inside the fence: sanitize closed it at the end
+        opener = self.ns["reply_text"](ctx, "\t```\n![x](https://e.example/t.png)", "open", "a" * 40)
+        self.assertIn("!\\[x\\]", opener)   # a tab-indented "fence" opens nothing: the image line is escaped prose
+
+    def test_reply_text_of_only_whitespace_gets_the_default(self):
+        import types
+        out = self.ns["reply_text"](types.SimpleNamespace(mode="followup"), "  \n ", "open", "a" * 40)
+        self.assertIn("> This still looks open", out)
 
 
 if __name__ == "__main__":

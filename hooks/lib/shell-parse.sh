@@ -348,6 +348,11 @@ sp_command() {
                           *) sv=${1#--split-string=} ;;
                         esac
                         shift
+                        for a in "$@"; do  # the words are joined without their quotes: a separator in one would read differently
+                          case "$a" in
+                            *[[:space:]\;\&\|\<\>\(\)\`\#\$\\\'\"]*) deny "env -S followed by a word the parser cannot join exactly - blocked (fail-closed)." ;;
+                          esac
+                        done
                         read_nested "$sv $*"
                         set --
                         break
@@ -456,7 +461,7 @@ read_nested() {
 sp_pop() {
   local n=$((${#STK[@]} - 1))
   CWD=${STK[n]} redir=${STR[n]} sin=${STI[n]}
-  eval "SEG=(\"\${SP_SEG_${NEST}_$n[@]}\")"
+  eval "SEG=(\${SP_SEG_${NEST}_$n[@]+\"\${SP_SEG_${NEST}_$n[@]}\"})"  # the + form: an empty array is unbound under set -u
   unset "STK[$n]" "STR[$n]" "STI[$n]" "SP_SEG_${NEST}_$n"
 }
 
@@ -481,7 +486,7 @@ shell_parse() {
       O)  # a group opens: the folder, the words of the command it sits in, a pending redirect and stdin wait
         n=${#STK[@]}
         STK[n]=$CWD STR[n]=$redir STI[n]=$sin
-        eval "SP_SEG_${NEST}_$n=(\"\${SEG[@]}\")"
+        eval "SP_SEG_${NEST}_$n=(\${SEG[@]+\"\${SEG[@]}\"})"
         SEG=() redir=0 sin=""
         ;;
       C) [ "${#STK[@]}" -gt 0 ] && sp_pop ;;
