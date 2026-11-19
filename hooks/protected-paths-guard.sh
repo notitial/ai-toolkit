@@ -17,14 +17,14 @@
 #
 # NEVER ASKS. Every decision is a deny or silence. It names no repository or tool of any project.
 # FAIL-CLOSED without jq (as git-mcp-guard): the input cannot be read, so the call is denied. Without lib/hook-common.sh
-# it exits 1, which the `|| exit 2` wiring turns into a block.
+# or lib/shell-parse.sh it exits 1, which the `|| exit 2` wiring turns into a block.
 #
 # WHAT COUNTS AS A WRITE (reads are never denied)
 #   - Edit, Write, MultiEdit, NotebookEdit: the target's real path (symlinks followed, case-insensitive compare).
 #   - git MCP tools: every tool except the read ones (status, log, diff, show, blame, reflog, fetch, working
 #     directory tools, git_push (judged by its remote, below), and the list/show modes of branch, tag, remote, stash). The folder is the
 #     call's `path` (git-mcp-guard denies a missing or relative one before this hook matters).
-#   - Bash and Monitor, one simple rule: the command is split into segments (; && || | & newline, and the insides of
+#   - Bash and Monitor, one simple rule (lib/shell-parse.sh reads the text, this file judges what it finds): the command is split into segments (; && || | & newline, and the insides of
 #     $( ), backticks and ( )), `cd <dir>` is tracked left to right, and a segment is denied when it is a write
 #     shape and a target resolves into a protected place. Write shapes: a > >> >| &> redirect; rm rmdir unlink shred
 #     touch mkdir chmod chown chgrp truncate tee mv cp install ln rsync dd patch; sed -i and perl -i; tar x, unzip,
@@ -45,7 +45,7 @@
 #   recursive delete or move of a folder that contains a protected root is caught only for the session's own root
 #   and for ~/.claude.
 #
-# Reads JSON from stdin. Returns a JSON deny decision or nothing; exit 0 always (but `exit 1` when lib/hook-common.sh is
+# Reads JSON from stdin. Returns a JSON deny decision or nothing; exit 0 always (but `exit 1` when a lib file is
 # missing: the `|| exit 2` wiring blocks the call). No `set -e`: it would break the exit-0-always contract. Runs on bash 3.2.
 
 MARKER=.protected-checkout
@@ -53,6 +53,7 @@ MARKER=.protected-checkout
 HOOK=protected-paths-guard
 S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
 . "${S%/*}/lib/hook-common.sh" || exit 1
+. "${S%/*}/lib/shell-parse.sh" || exit 1
 TOOL=$(field '.tool_name // empty')
 
 if [ -z "$TOOL" ]; then
@@ -65,30 +66,12 @@ lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 # ---- paths -------------------------------------------------------------------------------------------------------
 
-HOME_R=$(cd -P -- "$HOME" 2>/dev/null && pwd -P) || HOME_R=$HOME
 LHOME=$(lower "$HOME")
 LHOME_R=$(lower "$HOME_R")
 
 SESSION_CWD=$(field '.cwd // empty')
 [ -n "$SESSION_CWD" ] || SESSION_CWD=$PWD
 CWD=$SESSION_CWD
-
-# lexnorm <abs path>: drop ., empty and .. components without touching the file system.
-lexnorm() {
-  local p="$1" out="" part
-  local IFS=/
-  set -f
-  local parts=($p)
-  set +f
-  for part in "${parts[@]}"; do
-    case "$part" in
-      "" | .) ;;
-      ..) out=${out%/*} ;;
-      *) out="$out/$part" ;;
-    esac
-  done
-  printf '%s' "${out:-/}"
-}
 
 # phys_any <abs dir>: the real path of the longest existing ancestor, with the rest appended as written.
 phys_any() {
@@ -322,124 +305,7 @@ judge_target() {
 
 # ---- Bash -------------------------------------------------------------------------------------------------------
 
-# tokenise: the command on stdin as lines: Wword, S (a segment ends), O and C (a ( $( or ` group opens and closes),
-# R (the next word is a redirect target), I (the next word is an input and is dropped). Quotes are removed, heredoc bodies are skipped.
-tokenise() {
-  awk 'BEGIN { RS = "\001" }
-function flush() {
-  if (inw) { gsub(/\n/, " ", w); print "W" w }
-  w = ""; inw = 0; wq = 0
-}
-function skiphd(   e, line, l2) {
-  while (i <= n) {
-    e = index(substr(s, i), "\n")
-    if (e == 0) { line = substr(s, i); i = n + 1 } else { line = substr(s, i, e - 1); i += e }
-    l2 = line
-    if (hdash) sub(/^\t+/, "", l2)
-    if (l2 == hd) break
-  }
-  hd = ""
-}
-{
-  s = $0; n = length(s); i = 1; w = ""; inw = 0; wq = 0
-  sp = 1; st[1] = "N"; pd[1] = 0; hd = ""; hdash = 0
-  while (i <= n) {
-    c = substr(s, i, 1); top = st[sp]
-    if (top == "D") {
-      if (c == "\\") {
-        nx = substr(s, i + 1, 1)
-        if (nx == "\n") { i += 2; continue }
-        if (nx ~ /[$`"\\]/) { w = w nx; i += 2; continue }
-        w = w c; i++; continue
-      }
-      if (c == "\"") { sp--; i++; continue }
-      if (c == "$" && substr(s, i + 1, 1) == "(") { flush(); print "S"; print "O"; sp++; st[sp] = "S"; pd[sp] = 0; i += 2; continue }
-      if (c == "`") { flush(); print "S"; print "O"; sp++; st[sp] = "B"; i++; continue }
-      w = w c; inw = 1; i++; continue
-    }
-    if (c == "\\") {
-      nx = substr(s, i + 1, 1)
-      if (nx == "\n") { i += 2; continue }
-      w = w nx; inw = 1; wq = 1; i += 2; continue
-    }
-    if (c == "\047") {
-      j = index(substr(s, i + 1), "\047")
-      if (j == 0) { w = w substr(s, i + 1); i = n + 1 } else { w = w substr(s, i + 1, j - 1); i += j + 1 }
-      inw = 1; wq = 1; continue
-    }
-    if (c == "\"") { sp++; st[sp] = "D"; inw = 1; wq = 1; i++; continue }
-    if (c == "$") {
-      nx = substr(s, i + 1, 1)
-      if (nx == "(") { flush(); print "S"; print "O"; sp++; st[sp] = "S"; pd[sp] = 0; i += 2; continue }
-      if (nx == "\047") {
-        j = index(substr(s, i + 2), "\047")
-        if (j == 0) { w = w substr(s, i + 2); i = n + 1 } else { w = w substr(s, i + 2, j - 1); i += j + 2 }
-        inw = 1; wq = 1; continue
-      }
-      w = w c; inw = 1; i++; continue
-    }
-    if (c == "`") {
-      flush(); print "S"
-      if (top == "B") { sp--; print "C" } else { sp++; st[sp] = "B"; print "O" }
-      i++; continue
-    }
-    if (c == " " || c == "\t") { flush(); i++; continue }
-    if (c == "\n") { flush(); print "S"; i++; if (hd != "") skiphd(); continue }
-    if (c == "#" && !inw) {
-      j = index(substr(s, i), "\n")
-      if (j == 0) i = n + 1; else i += j - 1
-      continue
-    }
-    if (c == ";") { flush(); print "S"; i++; continue }
-    if (c == "|") { flush(); print "S"; i++; if (substr(s, i, 1) == "|" || substr(s, i, 1) == "&") i++; continue }
-    if (c == "&") {
-      if (substr(s, i + 1, 1) == ">") { flush(); print "R"; i += 2; if (substr(s, i, 1) == ">") i++; continue }
-      flush(); print "S"; i++; if (substr(s, i, 1) == "&") i++; continue
-    }
-    if (c == "(") { flush(); print "S"; print "O"; if (top == "S") pd[sp]++; i++; continue }
-    if (c == ")") {
-      flush(); print "S"; print "C"
-      if (top == "S") { if (pd[sp] > 0) pd[sp]--; else sp-- }
-      i++; continue
-    }
-    if (c == ">") {
-      if (inw && !wq && w ~ /^[0-9]+$/) { w = ""; inw = 0 } else flush()
-      i++; nx = substr(s, i, 1)
-      if (nx == ">" || nx == "|") i++
-      else if (nx == "&") {
-        d = substr(s, i + 1, 1)
-        if (d ~ /[0-9-]/) { i += 2; continue }
-        i++
-      }
-      print "R"; continue
-    }
-    if (c == "<") {
-      nx = substr(s, i + 1, 1)
-      if (nx == "<") {
-        if (substr(s, i + 2, 1) == "<") { flush(); i += 3; print "I"; continue }
-        flush(); i += 2; hdash = 0
-        if (substr(s, i, 1) == "-") { hdash = 1; i++ }
-        while (substr(s, i, 1) == " " || substr(s, i, 1) == "\t") i++
-        dl = ""
-        while (i <= n) {
-          d = substr(s, i, 1)
-          if (d == "\047" || d == "\"") { i++; continue }
-          if (d ~ /[ \t\n;|&()<>]/) break
-          if (d == "\\") { i++; continue }
-          dl = dl d; i++
-        }
-        hd = dl; continue
-      }
-      if (nx == "(") { flush(); print "S"; print "O"; sp++; st[sp] = "S"; pd[sp] = 0; i += 2; continue }
-      flush(); print "I"; i++
-      if (substr(s, i, 1) == "&") i++
-      continue
-    }
-    w = w c; inw = 1; i++
-  }
-  flush()
-}'
-}
+on_redirect() { judge_target "$1" "a redirect"; }
 
 # parse_args <option names that take a value> <args...>: NONOPT gets the operands, TDIR the -t/--target-directory
 # value, OPTS the options seen.
@@ -474,31 +340,6 @@ parse_args() {
       *) NONOPT[${#NONOPT[@]}]=$a ;;
     esac
   done
-}
-
-set_cwd() {
-  while :; do
-    case "${1:-}" in
-      -P | -L | -e | -@ | --) shift ;;
-      *) break ;;
-    esac
-  done
-  local a="${1:-}"
-  case "$a" in
-    "") CWD=$HOME_R ;;
-    -) CWD="" ;;
-    '$HOME' | '${HOME}') CWD=$HOME_R ;;
-    '$HOME/'*) CWD="$HOME_R/${a#\$HOME/}" ;;
-    '${HOME}/'*) CWD="$HOME_R/${a#\$\{HOME\}/}" ;;
-    *'$'* | *'`'* | *[\*\?\[]*) CWD="" ;;
-    "~") CWD=$HOME_R ;;
-    "~/"*) CWD="$HOME_R/${a#\~/}" ;;
-    "~"*) CWD="" ;;
-    /*) CWD=$a ;;
-    *) if [ -n "$CWD" ]; then CWD="$CWD/$a"; else CWD=""; fi ;;
-  esac
-  [ -n "$CWD" ] || return 0
-  if [ -d "$CWD" ]; then CWD=$(cd -P -- "$CWD" 2>/dev/null && pwd -P) || CWD=$(lexnorm "$CWD"); else CWD=$(lexnorm "$CWD"); fi
 }
 
 # curl_bundle_O <-letters>: 0 when the bundle holds -O before any option that takes a value.
@@ -635,83 +476,13 @@ git_is_write() {
   return 1
 }
 
-# analyse <command words...>: judge one simple command.
-analyse() {
+# on_command <command words...>: judge one simple command. The parser has skipped assignments, wrappers and keywords,
+# applied cd, pushd and popd to CWD, and read bash -c and eval strings.
+on_command() {
   local verb a i n w idx start
-  # Skip assignments, wrappers and shell keywords in front of the command.
-  local wv wb
-  while [ "$#" -gt 0 ]; do
-    w=$1
-    wb=${w##*/}
-    case "$w" in
-      [A-Za-z_]*=*) shift ;;
-      *)
-        case "$wb" in
-          if | then | else | elif | do | while | until | '{' | '}' | '!' | builtin | nohup | setsid | caffeinate)
-            shift
-            ;;
-          time)
-            shift
-            while :; do
-              case "${1:-}" in
-                -p | -v | -l | --portability | --verbose) shift ;;
-                -o | -f | --output | --format) shift; shift ;;
-                *) break ;;
-              esac
-            done
-            ;;
-          command)
-            shift
-            while [ "${1:-}" = -p ] || [ "${1:-}" = -- ]; do shift; done
-            ;;
-          exec)
-            shift
-            while :; do
-              case "${1:-}" in
-                -a) shift; shift ;;
-                -c | -l | --) shift ;;
-                *) break ;;
-              esac
-            done
-            ;;
-          env | sudo | nice | stdbuf | ionice | timeout)
-            shift
-            case "$wb" in
-              env) wv=" -u -C -S --unset --chdir --split-string " ;;
-              sudo) wv=" -u -g -h -p -C -r -t -U -D --user --group --host --prompt --chdir --role --type --other-user --close-from " ;;
-              nice) wv=" -n --adjustment " ;;
-              timeout) wv=" -s -k --signal --kill-after " ;;
-              stdbuf) wv=" -i -o -e " ;;
-              *) wv=" -c -n -p -t " ;;
-            esac
-            while [ "$#" -gt 0 ]; do
-              case "$1" in
-                -*)
-                  case "$wv" in *" $1 "*) shift ;; esac
-                  shift
-                  ;;
-                [A-Za-z_]*=*) shift ;;
-                *) break ;;
-              esac
-            done
-            [ "$wb" = timeout ] && [ "$#" -gt 0 ] && shift
-            ;;
-          *) break ;;
-        esac
-        ;;
-    esac
-  done
-  [ "$#" -gt 0 ] || return 0
   verb=${1##*/}
   shift
-
   case "$verb" in
-    cd | pushd)
-      set_cwd "$@"
-      ;;
-    popd)
-      CWD=""
-      ;;
     rm | rmdir | unlink | shred)
       parse_args "" "$@"
       ANC=1
@@ -942,34 +713,13 @@ analyse() {
           *) break ;;
         esac
       done
-      [ "$#" -gt 0 ] && analyse "$@"
-      ;;
-    sh | bash | zsh | dash | ksh)
-      local script="" takenext=0
-      for a in "$@"; do
-        if [ "$takenext" = 1 ]; then script=$a; break; fi
-        case "$a" in -c | -[a-zA-Z]*c | -[a-zA-Z]*c[a-zA-Z]*) takenext=1 ;; esac
-      done
-      [ -n "$script" ] && read_nested "$script"
-      ;;
-    eval)
-      [ "$#" -gt 0 ] && read_nested "$*"
+      [ "$#" -gt 0 ] && sp_command "$@"
       ;;
     git)
       analyse_git "$@"
       ;;
   esac
   return 0
-}
-
-NEST=0
-read_nested() {
-  local saved=$CWD
-  [ "$NEST" -lt 3 ] || return 0
-  NEST=$((NEST + 1))
-  check_command "$1"
-  NEST=$((NEST - 1))
-  CWD=$saved
 }
 
 # judge_push <repo dir> <git push args...>: a push whose target resolves to a local path inside a protected place
@@ -1154,48 +904,6 @@ analyse_git() {
   return 0
 }
 
-check_command() {
-  local cmd="$1" line w redir=0 tok n
-  local SEG=() STK=()
-  if [ "$NEST" -eq 0 ]; then
-    tok=$(printf '%s' "$cmd" | LC_ALL=C tr -d '\011\012\040-\176\200-\377')
-    [ -z "$tok" ] || deny "the command holds control characters the hook cannot read safely - blocked (fail-closed)."
-  fi
-  tok=$(printf '%s' "$cmd" | tokenise) || deny "could not read the command text - blocked (fail-closed)."
-  while IFS= read -r line; do
-    case "$line" in
-      S)
-        [ "${#SEG[@]}" -gt 0 ] && analyse "${SEG[@]}"
-        SEG=()
-        redir=0
-        ;;
-      O) STK[${#STK[@]}]=$CWD ;;
-      C)
-        n=${#STK[@]}
-        if [ "$n" -gt 0 ]; then
-          CWD=${STK[$((n - 1))]}
-          unset "STK[$((n - 1))]"
-        fi
-        ;;
-      R) redir=1 ;;
-      I) redir=2 ;;
-      W*)
-        w=${line#W}
-        if [ "$redir" = 1 ]; then
-          judge_target "$w" "a redirect"
-          redir=0
-        elif [ "$redir" = 2 ]; then
-          redir=0
-        else
-          SEG[${#SEG[@]}]=$w
-        fi
-        ;;
-    esac
-  done < <(printf '%s\n' "$tok")
-  [ "${#SEG[@]}" -gt 0 ] && analyse "${SEG[@]}"
-  return 0
-}
-
 # ---- git MCP ----------------------------------------------------------------------------------------------------
 
 git_tool() {
@@ -1236,7 +944,7 @@ find_session_root
 case "$TOOL" in
   Edit | Write | MultiEdit) judge_target "$(ti .file_path)" "$TOOL" ;;
   NotebookEdit) judge_target "$(ti .notebook_path)" "$TOOL" ;;
-  Bash | Monitor) check_command "$(ti .command)" ;;
+  Bash | Monitor) shell_parse "$(ti .command)" || exit 1 ;;  # not defined (an empty lib): a block, as for a missing one
   mcp__git-mcp__*) git_tool ;;
 esac
 
