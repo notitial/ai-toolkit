@@ -244,7 +244,8 @@ class FakeGitHub:
             nodes = [{"isResolved": self.threads[t]["isResolved"], "path": self.threads[t]["path"],
                       "line": self.threads[t]["line"], "originalLine": self.threads[t]["originalLine"],
                       "comments": {"nodes": [{"author": self.threads[t]["comments"][0]["author"],
-                                              "url": self.threads[t]["comments"][0]["url"]}]}} for t in chunk]
+                                              "url": self.threads[t]["comments"][0]["url"],
+                                              "body": self.threads[t]["comments"][0]["body"]}]}} for t in chunk]
             return 200, {"data": {"repository": {"pullRequest": {"reviewThreads": {
                 "pageInfo": {"hasNextPage": more, "endCursor": str(start + self.page_size)}, "nodes": nodes}}}}}, headers({})
         if "comments(first: 50)" in q:

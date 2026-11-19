@@ -198,7 +198,10 @@ class Workflow(unittest.TestCase):
 
     def test_findings_carry_their_line_text(self):   # L1
         self.need_yaml()
-        item = json.loads(SCHEMA.read_text(encoding="utf-8"))["properties"]["findings"]["items"]
+        schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+        for key in ("findings", "suggestions"):   # one shared definition of a finding
+            self.assertEqual(schema["properties"][key]["items"], {"$ref": "#/$defs/finding"})
+        item = schema["$defs"]["finding"]
         self.assertIn("line_text", item["required"])
         self.assertEqual(item["properties"]["line_text"], {"type": "string", "maxLength": 500})
         command = COMMAND.read_text(encoding="utf-8")
@@ -229,13 +232,15 @@ class Workflow(unittest.TestCase):
             return out.stdout
 
     def test_cost_step_warns_when_the_pipeline_was_cut_short(self):   # L2
-        self.assertIn("::warning::Claude launched 2 agents; a full review (initial) launches at least 8",
+        self.assertIn("::warning::Claude launched 2 agents; a full review (initial) launches at least 9",
                       self.cost_step("initial", 2))
-        self.assertIn("::warning::Claude launched 6 agents; a full review (rereview) launches at least 8",
+        self.assertIn("::warning::Claude launched 6 agents; a full review (rereview) launches at least 9",
                       self.cost_step("rereview", 6))
-        self.assertIn("::warning::Claude launched 7 agents; a full review (rereview) launches at least 8",
+        self.assertIn("::warning::Claude launched 7 agents; a full review (rereview) launches at least 9",
                       self.cost_step("rereview", 7))
-        for mode, agents, stopped in (("initial", 8, False), ("rereview", 8, False), ("followup", 0, False),
+        self.assertIn("::warning::Claude launched 8 agents; a full review (initial) launches at least 9",
+                      self.cost_step("initial", 8))
+        for mode, agents, stopped in (("initial", 9, False), ("rereview", 9, False), ("followup", 0, False),
                                       ("initial", 0, True), ("initial", 1, True), ("initial", 2, True)):
             with self.subTest(mode=mode, agents=agents, stopped=stopped):
                 self.assertNotIn("::warning::", self.cost_step(mode, agents, stopped))
@@ -244,7 +249,7 @@ class Workflow(unittest.TestCase):
     def test_cost_record_names_the_kit_version(self):
         readme = (HERE.parent / "README.md").read_text(encoding="utf-8")
         version = re.search(r"^\*\*Version:\*\* (v[0-9.]+) ", readme, re.M).group(1)
-        self.cost_step("initial", 8)
+        self.cost_step("initial", 9)
         self.assertEqual(self.record["reviewer"], f"claude-pr-review@{version}")
 
     # The reusable-workflow shape (ADR 0018): what the caller can pass in, what each job may hold.
