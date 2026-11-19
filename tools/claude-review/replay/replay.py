@@ -2,19 +2,17 @@
 """Replay one pull request through the review command offline, with a local `claude -p`.
 
 Builds the same context folder the workflow's prep steps build (pr.json, pr-files.json, pr.diff) from git alone,
-checks the PR head out in a clone under a work folder, puts the review command where the kit checkout has it and runs it with the
-workflow's tool limits and the kit's result schema file. The result and the run's cost go to a results folder outside the repo.
-Nothing is posted anywhere. See README.md next to this file.
+checks the PR head out in a clone under a work folder, copies the kit's reviewer folder and the review command into a
+setup folder (where the workflow starts Claude) and runs reviewer/run.sh there, the file the workflow runs too. The result
+and the run's cost go to a results folder outside the repo. Nothing is posted anywhere. See README.md next to this file.
 """
 import argparse, datetime, gzip, hashlib, json, os, pathlib, re, shutil, subprocess, sys
 
 KIT = pathlib.Path(__file__).resolve().parent.parent
-WORKFLOW = KIT.parents[1] / ".github" / "workflows" / "claude-review-kit.yml"   # the reusable workflow
 # 7.4's model line: "- Model: `opus` for <kinds> candidate; `sonnet` for <kinds> candidate." The first model is the one patched,
 # whichever kinds the command gives it (the line was reworded when the defect verifier moved to sonnet).
-# Where the workflow's review job checks the kit out, and the prompt it gives Claude (a test pins both to the workflow).
-COMMAND_PATH = ".claude-review-kit/tools/claude-review/claude-pr-review.md"
-PROMPT_HEAD = f"Follow the instructions in {COMMAND_PATH}. In that file, $ARGUMENTS is: "
+# The start of the prompt the workflow gives Claude (a test pins it to the workflow).
+PROMPT_HEAD = "Follow the instructions in claude-pr-review.md. In that file, $ARGUMENTS is: "
 VERIFIER_LINE = re.compile(r"^(- Model: )`opus`( for [^`\n]*candidate; `[a-z0-9.-]+` for )", re.M)
 
 
@@ -26,19 +24,6 @@ def patch_command(text, verifier_model):
     if len(VERIFIER_LINE.findall(text)) != 1:
         raise SystemExit("the command's verifier-model line (7.4) was not found exactly once: update VERIFIER_LINE")
     return VERIFIER_LINE.sub(lambda m: f"{m.group(1)}`{verifier_model}`{m.group(2)}", text)
-
-
-def workflow_settings(workflow_text):
-    """The tool limits from the workflow, and the result schema from the kit's file (one line, as the workflow gives it)."""
-    def one(pattern, what):
-        found = re.findall(pattern, workflow_text, re.M)
-        if len(found) != 1:
-            raise SystemExit(f"workflow: {what} not found exactly once")
-        return found[0]
-    tools = one(r"^\s*TOOLS: '([^']*)'\s*$", "TOOLS")
-    deny = one(r'^\s*--disallowedTools "([^"]*)"\s*$', "--disallowedTools")
-    schema = json.dumps(json.loads((KIT / "reviewer" / "result-schema.json").read_text()), separators=(",", ":"))
-    return {"allowed": tools, "disallowed": deny, "schema": schema}
 
 
 # Plain git, whatever the user's config says: GitHub's a/ b/ prefixes, no external diff, no colour.
@@ -140,15 +125,6 @@ def prepare_clone(args, work):
         raise SystemExit("the head is already in the base's history, so there is no diff: pass --base <the PR's base SHA>")
     git("checkout", "--quiet", "--force", "--detach", args.head, cwd=clone)
     git("clean", "-fdxq", cwd=clone)
-    # The workflow runs the default branch's .claude/ and root CLAUDE.md, whatever the PR changes: take them from the base.
-    for path in (".claude", "CLAUDE.md"):
-        target = clone / path
-        if target.is_dir() and not target.is_symlink():
-            shutil.rmtree(target)
-        else:
-            target.unlink(missing_ok=True)
-        if git_ok("cat-file", "-e", f"{merge_base}:{path}", cwd=clone):
-            git("checkout", "--quiet", merge_base, "--", path, cwd=clone)
     return clone, merge_base
 
 
@@ -192,12 +168,9 @@ def summarize(stream_lines):
     }
 
 
-def claude_command(settings, ctx, prompt, model):
-    cmd = ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--no-session-persistence",
-           "--strict-mcp-config", "--permission-mode", "default", "--setting-sources", "project", "--settings", '{"disableAllHooks":true}',
-           "--allowedTools", settings["allowed"], "--disallowedTools", settings["disallowed"],
-           "--add-dir", str(ctx), "--json-schema", settings["schema"]]
-    return cmd + (["--model", model] if model else [])
+def run_command(setup, checkout, ctx, prompt, model):
+    """The reviewer folder's run.sh, from the setup folder, as the workflow runs it."""
+    return ["bash", str(setup / "run.sh"), prompt, str(checkout), str(ctx)] + (["--model", model] if model else [])
 
 
 def main(argv=None):
@@ -207,7 +180,6 @@ def main(argv=None):
     p.add_argument("--base", default="auto", help="the PR's base commit, or auto: the merge base with the default branch")
     p.add_argument("--head", required=True, help="the PR head commit (refs/pull/N/head must contain it)")
     p.add_argument("--command", default=str(KIT / "claude-pr-review.md"), help="the review command file")
-    p.add_argument("--workflow", default=str(WORKFLOW), help="the workflow to take tool limits from")
     p.add_argument("--verifier-model", help="run the 7.4 defect, interaction, security and failure-path verifiers on this model")
     p.add_argument("--model", default="sonnet", help="the lead's model; CI's main session runs on sonnet (default)")
     p.add_argument("--arm", default="asis", help="label for the results file")
@@ -234,24 +206,21 @@ def main(argv=None):
     command_text = pathlib.Path(args.command).read_text()
     if args.verifier_model:
         command_text = patch_command(command_text, args.verifier_model)
-    settings = workflow_settings(pathlib.Path(args.workflow).read_text())
 
     slug = args.repo.replace("/", "_")
     work = pathlib.Path(args.work_dir).expanduser().resolve() / slug
     clone, merge_base = prepare_clone(args, work)
-    cmd_path = clone / COMMAND_PATH
-    kit_dir = clone / COMMAND_PATH.split("/")[0]
-    if os.path.lexists(kit_dir):   # the workflow's guard: a symlink here would aim the write below elsewhere
-        raise SystemExit(f"the PR holds {kit_dir.name}, the folder the review kit checks itself out into: not replayed")
-    cmd_path.parent.mkdir(parents=True, exist_ok=True)
-    cmd_path.write_text(command_text)
+    setup = work / "setup"   # where the workflow starts Claude: the kit's reviewer files and the command, nothing of the PR's
+    shutil.rmtree(setup, ignore_errors=True)
+    shutil.copytree(KIT / "reviewer", setup, ignore=shutil.ignore_patterns("node_modules", "package*.json"))
+    (setup / "claude-pr-review.md").write_text(command_text)
     ctx = work / f"context-{args.pr}-{args.head[:8]}"
     shutil.rmtree(ctx, ignore_errors=True)
     files = build_context(clone, ctx, args, merge_base)
     if not files:
         raise SystemExit("the PR changes no files between the merge base and the head: nothing to review")
-    prompt = f"{PROMPT_HEAD}{args.repo}/pull/{args.pr} --mode initial --context {ctx}"
-    cmd = claude_command(settings, ctx, prompt, args.model)
+    prompt = f"{PROMPT_HEAD}{args.repo}/pull/{args.pr} --mode initial --checkout {clone} --context {ctx}"
+    cmd = run_command(setup, clone, ctx, prompt, args.model)
     print(f"prepared {args.repo}#{args.pr}: {len(files)} files, clone {clone}, context {ctx}", file=sys.stderr)
     if args.prepare_only:
         print(json.dumps(cmd))
@@ -263,7 +232,7 @@ def main(argv=None):
     started = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
     env = dict(os.environ, CLAUDE_CODE_DISABLE_BACKGROUND_TASKS="1")
     try:
-        r = subprocess.run(cmd, cwd=clone, env=env, capture_output=True, text=True, timeout=args.timeout_min * 60)
+        r = subprocess.run(cmd, cwd=setup, env=env, capture_output=True, text=True, timeout=args.timeout_min * 60)
         stream, rc, stderr = r.stdout, r.returncode, r.stderr[-2000:]
     except subprocess.TimeoutExpired as e:
         stream, rc, stderr = (e.stdout or b"").decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or ""), -1, "timeout"

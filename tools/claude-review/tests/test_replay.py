@@ -1,6 +1,8 @@
 """The offline replay runner (tools/claude-review/replay/replay.py): the parts that do not call claude."""
 import importlib.util, json, pathlib, subprocess, tempfile, unittest
 
+from workflow import WORKFLOW
+
 KIT = pathlib.Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location("replay", KIT / "replay" / "replay.py")
 replay = importlib.util.module_from_spec(spec)
@@ -36,18 +38,6 @@ class PatchCommand(unittest.TestCase):
     def test_model_name_is_checked(self):
         with self.assertRaises(SystemExit):
             replay.patch_command((KIT / "claude-pr-review.md").read_text(), "so`net")
-
-
-class WorkflowSettings(unittest.TestCase):
-    def test_reads_the_kit_workflow(self):
-        s = replay.workflow_settings(replay.WORKFLOW.read_text())
-        self.assertEqual(s["allowed"], "Agent,Task")
-        self.assertIn("Bash", s["disallowed"].split(","))
-        self.assertEqual(json.loads(s["schema"])["required"], ["no_issues", "stopped", "findings", "threads", "overview"])
-
-    def test_missing_setting_fails(self):
-        with self.assertRaises(SystemExit):
-            replay.workflow_settings("TOOLS: 'x'")
 
 
 class Context(unittest.TestCase):
@@ -136,20 +126,14 @@ class ContextEdgeCases(unittest.TestCase):
 
 
 class Command(unittest.TestCase):
-    def test_tool_limits_and_model_reach_the_claude_command(self):
-        s = replay.workflow_settings(replay.WORKFLOW.read_text())
-        cmd = replay.claude_command(s, pathlib.Path("/ctx"), "a prompt", "sonnet")
-        self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
-        self.assertEqual(cmd[cmd.index("--allowedTools") + 1], "Agent,Task")
-        self.assertEqual(cmd[cmd.index("--add-dir") + 1], "/ctx")
-        self.assertEqual(cmd[cmd.index("--permission-mode") + 1], "default")
-        self.assertNotIn("Bash", cmd[cmd.index("--allowedTools") + 1])
+    def test_runs_the_reviewer_folders_run_sh_with_the_model(self):
+        cmd = replay.run_command(pathlib.Path("/setup"), pathlib.Path("/pr"), pathlib.Path("/ctx"), "a prompt", "sonnet")
+        self.assertEqual(cmd, ["bash", "/setup/run.sh", "a prompt", "/pr", "/ctx", "--model", "sonnet"])
+        self.assertEqual(replay.run_command(pathlib.Path("/s"), pathlib.Path("/p"), pathlib.Path("/c"), "x", None)[-1], "/c")
 
-
-    def test_prompt_and_command_path_are_the_workflows(self):
-        text = replay.WORKFLOW.read_text()
-        self.assertIn(f'prompt: "{replay.PROMPT_HEAD}${{{{ github.repository }}}}/pull/', text)
-        self.assertEqual(replay.COMMAND_PATH, ".claude-review-kit/tools/claude-review/claude-pr-review.md")
+    def test_prompt_is_the_workflows(self):
+        text = WORKFLOW.read_text()
+        self.assertIn('prompt="' + replay.PROMPT_HEAD.replace("$", "\\$") + "${GITHUB_REPOSITORY}/pull/", text)
 
 
 class Summarize(unittest.TestCase):
