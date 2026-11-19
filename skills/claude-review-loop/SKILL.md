@@ -39,6 +39,7 @@ denies a post, give the user the `gh` command in a markdown code block instead.
    not the checks of the last push, then handle any thread it keeps open. List the findings and their outcome in the
    handover.
 6. A full `@claude review` (a whole re-review, about the cost of the first) only when the user asks. A PR that
-   changes that workflow file runs its own copy, so install and upgrade PRs use `[skip ci]`: review those locally.
+   changes the caller runs its own copy: an install or upgrade PR goes without `[skip ci]`, its own first review is
+   the live test, and a `@claude review` comment runs nothing on it until the merge (the README's Quirks).
 
 Details: the toolkit's `tools/claude-review/README.md`, "For agents opening PRs".

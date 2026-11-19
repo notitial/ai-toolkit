@@ -210,7 +210,7 @@ into folders `.gitignore` excludes. It also reads the PR title and description, 
 
 ## Adding it to a repo
 
-The `/add-claude-review` skill (installed by `/setup-claude`) does the vendored-copy steps below from the target repo; it does not write the reusable caller yet.
+The `/add-claude-review` skill (installed by `/setup-claude`) writes the reusable kit's caller below from the target repo, and moves a repo off a vendored copy.
 
 ### The reusable kit
 
@@ -454,11 +454,10 @@ A thread a person starts must never get a reply or be resolved.
 - **COMMENT doesn't clear REQUEST_CHANGES** in GitHub's review decision, so a follow-up dismisses the App's
   REQUEST_CHANGES first. If that dismissal fails (403), the job fails and no comment is posted: dismiss it from the PR's
   review list and re-run the job.
-- **A PR that changes the workflow runs its own copy** (with the Claude key in `review` and the App key in `appcheck`
-  and `publish`). Use `[skip ci]` on install and upgrade PRs. Exception: in a repo whose ruleset requires status
-  checks from other workflows, `[skip ci]` skips those workflows too, so the required checks never report and the PR
-  hangs. Install and upgrade PRs there go without it, and run their own copy of the workflow: review the diff and
-  SHAs locally first (step 5), and only the owner pushes.
+- **A PR that changes the caller runs its own copy** (with the Claude key in `review` and the App key in `appcheck`
+  and `publish`). An install or upgrade PR goes without `[skip ci]`: its own run is the first live test, so the repo's
+  variables and secrets are set before it is marked ready, and the caller is reviewed locally first. A comment run
+  uses the default branch's caller, so on an install PR `@claude review` runs nothing until the merge.
 - **The root CLAUDE.md and `.claude/` are read from the default branch,** never the PR's. A `CLAUDE.md` the PR
   adds or edits elsewhere is reviewed as changed content, never used as rules (see Security model).
 - **The transcript is hidden.** Only `show_full_output: true` shows it, which this workflow never sets.
