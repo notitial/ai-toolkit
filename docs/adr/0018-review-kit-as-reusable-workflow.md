@@ -72,7 +72,13 @@ checks it out with `collect.py` on every run, the prompt tells Claude to follow 
 `.claude/` from the default branch, so a copy placed there would not survive), and the installed copy and the schema
 copy inside it are gone (`--json-schema` gives the shape). The command's trust source becomes the kit's pinned commit
 instead of each repo's default branch; for this repo's local call, a `pull_request` run uses the PR's own command, the
-same as its scripts. Later steps simplify what
+same as its scripts. A fourth step runs the Claude Code CLI directly, not through `claude-code-action`
+(2026-11-19; what the review does and posts is unchanged, except that the root `CLAUDE.md` is now the PR's copy, below). The CLI is pinned in the kit by `reviewer/package.json` and its
+lockfile; the session starts in a copy of the kit's `reviewer/` folder, taken from the same pinned commit, and the
+PR's checkout is only readable data (read allow rules, not `--add-dir`: an added folder would contribute its
+`.claude/agents` and skills). The command's trust source is now one rule: every piece of configuration comes from the
+kit, and nothing the PR or the calling repo holds can configure its reviewer, its root `CLAUDE.md` included (it is read
+as orientation, and is not a rule source when the PR changes it). Claude's environment holds no GitHub token. The PR is checked out by the head commit `preflight` reads from the API (the event's own on a PR event), not by the moving `refs/pull/<N>/head`, so a push after a comment request cannot swap the code under the secrets. Later steps simplify what
 `publish` posts. Each is its own PR and amends this record where it changes a rule.
 
 ## Consequences

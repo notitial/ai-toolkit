@@ -20,9 +20,9 @@ command below is v4.1's and expects the v4.1 `collect.py`, so a v3.4 repo does n
 | File | Install path in the target repo | SHA-256 |
 |---|---|---|
 | [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` (frozen v3.4) | `302603c31c1dff049046af03ce06ba2e96314c63561d2dbd29f2be65dbb5a760` |
-| [claude-pr-review.md](claude-pr-review.md) | the kit's own checkout (v4.1); a frozen v3.4 repo keeps its existing copy, SHA `9537f11b...` | `6b708aed181192423ef26757aeec591d8e490079a560e90f2f3780fdff36e15b` |
+| [claude-pr-review.md](claude-pr-review.md) | the kit's own checkout (v4.2); a frozen v3.4 repo keeps its existing copy, SHA `9537f11b...` | `1d271c2f77f548ec66440ea49713b887b3da3ed021afa8d37dd27380d86b7c61` |
 
-**Version:** v4.1 (2026-11-19): a seventh review pass, "least code" (see [Least code](#least-code)). Duplication of
+**Version:** v4.2 (2026-11-19): the kit's `review` job runs a pinned Claude Code CLI directly instead of through `claude-code-action`. What the review posts is unchanged; the root `CLAUDE.md` it reads is now the PR's copy, not the default branch's, and is not a rule source when the PR changes it. The CLI is pinned by `reviewer/package.json` and its lockfile, the session starts in a copy of the kit's `reviewer/` folder with no GitHub token in its environment, and nothing the PR holds can configure it (see the trust rules below). The cost record's `action` field is now `claude_code`. v4.1 (2026-11-19): a seventh review pass, "least code" (see [Least code](#least-code)). Duplication of
 code the repo already has is a blocking finding; a clear simpler rewrite is a non-blocking suggestion, posted inline
 from a new `suggestions` list in the result (at most 3). The pass adds one agent to a full review, so the cost step's
 minimum is 9. v4.0 (2026-11-19; breaking): a fixed issue that comes back is an ordinary new finding, not a reopened
@@ -59,8 +59,8 @@ Four jobs:
 - **`appcheck`** (the key runner: `ubuntu-latest`, or a dedicated pool, see [Prerequisites](#prerequisites)): mints an App token and throws it away, so a bad key, a missing install or a wrong
   `CLAUDE_REVIEW_APP_LOGIN` fails before Claude costs anything. On a comment request it reacts 🚀 as the App (since
   v2.5; a 👀 from claude[bot] means the Claude GitHub App is still installed on the repo, which nothing here needs).
-- **`review`** (`ubuntu-latest`, or your own runner): fetches the PR, runs Claude read-only (its `GITHUB_TOKEN` is
-  read-only), uploads the result as an artifact. One at a time per PR, never cancelled.
+- **`review`** (`ubuntu-latest`, or your own runner): fetches the PR, installs the pinned Claude Code, runs it read-only
+  with no GitHub token in its environment, uploads the result as an artifact. One at a time per PR, never cancelled.
 - **`publish`** (the key runner, no PR checkout, no Claude): posts as the App, in this order: thread replies, resolve,
   the overview comment, the review. On a push to a same-repo PR it also dismisses the App's approval of an older
   commit. Re-running it never posts a second review (every review body has a run marker).
@@ -129,10 +129,10 @@ one: `cases/README.md`. `tests/test_cases.py` checks the shape.
 local `claude -p`, to compare a command or a model change on PRs already reviewed. It posts nothing and calls no
 GitHub API: it fetches `refs/pull/<N>/head`, builds the context folder from git (`pr.json` with state `OPEN` and
 `isDraft` false so the gate passes, `pr-files.json`, `pr.diff`), checks the head out in a clone under `--work-dir`
-(default `/tmp/review-replay`), restores `.claude/` and the root `CLAUDE.md` from the PR's merge base as the workflow
-does (`--base` defaults to `auto`: the default branch's tip, whose merge base with the head is what GitHub diffs),
-puts the command where the kit checkout has it, and runs `claude -p` with the workflow's own `--disallowedTools` and `TOOLS`, read from `claude-review-kit.yml`, and the kit's result schema file,
-so they cannot drift. Each run is one full review: use the subscription outside a busy
+(default `/tmp/review-replay`; `--base` defaults to `auto`: the default branch's tip, whose merge base with the head is
+what GitHub diffs), copies the kit's `reviewer/` folder and the command into a setup folder beside the clone, as the
+workflow does, and runs `reviewer/run.sh` there: the same file, so the same flags, tool limits and result schema, as the
+workflow's run, and they cannot drift. Each run is one full review: use the subscription outside a busy
 window and run PRs one after the other.
 
 ```text
@@ -148,8 +148,9 @@ python3 -I -B tools/claude-review/replay/replay.py --repo OWNER/NAME --pr N --he
   written in the repo.
 - Differences from CI: the PR title and description are placeholders unless given, the lead
   model is `sonnet` (CI's main session runs on it; the workflow pins no model, so `--model` overrides this default),
-  the review runs on your machine's `claude` version, not the pinned action's, and `.claude/` and `CLAUDE.md` come
-  from the PR's merge base, not the default branch's tip.
+  the review runs on your machine's `claude` version, not the kit's pinned one, with your own login and user-level
+  `CLAUDE.md` (CI uses a fresh config folder and `env -i`; your login needs your environment).
+  The root `CLAUDE.md` is the clone's, so replay a PR that edits it knowing the review will not use it as rules.
 - `--base auto` fails when the head is already in the default branch's history (a PR merged with a merge commit): pass
   `--base` then. A run that returns no structured result exits 1 with `NO RESULT`: do not score it. Set
   `ANTHROPIC_API_KEY` and `claude` bills the API instead of the subscription (the runner warns).
@@ -281,9 +282,11 @@ jobs:
 - **Check names** read `<caller job id> / <job name>`, for example `claude-review / Publish the review`.
 - **The scripts** (`collect.py`, `publish.py` in this folder) are checked out by the kit itself, at the commit of its own
   workflow file (`job.workflow_sha`), so a caller pinned to a SHA runs that SHA's scripts. Nothing to install.
-- **The command** (`claude-pr-review.md` in this folder) comes from the same checkout: `review` checks it out with
-  `collect.py` and the prompt names the file, so there is no `.claude/commands/` copy to install or keep in step. The
-  result schema is in the kit's `reviewer/result-schema.json` only (`review` passes it as `--json-schema`, `publish` checks the result against it). The command keeps its
+- **The command** (`claude-pr-review.md` in this folder) and **the reviewer folder** (`reviewer/`: `CLAUDE.md`, `run.sh`,
+  the result schema, `package.json` and its lockfile) come from the same checkout: `review` checks them out with
+  `collect.py`, copies them to a folder in the runner's temp directory, installs the pinned Claude Code there with
+  `npm ci` and starts Claude in that folder, so there is no `.claude/commands/` copy to install or keep in step. The
+  result schema is in the kit's `reviewer/result-schema.json` only (`run.sh` passes it as `--json-schema`, `publish` checks the result against it). The command keeps its
   frontmatter and its `$ARGUMENTS` placeholder, which only the frozen v3.4 needs (it runs the command as a slash
   command); both go with that file. This command is v4.0's and no longer pairs with v3.4: a repo on v3.4 keeps the
   command copy it has.
@@ -294,7 +297,10 @@ jobs:
 1. **Runner** for `preflight` and `review`: `ubuntu-latest` (the canonical value), or a self-hosted label set.
    - Tested on self-hosted Linux runners (v2.3) and `ubuntu-latest` (v2.4).
    - A self-hosted runner needs at least 2G of memory; `gh`, `jq`, `git` and `python3` ≥ 3.8 on `PATH`; and outbound
-     HTTPS to github.com, api.anthropic.com and claude.ai. Never a runner that holds a deploy key. The App key never
+     HTTPS to github.com, registry.npmjs.org, api.anthropic.com and claude.ai, direct (Claude runs under `env -i`, so no
+     `HTTPS_PROXY` or custom CA variables reach it). Node 22 comes from the job
+     (`actions/setup-node`, from the runner's tool cache or a download), so the runner needs none; it must let the
+     job run the Claude Code package's install script (`npm ci`). Never a runner that holds a deploy key. The App key never
      reaches it.
    - On a **public repo**, keep `ubuntu-latest`. GitHub recommends self-hosted runners for private repos only,
      since a pull request from a fork of a public repo can run its own code on them.
@@ -348,7 +354,7 @@ jobs:
 
    Also turn on **"Always suggest updating pull request branches"** (repo Settings → General → Pull Requests; API
    field `allow_update_branch`). It is off by default, with no org-level switch. Without it a PR that has fallen
-   behind `main` shows no Update branch button, and the workflow, which checks out `refs/pull/<N>/head`, can fail on
+   behind `main` shows no Update branch button, and the workflow, which checks out the PR's head commit, can fail on
    a missing ref until the branch is updated. Update a stale branch by merging `main` into it, never by rebasing
    (`rules/workflow.md`, Stale PR Branches).
 5. **The Claude GitHub App is not needed.** If it is installed on the repo, it still reacts 👀 to every `@claude`
@@ -459,7 +465,7 @@ Use a throwaway PR. Each run's job summary shows
 | 5 | Comment `@claude review` | `rereview`, APPROVE, the same overview comment edited (`result=clean`) |
 | 6 | Re-run `publish` of any run | "already submitted"; no second review, no write |
 | 7 | Unset `CLAUDE_REVIEW_APP_CLIENT_ID`, comment `@claude review --comments`, set it back | `preflight` fails with "Missing: variable CLAUDE_REVIEW_APP_CLIENT_ID"; nothing else runs |
-| 8 | (if available) someone with read access comments `@claude review` | Fails at "Check the commenter can write to the repo" |
+| 8 | (if available) someone with read access comments `@claude review` | Fails at "Check the commenter can write to the repo, and read the PR head" |
 | 9 | On a PR with a resolved finding, push a commit that brings the bug back, comment `@claude review` | A new inline finding on the bug, REQUEST_CHANGES, and the old thread stays resolved and untouched (no `unresolve` call) |
 | 10 | Open a PR that adds a doc line naming an invented client and person as real, an invented ticket key, an internal-looking host and a home path | REQUEST_CHANGES; each finding names the category and the line, and no posted text (inline, body, overview) contains any planted value |
 | 11 | Open a PR that adds the same kind of line with obvious stand-ins only (`ACME`, `ABC-123`, `example.com`, `~/`) | No private-data finding |
@@ -483,11 +489,11 @@ A thread a person starts must never get a reply or be resolved.
   and `publish`). An install or upgrade PR goes without `[skip ci]`: its own run is the first live test, so the repo's
   variables and secrets are set before it is marked ready, and the caller is reviewed locally first. A comment run
   uses the default branch's caller, so on an install PR `@claude review` runs nothing until the merge.
-- **The root CLAUDE.md and `.claude/` are read from the default branch,** never the PR's. A `CLAUDE.md` the PR
-  adds or edits elsewhere is reviewed as changed content, never used as rules (see Security model).
-- **The transcript is hidden.** Only `show_full_output: true` shows it, which this workflow never sets.
-- **Green, nothing posted, "agents still running":** upstream anthropics/claude-code-action#1499. The workflow sets
-  `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` for it; remove that once the issue is fixed.
+- **The repo's `.claude/` never configures its reviewer,** and its `CLAUDE.md` files are data: every agent is told to
+  read the root `CLAUDE.md` for orientation, and a `CLAUDE.md` the PR adds or edits is reviewed as changed content,
+  never used as rules (see Security model). The reviewer's own rules are `reviewer/CLAUDE.md`.
+- **The transcript is hidden.** Claude's output goes to a file in a mode-700 folder; the log gets the exit status and
+  the result's subtype only.
 - **Unresolve alone gets re-resolved** by the next request on the same commit. To reopen a thread, reply in it saying
   why it isn't fixed, then unresolve.
 - **A resolved thread covers nothing:** a rereview that finds an issue again posts it as a new finding, also when a
@@ -505,8 +511,8 @@ A thread a person starts must never get a reply or be resolved.
   "no structured result"? What does `publish` print ("No verdict: …", "No-op: …")?
 - **"No verdict: Claude's result has issues reported without findings":** a review pass or a verifier failed twice,
   so the review didn't finish (the command fails closed). The overview comment says "Review incomplete" and no review is posted. Comment `@claude review` to run it again.
-- **Fails in under a second, `$0`, "did not return structured_output":** the Claude credential is out of usage or
-  invalid. Re-run the failed jobs once it's back.
+- **"No Claude credential", or "Claude exited with status 1":** the secret is missing from the caller, or the credential is
+  out of usage or invalid. Re-run the failed jobs once it's back.
 - **`appcheck` fails:** the key doesn't match the Client ID, the App isn't installed on the repo, or
   `CLAUDE_REVIEW_APP_LOGIN` isn't the App's slug (the error says which). A key deleted after a review shows up on
   push-only runs as a token-mint failure in `publish`.
@@ -516,8 +522,8 @@ A thread a person starts must never get a reply or be resolved.
   may still be right; note the run id.
 - **`N moved` in the publish line:** Claude gave a wrong line number, and the finding's line text put it on the right
   line. A finding whose text matches no single diff line goes to the review body.
-- **Permission denials:** `permission_denials_count` in the cost artifact. Never add bare `Read`/`Grep`/`Glob` or
-  `gh api` to `--allowedTools`.
+- **Permission denials:** `permission_denials_count` in the cost artifact, and a `::notice::` line per denied tool and path (at most 10) in the cost step's log. Never add bare `Read`/`Grep`/`Glob` or a
+  shell tool to the allow rules in `reviewer/run.sh`, and never `--add-dir` (an added folder's `.claude/agents` and skills load).
 - **"GitHub wouldn't give the diff":** the PR is too large for the diff API; Claude reviews from the per-file patches.
 
 ## Rollback
@@ -534,11 +540,21 @@ Don't loosen any of this when adapting the files.
   (on `pull_request` the PR's merge commit, so a PR that edits a script runs its edit, as it runs an edited caller).
   Comment runs always use the default branch's workflow. No PR, comment or Claude text reaches a `run:` through `${{ }}`; it goes through files and env vars. The
   mode is a fixed `startsWith()` test, and the comment text never reaches Claude.
-- **Claude posts nothing.** `Bash`, `WebFetch`, `WebSearch`, `Write`, `Edit`, `NotebookEdit`, `PowerShell`, `Monitor`
-  and every GitHub MCP tool are denied, and its `GITHUB_TOKEN` is read-only. Reads are limited to the checkout and
-  the review folder; the checkout's `.git`, step-output files, SSH and gh config, `/run/secrets`, `/proc`,
-  `/actions-runner` and `/etc` are denied. **Never deny the runner's work dir.** Only the repo's own settings load
-  (`--setting-sources project`) and its hooks are off (`disableAllHooks`).
+- **Claude posts nothing.** Its tools are `Read`, `Grep`, `Glob` and `Agent` and nothing else (`--tools`: no shell, web,
+  write or edit tool, no MCP server), in a session that refuses whatever no rule allows (`--permission-mode dontAsk`).
+  Reads are allowed in the checkout (not its `.git`) and the review folder only, by allow rules in `reviewer/run.sh`;
+  a symlink out of them is refused too (checked on the pinned CLI: Read resolves the link, Grep does not follow it). Hooks are off (`disableAllHooks`).
+- **Claude gets no GitHub token.** The run step holds only the Claude credential, and Claude runs under `env -i` with
+  `PATH`, `HOME`, a fresh `CLAUDE_CONFIG_DIR` and that credential. The credential is the one secret it can read
+  (as before: it is in the process's environment). The Claude Code package is the version in `reviewer/package.json`,
+  installed from its lockfile (an integrity hash per package; `npm ci` runs its install script, in a step that holds
+  no secret). Dependabot bumps it.
+- **Only the kit configures the reviewer.** The session starts in a copy of `reviewer/` taken from the commit of the
+  workflow file, outside the PR's workspace. Its `CLAUDE.md` is the only memory file that loads; the PR's `CLAUDE.md`
+  files, `.claude/` settings, agents, skills and commands do not (checked with a canary PR on the pinned CLI: the
+  lead and a subagent read a root and a nested `CLAUDE.md` under the checkout, and neither loaded). The checkout is deliberately not added with
+  `--add-dir`: an added folder contributes its `.claude/agents` and skills, so a PR could replace the subagents'
+  instructions (checked with a canary PR on the pinned CLI). **Never deny the runner's work dir.**
 - **`publish` treats Claude's result as untrusted:** it checks the shape, posts findings only on lines of the PR's
   own files, strips HTML comments and markers, escapes links, images, HTML, mentions and bare URLs, breaks
   cross-repo references, and keeps code spans and fences. The overview paragraph and thread replies are plain text.
@@ -553,7 +569,7 @@ Don't loosen any of this when adapting the files.
   for the reviewed commit.
 - **Fork PRs never get the secrets:** a `pull_request` run from a fork is skipped, and a comment run needs write
   access and runs the default branch's workflow.
-- **Pinned actions** (full commit SHAs): `actions/checkout` v7.0.1, `anthropics/claude-code-action` v1.0.276,
+- **Pinned actions** (full commit SHAs): `actions/checkout` v7.0.1, `actions/setup-node` v7.1.0,
   `actions/upload-artifact` v7.0.2, `actions/download-artifact` v8.0.2, `actions/create-github-app-token` v3.3.0.
   Bump deliberately: in the kit, and a repo picks it up by changing the SHA in its caller (on a vendored copy, in every repo).
 - **Residual risk (accepted under a sole-pusher assumption):** a same-repo PR can edit the workflow and so read the
@@ -563,9 +579,7 @@ Don't loosen any of this when adapting the files.
   there can leave something in the runner's install directory for a later job of another repo, accepted only while
   every repo that reaches the pool is private with the same single writer: give a repo with a second writer its own
   pool, or unset the variable); a self-hosted runner shared with CI jobs that run PR code can carry planted files
-  into a review; a
-  `CLAUDE.md` the PR adds or edits in a subdirectory is not used as rules, but Claude Code itself loads it into an
-  agent's context when the agent reads files there, so its text can still steer like any other injection; a prompt
+  into a review; a prompt
   injection in the PR can steer misleading findings, a wrong "resolved", a "no issues" (which becomes an APPROVE),
   or a committable suggestion. All
   visible and attributed to the App; the verdict is never a required review. The private-data pass is a model's
@@ -598,8 +612,11 @@ Don't loosen any of this when adapting the files.
 
 ## Upkeep
 
-- Keep the cost record's `reviewer` string (`claude-pr-review@v4.0`) equal to the version above (a test checks).
-- Run `tests/` after any change to `collect.py` or `publish.py`.
+- Keep the cost record's `reviewer` string (`claude-pr-review@v4.2`) equal to the version above (a test checks).
+- Run `tests/` after any change to `collect.py`, `publish.py` or `reviewer/`.
+- Claude Code's version is `reviewer/package.json`'s, bumped by Dependabot's `npm` entry. Check a bump PR with a
+  replay (`replay/replay.py`) before it merges: the flags in `reviewer/run.sh` are the CLI's, and a version can drop one
+  (`--permission-mode default` is no longer listed as of 2.1.328).
 - `REVIEW.md` (repo root) is the repo's own file, not part of the kit: edit it freely.
 - A change to the review, the command included, goes in the reusable kit. A repo on the reusable kit picks it up by
   changing the SHA in its caller. The frozen v3.4 workflow is not edited; a repo still on it moves to the reusable
