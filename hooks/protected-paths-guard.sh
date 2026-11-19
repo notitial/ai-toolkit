@@ -613,6 +613,7 @@ on_command() {
       done
       for a in "$@"; do
         if [ "$inx" = 1 ]; then
+          sp_budget  # sp_lc forks for a word with a capital, once per -exec
           sp_lc "$a"
           case "$SP_LC" in
             rm | rmdir | unlink | shred | touch | mkdir | mkfifo | mknod | chmod | chown | chgrp | truncate | tee | mv | cp | install | ln | rsync | dd | patch) writes=1 ;;
@@ -769,14 +770,13 @@ $(printf '%s' "$1" | grep -oE "\"[/~\$][^\"]* [^\"]*\"|'[/~\$][^']* [^']*'")
 EOF
   fi
   t=$(printf '%s' "$t" | tr ' \t;|&<>()`=:' '\n')
+  # A write verb anywhere among the words (its last path component, lower case): one tr and one grep over the text. Not a sp_lc per
+  # word: that forks for every word with a capital, and 4500 of them took 13 s, past the hook's timeout.
+  if printf '%s\n' "$t" | tr '[:upper:]' '[:lower:]' | grep -Eq '^(.*/)?(rm|rmdir|unlink|shred|touch|mkdir|mkfifo|mknod|chmod|chown|chgrp|truncate|tee|mv|cp|install|ln|rsync|dd|patch|sed|perl|tar|unzip|curl|wget|find|xargs)$'; then wr=1; fi
   while IFS= read -r w; do
     case "$w" in
       -[A-Za-z]/* | -[A-Za-z]'~'* | -[A-Za-z]'$HOME'* | -[A-Za-z]'${HOME}'*) w=${w#-?} ;;
       -* | "") continue ;;
-    esac
-    sp_lc "$w"
-    case "$SP_LC" in
-      rm | rmdir | unlink | shred | touch | mkdir | mkfifo | mknod | chmod | chown | chgrp | truncate | tee | mv | cp | install | ln | rsync | dd | patch | sed | perl | tar | unzip | curl | wget | find | xargs) wr=1 ;;
     esac
     case "$w" in  # a word with a / or .., or in ~ or $HOME spelling, is judged; a bare word only when it is a name in the session folder (a cd target)
       / | '~') continue ;;

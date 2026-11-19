@@ -167,6 +167,15 @@ bash_ $p "echo hi $(printf ' 2>/dev/null%.0s' $(seq 1 90))" "$CLONE"
 bash_ $d "touch '/tmp/x|$LIVE|0|hooks/g.sh'; cd $LIVE; touch hooks/g.sh" "$CLONE"
 bash_ $d "touch /tmp/$(printf 'a/%.0s' $(seq 1 600))x" "$CLONE"
 bash_ $p "echo \$(x) $(printf ' 2>&1%.0s' $(seq 1 900))" "$CLONE"
+# many capitalised bare words plus a substitution, then a write to a protected path: denied well inside the hook's 10 s timeout
+# (a fork per capitalised word took 13 s, and a call past the timeout goes through)
+t0=$SECONDS
+bash_ $d "echo \$(date) $(printf 'A %.0s' $(seq 1 4500)); cp /tmp/x $LIVE/tools/a.ts" "$CLONE"
+if [ $((SECONDS - t0)) -lt 8 ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: 4500 capitalised words took $((SECONDS - t0)) s (limit 8)"; fi
+# the same for a find with many -exec of a capitalised word (a fork each): the clock budget denies it
+t0=$SECONDS
+bash_ $d "find /tmp $(printf -- '-exec Ab {} \\; %.0s' $(seq 1 3000)); cp /tmp/x $LIVE/tools/a.ts" "$CLONE"
+if [ $((SECONDS - t0)) -lt 8 ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: 3000 find -exec words took $((SECONDS - t0)) s (limit 8)"; fi
 # mkfifo and mknod are write verbs for a text with a substitution too
 bash_ $d "mkfifo \$(mktemp -u)" "$LIVE"
 bash_ $d "echo \$(date); mknod x p" "$LIVE"
