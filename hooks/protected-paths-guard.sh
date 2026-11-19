@@ -32,6 +32,9 @@
 #     curl -o/-O, wget; find with -delete, -fprint or -exec of a write verb; xargs of those.
 #     `bash -c STRING` and `eval STRING` are read recursively.
 #     Relative operands resolve against the tracked folder; a glob is judged by its directory prefix.
+#     A text that holds a substitution ($( ), backticks, <( ), >( ), anywhere, in a nested string too) is not trusted to the
+#     parse: it is denied when it names a protected place (absolute, ~ or $HOME spelling) or runs in one with a write verb or
+#     a redirect in it (sub_guard). That also denies a read of a protected file, or a heredoc that only names one, in the same text.
 #
 # KNOWN LIMITS (this is a guard against mistakes and the classifier is a second line, not a sandbox)
 #   Not read: for a git MCP push, a remote changed earlier, submodule pushes, a bare word that is no configured
@@ -360,7 +363,8 @@ curl_bundle_O() {
 # applied cd, pushd and popd to CWD, and read bash -c and eval strings.
 on_command() {
   local verb a i n w idx start
-  verb=${1##*/}
+  sp_lc "$1"  # a case-insensitive file system runs RM and Cp
+  verb=$SP_LC
   shift
   case "$verb" in
     rm | rmdir | unlink | shred)
@@ -559,7 +563,8 @@ on_command() {
       done
       for a in "$@"; do
         if [ "$inx" = 1 ]; then
-          case "${a##*/}" in
+          sp_lc "$a"
+          case "$SP_LC" in
             rm | rmdir | unlink | shred | touch | mkdir | chmod | chown | chgrp | truncate | tee | mv | cp | install | ln | rsync | dd | patch) writes=1 ;;
             sed | perl) xsed=1 ;;
           esac
@@ -674,6 +679,46 @@ git_tool() {
   return 0
 }
 
+# ---- substitutions ----------------------------------------------------------------------------------------------
+
+# sub_guard <command text>: a substitution ($( ), backticks, <( ), >( ), in a string or a nested -c string too) runs a command
+# the text does not show, and where its group ends is a guess the parser can get wrong on text bash itself reads differently
+# (a `)` in a case pattern, a quote or paren inside backticks). So the parse is not trusted around one: the text is denied
+# when it could touch a protected place, whatever the parser made of its words. Could touch, read fail-closed: a word names a
+# protected place in a spelling judge_target resolves (absolute, ~, $HOME; quotes and backslashes dropped first), or the
+# session runs in a protected folder and the text holds a write verb or a redirect. Cost: such a text that only reads a
+# protected file is denied too (`cat $(ls) /live/hooks/x.sh`), and so is one that merely names it in a heredoc or string.
+sub_guard() {
+  local t=$1 rd w c wr=0 inprot=0
+  case "$t" in *'$('* | *'`'* | *'<('* | *'>('*) ;; *) return 0 ;; esac
+  rd=${t//>&[0-9-]/}
+  rd=${rd//>\/dev\/null/}
+  rd=${rd//>>\/dev\/null/}
+  case "$rd" in *'>'*) wr=1 ;; esac
+  t=${t//[\"\'\\]/}
+  t=${t//'$('/ }  # `rm$(x)` and `$(x)rm` still show their verb
+  t=${t//[ $'\t;|&<>()`=:']/$'\n'}
+  while IFS= read -r w; do
+    case "$w" in
+      /* | '~'* | '$HOME'* | '${HOME}'*) judge_target "$w" "a command that holds a substitution (not read reliably)" ;;
+      *)
+        sp_lc "$w"
+        case "$SP_LC" in
+          rm | rmdir | unlink | shred | touch | mkdir | chmod | chown | chgrp | truncate | tee | mv | cp | install | ln | rsync | dd | patch | sed | perl | tar | unzip | curl | wget | find | xargs) wr=1 ;;
+        esac
+        ;;
+    esac
+  done <<EOF
+$t
+EOF
+  [ "$wr" = 1 ] || return 0
+  while IFS= read -r c; do
+    prot_check "$c" && inprot=1
+  done < <(candidates "$(phys_any "$SESSION_CWD")")
+  [ "$inprot" = 1 ] && deny "a command that holds a substitution and writes (or may) would run in $PROT_WHAT, and the substitution is not read reliably. Run it from a clone under /tmp; a person changes a protected place themselves."
+  return 0
+}
+
 # ---- dispatch ---------------------------------------------------------------------------------------------------
 
 find_session_root
@@ -681,7 +726,7 @@ find_session_root
 case "$TOOL" in
   Edit | Write | MultiEdit) judge_target "$(ti .file_path)" "$TOOL" ;;
   NotebookEdit) judge_target "$(ti .notebook_path)" "$TOOL" ;;
-  Bash | Monitor) shell_parse "$(ti .command)" ;;
+  Bash | Monitor) CMDTEXT=$(ti .command); sub_guard "$CMDTEXT"; shell_parse "$CMDTEXT" ;;
   mcp__git-mcp__*) git_tool ;;
 esac
 

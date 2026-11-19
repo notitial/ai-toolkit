@@ -58,6 +58,55 @@ gitmcp() { expect "$1" "git: $2 $3" "$(call "mcp__git-mcp__$2" "$3" "${4:-$CLONE
 d=deny
 p=pass
 
+# ---- substitutions: the text is denied when it could touch a protected place, whatever the parse says ----
+bash_ $d "RM -f $LIVE/tools/a.ts"
+bash_ $d "Cp /tmp/x $LIVE/tools/a.ts"
+bash_ $d "find $LIVE/tools -exec RM {} +"
+bash_ $d "cp \"\$(mktemp)\" $LIVE/tools/a.ts"
+bash_ $d "cp \$(mktemp) $LIVE/tools/a.ts"
+bash_ $d "cp \`mktemp\` $LIVE/tools/a.ts"
+bash_ $d "Cp \"\$(mktemp)\" $LIVE/tools/a.ts"
+bash_ $d "mv \"\$(mktemp)\" $LIVE/tools/a.ts"
+bash_ $d "touch \"\$(mktemp)\" $LIVE/tools/a.ts"
+bash_ $d "echo x | tee \"\$(mktemp)\" $LIVE/tools/a.ts"
+bash_ $d "echo x > $LIVE/tools/a.ts \$(date)"
+bash_ $d "echo$(printf '\044')(case x in x) rm -f $LIVE/tools/a.ts;; esac)"
+bash_ $d "echo\$(case x in x) rm -f $LIVE/tools/a.ts;; esac)"
+bash_ $d "cat<(case x in x) rm -f $LIVE/tools/a.ts;; esac)"
+bash_ $d "x>(case x in x) rm -f $LIVE/tools/a.ts;; esac)"
+bash_ $d "echo \"\$(case x in x) rm -f $LIVE/tools/a.ts;; esac)\""
+bash_ $d "(echo \$(case x in x) rm -f $LIVE/tools/a.ts;; esac))"
+bash_ $d "cd /tmp; (echo \`case x in x) rm -f $LIVE/tools/a.ts;; esac\`)"
+bash_ $d "bash -c 'cp /tmp/x \`)\` ~/.claude/settings.json'"
+bash_ $d "bash -c 'cp /tmp/x \`)\` $H/.claude/settings.json'"
+bash_ $d "bash -c 'cp /tmp/x \`: '\"'\"'\` $LIVE/tools/a.ts \`: '\"'\"'\`'"
+bash_ $d "bash -c 'cp /tmp/x \`(\` \$HOME/.claude/settings.json'"
+bash_ $d "sh -c 'echo \$(date); rm -f \${HOME}/.claude/settings.json'"
+bash_ $d "echo \$(a) ; r\"\"m -f $LIVE/tools/a.ts"
+bash_ $d "echo \$(a) ; rm -f $LIVE/tools/\"a\".ts"
+bash_ $d "echo \$(a) ; rm -f '$LIVE/tools/a.ts'"
+bash_ $d "env -S 'cp /tmp/x' $LIVE/tools/a.ts"
+bash_ $d "env -S 'cp /tmp/x' ~/.claude/settings.json"
+bash_ $d "echo \$(date) ; rm -f \$(ls)" "$LIVE"
+bash_ $d "rm -f \$(ls)" "$LIVE/tools"
+bash_ $d "echo \`date\` > out.txt" "$LIVE"
+bash_ $d "rm\$(x) a.ts" "$LIVE/tools"
+bash_ $d "\$(x)rm a.ts" "$LIVE/tools"
+bash_ $d "Rm \$(x) a.ts" "$LIVE/tools"
+bash_ $p "echo \$(date)"
+bash_ $p "ls \$(pwd) | head"
+bash_ $p "cp \"\$(mktemp)\" $CLONE/tools/b.ts"
+bash_ $p "rm -f \$(ls) $CLONE/tools/b.ts"
+bash_ $p "echo \`date\` > $CLONE/out.txt"
+bash_ $p "bash -c 'echo \$(date); cp /tmp/x $CLONE/tools/b.ts'"
+bash_ $p "cp \"\$(mktemp)\" $LIVE/.archive/x.md"
+bash_ $p "rm -f \$(ls)" "$CLONE"
+bash_ $p "cat \$(ls)" "$LIVE"
+bash_ $p "echo \$(date) 2>&1 | head" "$LIVE"
+bash_ $p "ls \$(pwd) >/dev/null" "$LIVE"
+bash_ $p "rm -f \$(ls)" "$LIVE/.archive/task"
+bash_ $p "rm -f \$(ls) ~/.claude/state-new/x" "$CLONE"
+
 # ---- file tools ----
 for tool in Write Edit MultiEdit; do
   file $d "$LIVE/tools/a.ts" $tool
@@ -240,8 +289,12 @@ bash_ $d "cat <<EOF >$LIVE/tools/note.md
 text
 EOF
 rm $LIVE/tools/a.ts"
-bash_ $p "git commit -m \"\$(cat <<'EOF'
+bash_ $d "git commit -m \"\$(cat <<'EOF'
 fix: say rm $LIVE/tools/a.ts and echo x > $LIVE/b
+EOF
+)\" --allow-empty" "$CLONE"
+bash_ $p "git commit -m \"\$(cat <<'EOF'
+fix: say rm tools/a.ts and echo x > b
 EOF
 )\" --allow-empty" "$CLONE"
 bash_ $p "echo 'rm $LIVE/tools/a.ts'"
@@ -440,7 +493,8 @@ bash_ $d "D=\$(cd $CLONE && pwd); touch y" "$LIVE"
 bash_ $d "(cd /tmp); rm hooks/guard.sh" "$LIVE"
 bash_ $d "x=\`cd $CLONE; pwd\`; touch y" "$LIVE"
 bash_ $p "(cd $CLONE && touch x); echo ok" "$LIVE"
-bash_ $p "D=\$(cd $CLONE && pwd); touch $CLONE/y" "$LIVE"
+bash_ $d "D=\$(cd $CLONE && pwd); touch $CLONE/y" "$LIVE"
+bash_ $p "D=\$(cd $CLONE && pwd); touch $CLONE/y" "$CLONE"
 
 # ---- a control character in the command ----
 ctl=$(printf '\001')
