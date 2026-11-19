@@ -348,6 +348,11 @@ sp_command() {
                           *) sv=${1#--split-string=} ;;
                         esac
                         shift
+                        for a in "$@"; do  # the words are joined without their quotes: a separator in one would read differently
+                          case "$a" in
+                            *[[:space:]\;\&\|\<\>\(\)\`\#\$\\\'\"]*) deny "env -S followed by a word the parser cannot join exactly - blocked (fail-closed)." ;;
+                          esac
+                        done
                         read_nested "$sv $*"
                         set --
                         break
