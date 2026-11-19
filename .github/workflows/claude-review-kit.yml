@@ -431,6 +431,15 @@ jobs:
       # The mode is REVIEW_MODE (one of three fixed strings), never comment text. Everything the prompt holds comes from
       # fixed variables. The transcript goes to a mode-700 folder, and its path to the steps below. A run that fails
       # logs the exit status and the result's subtype only.
+      #
+      # CodeQL reports "Untrusted Checkout TOCTOU" on this step: it holds the Claude secrets after a comment-run
+      # checkout of PR code. It does not execute that code, for these reasons:
+      #   - run.sh, the reviewer's CLAUDE.md and the pinned CLI come from the kit's own commit (`job.workflow_sha`), in
+      #     a copy under RUNNER_TEMP that the PR cannot write.
+      #   - Claude has Read, Grep and Glob on the PR tree and the context folder, and no shell, write, web or MCP tool.
+      #   - The checkout is the head commit `preflight` read (a SHA), not a ref a push can move; a head that moves
+      #     after it is caught by collect.py's head check.
+      # Any change that lets this step run, import or source a file from the PR's checkout voids all of this.
       - name: Run the Claude code review
         id: review
         if: steps.regate.outputs.skip != 'true' && steps.collect.outputs.covered != 'true'
