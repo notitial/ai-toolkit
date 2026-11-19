@@ -143,7 +143,9 @@ check pass "two plumbing calls"            'git rev-parse HEAD && git describe -
 check deny "substitution inside -C"        'git -C "$(git rev-parse --show-toplevel)" push'
 check deny "backtick inside -C"            'git -C "`pwd`" push'
 check deny "unrecognized global option"    'git --bare status'
-reason_has "substitution deny says cannot classify" 'git -C "$(pwd)" push' "cannot be safely classified"
+reason_has "a substitution as a global option's value is read through" 'git -C "$(pwd)" push' "mcp__git-mcp__git_push"
+check deny "a substitution where the subcommand should be" 'git $(echo push)'
+reason_has "a substitution as the subcommand is denied as unmapped" 'git "$(echo push)" origin' "no MCP equivalent"
 reason_has "unrecognized option deny says cannot classify" 'git --bare status' "cannot be safely classified"
 check pass "plumbing, quoted argument"     "git rev-parse 'HEAD'"
 check pass "plumbing, then a later command" "git describe 'v1'; echo done"
@@ -317,7 +319,9 @@ check deny "symbolic-ref abbreviated delete" 'git symbolic-ref --del refs/remote
 check deny "symbolic-ref bundled delete"   'git symbolic-ref -qd refs/remotes/origin/HEAD'
 check pass "config --list with more flags" 'git config --list --show-origin'
 check deny "config --get-regexp is not on the list" 'git config --get-regexp x'
-check deny "plumbing with a substitution before it" 'git -C "$(pwd)" rev-parse HEAD'
+check pass "plumbing behind a -C whose value is a substitution" 'git -C "$(pwd)" rev-parse HEAD'
+check deny "a write after a substitution in the same command" 'echo "$(pwd)" x; git push'
+check deny "the words after a substitution are still read" 'cp "$(mktemp)" f; git "$(echo x)" push'
 
 # Fail-closed: input that is not a JSON object is denied, like a missing lib or no jq.
 want() {  # want <deny|pass> <label> <stdin json>
