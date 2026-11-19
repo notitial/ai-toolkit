@@ -15,14 +15,17 @@ The kit reads the review command, [claude-pr-review.md](claude-pr-review.md), fr
 installed in a repo that calls it, and this repo has none. The workflow beside it is the **vendored copy** for repos
 that have not moved to the reusable kit, **frozen at v3.4** (never edited; deleted once no repo uses it). Only a repo
 on that copy still keeps the command by hand, and it keeps its existing copy (the v3.4 one, SHA `9537f11b...`): the
-command below is v4.0's and expects the v4.0 `collect.py`, so a v3.4 repo does not take it.
+command below is v4.1's and expects the v4.1 `collect.py`, so a v3.4 repo does not take it.
 
 | File | Install path in the target repo | SHA-256 |
 |---|---|---|
 | [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` (frozen v3.4) | `302603c31c1dff049046af03ce06ba2e96314c63561d2dbd29f2be65dbb5a760` |
-| [claude-pr-review.md](claude-pr-review.md) | the kit's own checkout (v4.0); a frozen v3.4 repo keeps its existing copy, SHA `9537f11b...` | `92288bad04a0cc33eaaa386ec314b3149bd51c6ad7f5dc74432ffaf7ec51dd4d` |
+| [claude-pr-review.md](claude-pr-review.md) | the kit's own checkout (v4.1); a frozen v3.4 repo keeps its existing copy, SHA `9537f11b...` | `6b708aed181192423ef26757aeec591d8e490079a560e90f2f3780fdff36e15b` |
 
-**Version:** v4.0 (2026-11-19; breaking): a fixed issue that comes back is an ordinary new finding, not a reopened
+**Version:** v4.1 (2026-11-19): a seventh review pass, "least code" (see [Least code](#least-code)). Duplication of
+code the repo already has is a blocking finding; a clear simpler rewrite is a non-blocking suggestion, posted inline
+from a new `suggestions` list in the result (at most 3). The pass adds one agent to a full review, so the cost step's
+minimum is 9. v4.0 (2026-11-19; breaking): a fixed issue that comes back is an ordinary new finding, not a reopened
 thread. `publish` no longer unresolves anything: resolving a thread is the only write it makes with its
 `GITHUB_TOKEN`. `collect` leaves resolved threads out of the threads file, and the result schema loses the `reopens`
 key. When Claude finds the bug again, it is a new finding, so the review is REQUEST_CHANGES. A repo that moved to the
@@ -71,7 +74,7 @@ Three modes:
 
 | Trigger | Mode | What happens | Typical cost |
 |---|---|---|---|
-| A non-draft same-repo PR is opened, pushed to, reopened or marked ready, and has no review yet (Dependabot and forks skipped) | `initial` | Full review: a triage and a guidance agent, six review passes (defects in the change, interaction with the code around it, security, failure paths, written CLAUDE.md rules, private data), then one verifier per candidate. Up to 8 findings, inline on their lines (else in the review body), REQUEST_CHANGES; or APPROVE with "No issues found" | $0.5–2 on real feature PRs ($0.18–0.33 on small test PRs), measured before v3.1's sixth pass |
+| A non-draft same-repo PR is opened, pushed to, reopened or marked ready, and has no review yet (Dependabot and forks skipped) | `initial` | Full review: a triage and a guidance agent, seven review passes (defects in the change, interaction with the code around it, security, failure paths, written CLAUDE.md rules, private data, least code), then one verifier per candidate. Up to 8 findings, inline on their lines (else in the review body), REQUEST_CHANGES; or APPROVE with "No issues found". Up to 3 non-blocking suggestions ride inline on either | $0.5–2 on real feature PRs ($0.18–0.33 on small test PRs), measured before v3.1's sixth pass; one replay of a 4-file PR with the seventh pass cost $2.51 (12 agents, no baseline arm) |
 | A push to a PR that was already reviewed | none | `preflight` skips; Claude doesn't run. `publish` dismisses a stale APPROVE | $0 |
 | A comment starting `@claude review`, from someone with write access | `rereview` | Judges each open review thread, replies, resolves the fixed ones, then reviews the whole PR again (drafts too) without repeating the issue of a thread that is still open. A fixed issue that is back is a new finding in a new thread (resolved threads cover nothing). APPROVE when nothing is found and no thread is open | about `initial` |
 | A comment starting `@claude review --comments` | `followup` | The thread follow-up only: new code, and a fixed issue that came back, aren't seen. When every thread is resolved, the App dismisses its REQUEST_CHANGES and posts a COMMENT "Findings addressed; new code was not re-reviewed." | $0.04–0.25 |
@@ -163,6 +166,7 @@ changes.
 What goes in it (this repo's own, `REVIEW.md` at the repo root, is the worked example):
 - **Failure modes to hunt:** the repo's recurring bugs, by area, each concrete enough to check against a diff.
 - **A nit cap:** the most findings to return (never more than the workflow's 8), and what never to report.
+- **Least-code switches:** make duplication non-blocking, turn suggestions off, or lower the cap of 3 suggestions. It cannot make a suggestion block or raise the cap.
 - **Paths to skip:** generated files, lockfiles, archives, prose-only changes.
 - **A finding rule:** every finding cites `path:line` and names the trigger.
 
@@ -207,6 +211,27 @@ into folders `.gitignore` excludes. It also reads the PR title and description, 
   those on the default branch unchecked.
 - No term list is passed to the review on purpose: a prompt injection in the PR could make Claude repeat the whole list
   in a public comment.
+
+## Least code
+
+From v4.1 a seventh pass reads the lines a PR adds for two things, and each candidate gets its own verifier
+(duplication on `opus`, because it blocks; simplification on `sonnet`).
+
+- **Duplication** is code that does the job of code the repo already has (a helper, component or constant), or the same
+  logic added twice. It is an ordinary finding, last in severity order, so it means REQUEST_CHANGES. The verifier
+  reads the existing code and confirms it gives the same result for every input, that the file can use it without a
+  new dependency or import cycle, and that the duplication is new in this PR. A repo can soften this in `REVIEW.md`.
+- **Simplification** is a concrete rewrite with the same behaviour and less code (a special case folded into the
+  general path, a redundant branch or guard removed, hand-written code replaced by a standard-library feature). It
+  goes in the result's `suggestions` list, at most 3, most lines saved first, and never blocks.
+- `publish` posts a suggestion only as an inline comment (one that cannot go inline is dropped, not put in the review
+  body), starting with a hidden marker and "Suggestion (non-blocking):". The sanitizer strips markers from Claude's
+  text, so only `publish` can write one. A thread that starts with the marker never counts as open: the
+  review's thread count and its verdict ignore it, `collect.py` hands it to a rereview as context only, resolved or not (so it is not
+  suggested twice, and not judged), and a person resolves it or ignores it. A suggestion never changes the verdict, and
+  a run that posts no verdict posts no suggestions.
+- Not reported: renames and formatting, a new dependency, a rewrite that adds an abstraction or lines, performance,
+  duplication that predates the PR.
 
 ## Adding it to a repo
 
@@ -422,8 +447,8 @@ denies a post, give the user the `gh` command instead.
 
 Use a throwaway PR. Each run's job summary shows
 `Claude review (<mode>): $<cost>, <s> s, <turns> turns, <a> agents, <n> findings, <t> threads judged` and
-`Publish: <i> inline, <b> in body, <d> dropped, <m> moved, verdict <X>, <r> replied, <s> resolved, <x> dismissed, …`.
-`<a>` is at least 8 in `initial` and `rereview`, plus one per candidate issue (and the thread judges in `rereview`); below that the step warns.
+`Publish: <i> inline, <b> in body, <d> dropped, <m> moved, <g> suggested, verdict <X>, <r> replied, <s> resolved, <x> dismissed, …`.
+`<a>` is at least 9 in `initial` and `rereview`, plus one per candidate issue (and the thread judges in `rereview`); below that the step warns.
 
 | # | Do | Pass when |
 |---|---|---|

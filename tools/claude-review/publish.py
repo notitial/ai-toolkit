@@ -5,6 +5,8 @@ from collections import Counter
 FOLLOWUP_MARKER = re.compile(
     r"<!-- claude-review:followup verdict=(resolved|open) sha=([0-9a-f]{40})(?: mode=(rereview|followup))? -->")
 SUMMARY_PREFIX = "<!-- claude-review:summary "
+# Starts every inline suggestion (a non-blocking comment): a thread that opens with it never counts as open.
+SUGGESTION_MARKER = "<!-- claude-review:suggestion -->"
 SLOT_OPEN, SLOT_CLOSE = "<!-- claude-review:overview -->", "<!-- /claude-review:overview -->"
 MODES = ("initial", "rereview", "followup")
 # Fences GitHub renders as something richer than code (diagrams, maps, 3D, math): their content is treated as prose.
@@ -61,7 +63,8 @@ class Ctx:
         if self.changes_event not in ("REQUEST_CHANGES", "COMMENT") or self.approve_event not in ("APPROVE", "COMMENT"):
             sys.exit("::error::changes-event must be REQUEST_CHANGES or COMMENT, and approve-event APPROVE or COMMENT")
         self.counts = Counter(replied=0, resolved=0, dismissed=0, inline=0, body=0, dropped=0,
-                              moved=0, skipped=0)
+                              moved=0, skipped=0, suggested=0)
+        self.suggestions = []   # placed suggestions: inline comments that ride on the review, whatever its verdict
         self.reasons = Counter()
         self.failed = 0
         self.verdict = "none"
@@ -454,7 +457,7 @@ query($owner: String!, $name: String!, $number: Int!, $after: String) {
     pullRequest(number: $number) {
       reviewThreads(first: 100, after: $after) {
         pageInfo { hasNextPage endCursor }
-        nodes { isResolved path line originalLine comments(first: 1) { nodes { author { __typename login } url } } }
+        nodes { isResolved path line originalLine comments(first: 1) { nodes { author { __typename login } url body } } }
       }
     }
   }
@@ -463,14 +466,15 @@ query($owner: String!, $name: String!, $number: Int!, $after: String) {
 
 
 def scan_threads(ctx):
-    """(resolved count, [(path, line, url)] of the open ones) over every thread this review started."""
+    """(resolved count, [(path, line, url)] of the open ones) over every thread this review started, suggestion
+    threads excepted: they never block, so they are not counted."""
     resolved, open_links, after = 0, [], None
     for _ in range(30):
         page = gql(ctx, THREADS, {"owner": ctx.owner, "name": ctx.name, "number": ctx.number, "after": after})
         threads = page["repository"]["pullRequest"]["reviewThreads"]
         for t in threads["nodes"]:
             first = (t["comments"]["nodes"] or [None])[0]
-            if not first or not by_app(ctx, first):
+            if not first or not by_app(ctx, first) or (first.get("body") or "").startswith(SUGGESTION_MARKER):
                 continue
             if t["isResolved"]:
                 resolved += 1
@@ -631,20 +635,24 @@ def review_body(ctx, line, overview_url, body_findings):
 
 
 def submit(ctx, event, line, overview_url, inline, body_findings):
-    """Submits one review; GitHub's 422 (it refuses an inline comment) is tried once more with every finding in the
-    body. Returns (review, inline findings it carries, body findings it carries); the review is None when the write
+    """Submits one review; GitHub's 422 (it refuses an inline comment) is tried again without the suggestions, then
+    with every finding in the body. Returns (review, inline findings it carries, body findings it carries); the review is None when the write
     failed, which fails the job: the re-run finds no review of this run and tries again."""
-    for _ in range(2):
+    for _ in range(3):
         payload = {"commit_id": ctx.head, "event": event,
                    "body": review_body(ctx, line, overview_url, body_findings)}
-        if inline:
-            payload["comments"] = [dict(f["comment"], body=f["text"]) for f in inline]
+        if inline or ctx.suggestions:
+            payload["comments"] = [dict(f["comment"], body=f["text"]) for f in inline + ctx.suggestions]
         try:
             return rest(ctx, "POST", f"/repos/{ctx.repo}/pulls/{ctx.number}/reviews", payload), inline, body_findings
         except ERRORS as e:
-            if not (isinstance(e, ApiError) and e.status == 422 and inline):
+            if not (isinstance(e, ApiError) and e.status == 422 and (inline or ctx.suggestions)):
                 ctx.fail("Submitting the review", e)
                 break
+            if ctx.suggestions:   # a suggestion is the first thing to give up
+                print("Submitting the review failed: HTTP 422; trying again without the suggestions")
+                ctx.suggestions = []
+                continue
             print("Submitting the review failed: HTTP 422; trying again with every finding in the body")
             body_findings, inline = inline + body_findings, []
     return None, inline, body_findings
@@ -770,6 +778,7 @@ def publish(ctx):
         return
     full = data is not None and ctx.mode != "followup"
     findings = data["findings"] if full and not data["stopped"] else []
+    suggested = data.get("suggestions", []) if full and not data["stopped"] else []
 
     # Replies, then resolve: resolve keys on the reply's marker.
     to_resolve = list(retry)
@@ -800,28 +809,31 @@ def publish(ctx):
         return
 
     inline, in_body = [], []
-    if findings:
+    if findings or suggested:
         try:
             files = pr_files(ctx)
         except ERRORS as e:
             print(f"::warning::Reading the PR's files failed ({type(e).__name__}): every finding goes in the review body")
             files = None
         seen = set()
-        for f in findings:
-            key = (f["path"], f["line"], f["body"])
-            if key in seen:
-                continue
-            seen.add(key)
-            where, comment = place(f, files)
-            item = {"path": f["path"], "line": comment["line"] if comment else f["line"],
-                    "text": sanitize(f["body"]), "comment": comment}
-            if where == "drop":
-                ctx.counts["dropped"] += 1
-            elif where in ("inline", "moved"):
-                item["moved"] = where == "moved"
-                inline.append(item)
-            else:
-                in_body.append(item)
+        for soft, group in ((False, findings), (True, suggested)):
+            for f in group:
+                key = (f["path"], f["line"], f["body"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                where, comment = place(f, files)
+                item = {"path": f["path"], "line": comment["line"] if comment else f["line"],
+                        "text": sanitize(f["body"]), "comment": comment}
+                if where in ("inline", "moved"):
+                    item["moved"] = where == "moved"
+                    if soft:   # a suggestion is worth a comment only where it sits on its line
+                        item["text"] = SUGGESTION_MARKER + "\n**Suggestion (non-blocking):**\n\n" + item["text"]
+                    (ctx.suggestions if soft else inline).append(item)
+                elif soft or where == "drop":
+                    ctx.counts["dropped"] += 1
+                else:
+                    in_body.append(item)
     resolved, n_open = (threads[0], len(threads[1])) if threads is not None else (0, 0)   # a failed count fails the job
     n_found = len(inline) + len(in_body)
 
@@ -868,6 +880,8 @@ def publish(ctx):
             except ERRORS as e:
                 ctx.fail("Counting the review threads again", e)
                 threads = None
+    if ctx.counts["suggested"]:   # set only when the review carrying them was posted
+        line += f" {plural(ctx.counts['suggested'], 'suggestion')} (non-blocking)."
     write_overview(ctx, sticky, result, line, slot, threads)
 
 
@@ -887,7 +901,7 @@ def verdict(ctx, decision, overview_url, inline, in_body, n_open):
     n_found = len(inline) + len(in_body)
 
     if decision == "approve":
-        if state == "APPROVED" and latest.get("commit_id") == ctx.head:
+        if state == "APPROVED" and latest.get("commit_id") == ctx.head and not ctx.suggestions:
             return None, inline, in_body
         if ctx.failed:   # a write failed since the decision (the overview): no approval until a re-run does it all
             ctx.verdict = "failed"
@@ -899,7 +913,7 @@ def verdict(ctx, decision, overview_url, inline, in_body, n_open):
                 ctx.verdict = "failed"
                 return None, inline, in_body
     elif decision in ("changes+findings", "changes"):
-        if decision == "changes" and state == "CHANGES_REQUESTED":
+        if decision == "changes" and state == "CHANGES_REQUESTED" and not ctx.suggestions:
             return None, inline, in_body
         event = ctx.changes_event
         line = (f"{plural(n_found, 'finding')} at {short}." if decision == "changes+findings"
@@ -919,7 +933,7 @@ def verdict(ctx, decision, overview_url, inline, in_body, n_open):
         ctx.verdict = "failed"
         return None, inline, in_body
     ctx.verdict = event
-    ctx.counts["inline"], ctx.counts["body"] = len(inline), len(in_body)
+    ctx.counts["inline"], ctx.counts["body"], ctx.counts["suggested"] = len(inline), len(in_body), len(ctx.suggestions)
     ctx.counts["moved"] = sum(1 for f in inline if f.get("moved"))
     if event == "APPROVE":
         # A push after the head check would leave this approval on older code, and that push's own dismissal
@@ -944,7 +958,7 @@ def main(env=None):
     finally:
         c = ctx.counts
         summary = (f"Publish: {c['inline']} inline, {c['body']} in body, {c['dropped']} dropped, "
-                   f"{c['moved']} moved, verdict {ctx.verdict}, "
+                   f"{c['moved']} moved, {c['suggested']} suggested, verdict {ctx.verdict}, "
                    f"{c['replied']} replied, {c['resolved']} resolved, "
                    f"{c['dismissed']} dismissed, "
                    f"{c['skipped']} skipped, {ctx.failed} failed")
