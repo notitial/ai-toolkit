@@ -234,6 +234,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
     deny "blocked .env write (redirection/tee/heredoc)" "Attempting to write to a .env file via redirection, tee, dd or heredoc. These files contain secrets and should not be modified by agents."
   fi
   if match_in -qE '(^|[^[:alnum:]_.-])(grep|egrep|fgrep|rg)[[:space:]]' "$CONTENT"; then
+    CWD=""
     shell_parse "$CONTENT"
   fi
 fi
