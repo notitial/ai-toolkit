@@ -20,7 +20,10 @@ H="$T/home"
 LIVE="$T/live"
 CLONE="$T/clone"
 STATE="$H/.claude/state"
+mkdir -p "$T/sp ace/r/tools"
+: >"$T/sp ace/r/.protected-checkout"
 mkdir -p "$LIVE/.git" "$CLONE/.git" "$LIVE/.archive/c1/.git" "$H/.claude/hooks" "$LIVE/tools" "$LIVE/hooks" "$LIVE/.archive/task" "$CLONE/tools" "$STATE/sub" "$T/other"
+mkdir -p "$T/many"; for k in $(seq 1 90); do : >"$T/many/f$k"; done
 : >"$LIVE/.protected-checkout"
 : >"$STATE/.protected-checkout"
 echo '{}' >"$H/.claude/settings.json"
@@ -57,6 +60,146 @@ bash_() { expect "$1" "bash: $2" "$(call Bash "$(jq -nc --arg c "$2" '{command: 
 gitmcp() { expect "$1" "git: $2 $3" "$(call "mcp__git-mcp__$2" "$3" "${4:-$CLONE}")"; }  # gitmcp <d|p> <tool> <input> [cwd]
 d=deny
 p=pass
+
+# ---- case-folded verbs ----
+bash_ $d "RM -f $LIVE/tools/a.ts"
+bash_ $d "Cp /tmp/x $LIVE/tools/a.ts"
+bash_ $d "find $LIVE/tools -exec RM {} +"
+# ---- substitutions: the text is denied when it could touch a protected place, whatever the parse says ----
+# (many of the shapes below are also denied by the parser alone, so they pin that the deny stays; the ones only sub_guard
+# denies are the read-only, glued-continuation, $''(, =( ), ~/.claude, relative and cwd ones near the end of this block)
+bash_ $d "cp \"\$(mktemp)\" $LIVE/tools/a.ts"
+bash_ $d "cp \$(mktemp) $LIVE/tools/a.ts"
+bash_ $d "cp \`mktemp\` $LIVE/tools/a.ts"
+bash_ $d "Cp \"\$(mktemp)\" $LIVE/tools/a.ts"
+bash_ $d "mv \"\$(mktemp)\" $LIVE/tools/a.ts"
+bash_ $d "touch \"\$(mktemp)\" $LIVE/tools/a.ts"
+bash_ $d "echo x | tee \"\$(mktemp)\" $LIVE/tools/a.ts"
+bash_ $d "echo x > $LIVE/tools/a.ts \$(date)"
+bash_ $d "echo$(printf '\044')(case x in x) rm -f $LIVE/tools/a.ts;; esac)"
+bash_ $d "echo\$(case x in x) rm -f $LIVE/tools/a.ts;; esac)"
+bash_ $d "cat<(case x in x) rm -f $LIVE/tools/a.ts;; esac)"
+bash_ $d "x>(case x in x) rm -f $LIVE/tools/a.ts;; esac)"
+bash_ $d "echo \"\$(case x in x) rm -f $LIVE/tools/a.ts;; esac)\""
+bash_ $d "(echo \$(case x in x) rm -f $LIVE/tools/a.ts;; esac))"
+bash_ $d "cd /tmp; (echo \`case x in x) rm -f $LIVE/tools/a.ts;; esac\`)"
+bash_ $d "bash -c 'cp /tmp/x \`)\` ~/.claude/settings.json'"
+bash_ $d "bash -c 'cp /tmp/x \`)\` $H/.claude/settings.json'"
+bash_ $d "bash -c 'cp /tmp/x \`: '\"'\"'\` $LIVE/tools/a.ts \`: '\"'\"'\`'"
+bash_ $d "bash -c 'cp /tmp/x \`(\` \$HOME/.claude/settings.json'"
+bash_ $d "sh -c 'echo \$(date); rm -f \${HOME}/.claude/settings.json'"
+bash_ $d "echo \$(a) ; r\"\"m -f $LIVE/tools/a.ts"
+bash_ $d "echo \$(a) ; rm -f $LIVE/tools/\"a\".ts"
+bash_ $d "echo \$(a) ; rm -f '$LIVE/tools/a.ts'"
+bash_ $d "env -S 'cp /tmp/x' $LIVE/tools/a.ts"
+bash_ $d "env -S 'cp /tmp/x' ~/.claude/settings.json"
+bash_ $d "echo \$(date) ; rm -f \$(ls)" "$LIVE"
+bash_ $d "rm -f \$(ls)" "$LIVE/tools"
+bash_ $d "echo \`date\` > out.txt" "$LIVE"
+bash_ $d "rm\$(x) a.ts" "$LIVE/tools"
+bash_ $d "\$(x)rm a.ts" "$LIVE/tools"
+bash_ $d "Rm \$(x) a.ts" "$LIVE/tools"
+bash_ $d "echo \$(date); /bin/rm hooks/guard.sh" "$LIVE"
+bash_ $d "echo \$(date); /bin/RM hooks/guard.sh" "$LIVE"
+bash_ $d "echo \$(case x in x) :;; esac); tar -xf a.tar -C$LIVE/tools"
+bash_ $d "echo \$(case x in x) :;; esac); unzip a.zip -d$STATE/sub"
+bash_ $d "echo \$(case x in x) :;; esac); cp /tmp/x settings.json" "$H/.claude"
+bash_ $d "echo \$(case x in x) :;; esac); cd $LIVE/../live; rm hooks/x.sh"
+bash_ $d "echo \$(case x in x) :;; esac); cd ../live; rm hooks/x.sh" "$T/other"
+bash_ $d "echo \$(date) >>/dev/null; rm -f a.ts" "$LIVE/tools"
+bash_ $d "echo =(date) > x" "$LIVE"
+bash_ $d "cat =(date) $LIVE/tools/a.ts"
+bash_ $d "git commit -m \"\$(cat <<'EOF'
+fix: say rm tools/a.ts and echo x > b
+EOF
+)\" --allow-empty" "$LIVE"
+bash_ $p "echo \$(date) >>/dev/null" "$LIVE"
+bash_ $p "echo \$(date) > /dev/null" "$LIVE"
+bash_ $p "echo \$(date) 2>> /dev/null" "$LIVE"
+bash_ $p "echo \$(date); cat settings.json" "$H/.claude"
+bash_ $p "echo \$(date); cp /tmp/x ../clone/a.ts" "$CLONE/tools"
+NL=$'\n'
+bash_ $d "echo \"\$\\${NL}(rm -f $LIVE/tools/a.ts)\""
+bash_ $d "eval 'echo \"\$''(case x in x) rm -f $LIVE/tools/a.ts;; esac)\"'"
+bash_ $d "cat $LIVE/tools/a.ts; eval 'echo \"\$''(date)\"'"
+bash_ $d "cat \$(ls) $LIVE/tools/a.ts"
+bash_ $p "cat $LIVE/tools/a.ts"
+bash_ $p "echo \"Done... \$(date)\"" "$LIVE"
+bash_ $p "cd .. && cp \$(x) y" "$H/proj"
+bash_ $p "find . -name a \$(x)" "$CLONE"
+bash_ $p "curl -s https://\$(cat /tmp/h)/api"
+bash_ $d "cd .. && cp \$(x) y" "$LIVE/tools"
+bash_ $d "cp \"\$(mktemp)\" \$'$LIVE/tools/a.ts'"
+bash_ $d "curl -fsSL \"\$(cat /tmp/u)\" -o$LIVE/tools/a.ts"
+bash_ $d "cp \"\$(git rev-parse --show-toplevel)/.claude/settings.json\" ~/.claude/"
+bash_ $d "cp \"\$(pwd)/settings.json\" $H/.claude/"
+bash_ $d "ln -sf \"\$(pwd)/settings.json\" \$HOME/.claude/"
+bash_ $d "rm -rf \"\$(mktemp -d)\" ~/.claude"
+bash_ $d "echo \$(date); cp /tmp/x ../live/tools/b.ts" "$CLONE"
+bash_ $d "echo \$(date); cp /tmp/x live/tools/b.ts" "$T"
+bash_ $p "echo \$(date); cp /tmp/x clone/tools/b.ts" "$T"
+bash_ $p "cp \"\$(mktemp)\" ~/notes.txt"
+bash_ $p "ls -la \$(pwd) ~/.claude"
+bash_ $p "sed -i '' \"s/0\\.1\\.0/\$(cat VERSION)/\" package.json" "$CLONE"
+bash_ $p "cp build.log \"\$(mktemp -d)/\"" "$CLONE"
+bash_ $p "echo \$((n / 2)) > half.txt" "$CLONE"
+bash_ $p "cat <<'EOF' > $CLONE/n.txt
+$(printf 'word%s /tmp/a/b ' $(seq 1 300))
+\$(date)
+EOF" "$CLONE"
+# the work is bounded by the words judged (80 a call, about 40 ms each; past the hook's 10 s timeout a call goes through): the 81st is denied
+bash_ $p "cp \$(x) y; $(printf ' /tmp/a%s' $(seq 1 60))" "$CLONE"
+bash_ $d "cp \$(x) y; $(printf ' /tmp/a%s' $(seq 1 85))" "$CLONE"
+bash_ $d "cp \$(x) y; $(printf ' /tmp/a%s' $(seq 1 320))" "$CLONE"
+bash_ $p "cp \$(x) y; $(printf ' "/tmp/a b/%s"' $(seq 1 30))" "$CLONE"
+bash_ $d "cp \$(x) y; $(printf ' "/tmp/a b/%s"' $(seq 1 100))" "$CLONE"
+bash_ $d "cp \$(x) y; $(printf ' "/tmp/a b/%s"' $(seq 1 45)) $(printf ' /tmp/c%s' $(seq 1 45))" "$CLONE"
+bash_ $d "cp \$(x) y; $(printf ' f%s' $(seq 1 90))" "$T/many"
+bash_ $p "cp \$(x) y; $(printf ' f%s' $(seq 1 40))" "$T/many"
+bash_ $d "chmod 600 $(printf ' /tmp/a%s' $(seq 1 85))" "$CLONE"
+bash_ $p "chmod 600 $(printf ' /tmp/a%s' $(seq 1 60))" "$CLONE"
+# the limit counts distinct words: a word judged twice (sub_guard and the parse) or a /dev/ target costs nothing extra
+bash_ $p "chmod 600 \$(x) $(printf ' /tmp/a%s' $(seq 1 45))" "$CLONE"
+bash_ $p "chmod 600 $(printf ' /tmp/a%s' $(seq 1 80))" "$CLONE"
+bash_ $d "chmod 600 $(printf ' /tmp/a%s' $(seq 1 81))" "$CLONE"
+bash_ $p "echo hi $(printf ' 2>/dev/null%.0s' $(seq 1 90))" "$CLONE"
+# a word that holds the separator of a string of seen words must not hide a later target (the seen words are compared whole)
+bash_ $d "touch '/tmp/x|$LIVE|0|hooks/g.sh'; cd $LIVE; touch hooks/g.sh" "$CLONE"
+bash_ $d "touch /tmp/$(printf 'a/%.0s' $(seq 1 600))x" "$CLONE"
+bash_ $p "echo \$(x) $(printf ' 2>&1%.0s' $(seq 1 900))" "$CLONE"
+# many capitalised bare words plus a substitution, then a write to a protected path: denied well inside the hook's 10 s timeout
+# (a fork per capitalised word took 13 s, and a call past the timeout goes through)
+t0=$SECONDS
+bash_ $d "echo \$(date) $(printf 'A %.0s' $(seq 1 4500)); cp /tmp/x $LIVE/tools/a.ts" "$CLONE"
+if [ $((SECONDS - t0)) -lt 8 ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: 4500 capitalised words took $((SECONDS - t0)) s (limit 8)"; fi
+# the same for a find with many -exec of a capitalised word (a fork each): the clock budget denies it
+t0=$SECONDS
+bash_ $d "find /tmp $(printf -- '-exec Ab {} \\; %.0s' $(seq 1 3000)); cp /tmp/x $LIVE/tools/a.ts" "$CLONE"
+if [ $((SECONDS - t0)) -lt 8 ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: 3000 find -exec words took $((SECONDS - t0)) s (limit 8)"; fi
+# mkfifo and mknod are write verbs for a text with a substitution too
+bash_ $d "mkfifo \$(mktemp -u)" "$LIVE"
+bash_ $d "echo \$(date); mknod x p" "$LIVE"
+bash_ $p "mkfifo \$(mktemp -u)" "$CLONE"
+bash_ $d "bash -c 'cd live; cp /tmp/x \`: '\"'\"'\` tools/a.ts \`: '\"'\"'\`'" "$T"
+bash_ $d "tar -xf a.tar \`: '\"'\"'\` -C live \`: '\"'\"'\`" "$T"
+bash_ $d "bash -c 'cp /tmp/x \`: '\"'\"'\` \"$T/sp ace/r/tools/a.ts\" \`: '\"'\"'\`'" "$T"
+bash_ $d "cp \"\$(mktemp)\" \"$T/sp ace/r/tools/a.ts\" /tmp/y" "$T"
+bash_ $p "bash -c 'cd other; cp /tmp/x \`: '\"'\"'\` tools/a.ts \`: '\"'\"'\`'" "$T"
+bash_ $p "cd live; echo \$(date)" "$T"
+bash_ $p "cp \"\$(mktemp)\" \"$T/sp ace/x y\"" "$T"
+bash_ $p "echo \$(date)"
+bash_ $p "ls \$(pwd) | head"
+bash_ $p "cp \"\$(mktemp)\" $CLONE/tools/b.ts"
+bash_ $p "rm -f \$(ls) $CLONE/tools/b.ts"
+bash_ $p "echo \`date\` > $CLONE/out.txt"
+bash_ $p "bash -c 'echo \$(date); cp /tmp/x $CLONE/tools/b.ts'"
+bash_ $p "cp \"\$(mktemp)\" $LIVE/.archive/x.md"
+bash_ $p "rm -f \$(ls)" "$CLONE"
+bash_ $p "cat \$(ls)" "$LIVE"
+bash_ $p "echo \$(date) 2>&1 | head" "$LIVE"
+bash_ $p "ls \$(pwd) >/dev/null" "$LIVE"
+bash_ $p "rm -f \$(ls)" "$LIVE/.archive/task"
+bash_ $p "rm -f \$(ls) ~/.claude/state-new/x" "$CLONE"
 
 # ---- file tools ----
 for tool in Write Edit MultiEdit; do
@@ -293,23 +436,28 @@ bash_ $d "eval \$(:)rm -f $LIVE/tools/a.ts"
 bash_ $d "\$(:)cd $LIVE/tools; rm -f a.ts"
 bash_ $d "echo \$(eval \"\${x:+\")\"}\" rm -f $LIVE/tools/a.ts)"
 bash_ $d "echo \`#\` ; rm -f $LIVE/tools/a.ts"
-bash_ $p "\$(true)rm -f $CLONE/tools/a.ts" "$LIVE"
+bash_ $p "\$(true)rm -f $CLONE/tools/a.ts" "$CLONE"
+bash_ $d "\$(true)rm -f $CLONE/tools/a.ts" "$LIVE"
 bash_ $d "cd /tmp; (cd $LIVE/tools; echo \$(echo \${x:-a )}); rm -f a.ts)"
 bash_ $d "rm\$(echo \${x#(}) -rf $LIVE/tools/a.ts"
 bash_ $d "echo \`echo \\\`case x in x) rm -f $LIVE/tools/a.ts;; esac\\\`\`"
 bash_ $d "(echo \$(case x in x) rm -f $LIVE/tools/a.ts;; esac); cd /tmp)"
 bash_ $d "echo \$(echo \${x/)/} rm -f $LIVE/tools/a.ts)"
-bash_ $p "echo \$(date) && rm -f $CLONE/tools/a.ts" "$LIVE"
+bash_ $p "echo \$(date) && rm -f $CLONE/tools/a.ts" "$CLONE"
+bash_ $d "echo \$(date) && rm -f $CLONE/tools/a.ts" "$LIVE"
 bash_ $p "case x in x) rm -f $CLONE/tools/a.ts;; esac" "$LIVE"
-bash_ $p "echo \$(echo \${x:-a} b) c; touch $CLONE/x" "$LIVE"
+bash_ $p "echo \$(echo \${x:-a} b) c; touch $CLONE/x" "$CLONE"
+bash_ $d "echo \$(echo \${x:-a} b) c; touch $CLONE/x" "$LIVE"
 bash_ $p "cp \"\$(mktemp)\" $CLONE/tools/a.ts"
 bash_ $p "rm \"\$(mktemp)\""
 bash_ $p "rm -f \"\$(mktemp)\" \"\$(mktemp)\""
 bash_ $p "echo \"\$(date)\" > $CLONE/n.txt"
 bash_ $p "cp \"\$(mktemp)\" /tmp/out.txt"
 bash_ $p "mkdir -p \"\$(mktemp -d)/a\" \"\$(date +%s)\""
-bash_ $p "ls \"\$(pwd)\" $LIVE/tools"
-bash_ $p "cat \"\$(mktemp)\" $LIVE/tools/a.ts | wc -l"
+bash_ $d "ls \"\$(pwd)\" $LIVE/tools"
+bash_ $p "ls \"\$(pwd)\" $CLONE/tools"
+bash_ $d "cat \"\$(mktemp)\" $LIVE/tools/a.ts | wc -l"
+bash_ $p "cat $LIVE/tools/a.ts | wc -l"
 bash_ $p "RM -f $CLONE/tools/a.ts"
 bash_ $d "(rm $LIVE/tools/a.ts)"
 bash_ $d "{ rm $LIVE/tools/a.ts; }"
@@ -363,8 +511,12 @@ bash_ $d "cat <<EOF >$LIVE/tools/note.md
 text
 EOF
 rm $LIVE/tools/a.ts"
-bash_ $p "git commit -m \"\$(cat <<'EOF'
+bash_ $d "git commit -m \"\$(cat <<'EOF'
 fix: say rm $LIVE/tools/a.ts and echo x > $LIVE/b
+EOF
+)\" --allow-empty" "$CLONE"
+bash_ $p "git commit -m \"\$(cat <<'EOF'
+fix: say rm tools/a.ts and echo x > b
 EOF
 )\" --allow-empty" "$CLONE"
 bash_ $p "echo 'rm $LIVE/tools/a.ts'"
@@ -563,7 +715,8 @@ bash_ $d "D=\$(cd $CLONE && pwd); touch y" "$LIVE"
 bash_ $d "(cd /tmp); rm hooks/guard.sh" "$LIVE"
 bash_ $d "x=\`cd $CLONE; pwd\`; touch y" "$LIVE"
 bash_ $p "(cd $CLONE && touch x); echo ok" "$LIVE"
-bash_ $p "D=\$(cd $CLONE && pwd); touch $CLONE/y" "$LIVE"
+bash_ $d "D=\$(cd $CLONE && pwd); touch $CLONE/y" "$LIVE"
+bash_ $p "D=\$(cd $CLONE && pwd); touch $CLONE/y" "$CLONE"
 
 # ---- a control character in the command ----
 ctl=$(printf '\001')

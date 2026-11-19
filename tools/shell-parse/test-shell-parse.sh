@@ -25,6 +25,7 @@ on_command() { local o="C[\$CWD]" w; for w in "\$@"; do o="\$o <\$w>"; done; ech
 on_redirect() { echo "R[\$CWD] <\$1>"; }
 CWD=/s
 [ -z "\${PARSE_SET_U:-}" ] || set -u
+[ -z "\${PARSE_STALE:-}" ] || SP_T0=\$((SECONDS - 10))
 shell_parse "\$1"
 RUN
 
@@ -128,7 +129,7 @@ expect "the same behind env" 'env $(mk) rm /p' 'C[/s] <mk>' 'C[/s] <rm> </p>' 'C
 expect "a quoted substitution as the verb is one command name" '"$(mk)" rm /p' 'C[/s] <mk>' 'C[/s] <$(...)> <rm> </p>'
 expect "a shell keeps its heredoc across a substitution" $'bash -s "$(mk)" <<EOF\na > f\nEOF' 'C[/s] <mk>' 'R[/s] <f>' 'C[/s] <a>' 'C[/s] <bash> <-s> <$(...)>'
 expect "a substitution that is the whole -c string is not read again" 'bash -c "$(mk)"' 'C[/s] <mk>' 'C[/s] <bash> <-c> <$(...)>'
-# a hook that runs under set -u (secret-detector) parses a group whose parked words are empty
+# a hook that runs under set -u parses a group whose parked words are empty
 PARSE_SET_U=1 expect "groups under set -u" '(a; b) c; echo "$(mk)" x; cp $(mk) y' 'C[/s] <a>' 'C[/s] <b>' 'C[/s] <c>' 'C[/s] <mk>' 'C[/s] <echo> <$(...)> <x>' 'C[/s] <mk>' 'C[/s] <cp> <$(..)> <y>'
 expect "a group the text leaves open gives back the words parked in front of it" 'cp x $(mk' 'C[/s] <mk>' 'C[/s] <cp> <x>'
 
@@ -223,6 +224,29 @@ big=$(awk 'BEGIN { print "cat > f <<EOF"; for (k = 0; k < 1500; k++) print "line
 t0=$SECONDS
 out=$("$SH" "$T/run.sh" "$big" 2>&1 | wc -l)
 check "a 75 KB heredoc and 150 commands parse in under 10 s ($((SECONDS - t0)) s)" "$([ "$((SECONDS - t0))" -lt 10 ] && [ "$out" -eq 152 ] && echo 1 || echo 0)"
+
+# many parses in one function: bash 3.2 leaks a file descriptor per `done < <(cmd)` and crashed after about 250 (exit 133, a hook that fails open).
+# Only bash 3.2 crashes; on another shell this still checks that every parse ran.
+cat >"$T/loop.sh" <<LOOP
+HOOK=runner
+HOME="$T/home"
+. "$T/hooks/lib/hook-common.sh" </dev/null
+. "$T/hooks/lib/shell-parse.sh"
+N=0
+on_command() { N=\$((N + 1)); }
+on_redirect() { :; }
+CWD=/s
+g() { local i; for ((i = 0; i < 400; i++)); do shell_parse "echo \$i"; done; echo "done \$N"; }
+g
+LOOP
+out=$("$SH" "$T/loop.sh" 2>&1)
+check "400 parses in one function do not crash bash 3.2 (got: $(printf '%s' "$out" | head -c 40))" "$([ "$out" = "done 400" ] && echo 1 || echo 0)"
+
+# the clock budget: a parse that has run for 6 s is denied (a hook past its 10 s timeout lets the call through)
+got=$(PARSE_STALE=1 "$SH" "$T/run.sh" 'echo a' 2>&1)
+case "$got" in *'takes too long'*) check "a parse past the clock budget is denied" 1 ;; *) check "a parse past the clock budget is denied (got: $got)" 0 ;; esac
+got=$("$SH" "$T/run.sh" 'echo a' 2>&1)
+check "a fresh parse is not" "$([ "$got" = 'C[/s] <echo> <a>' ] && echo 1 || echo 0)"
 
 # refusals
 for c in $'a\001b' $'a\033b' $'a\177b'; do

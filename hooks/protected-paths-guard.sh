@@ -20,7 +20,7 @@
 # FAIL-CLOSED without jq (as git-mcp-guard): the input cannot be read, so the call is denied. Without lib/hook-common.sh
 # or lib/shell-parse.sh (or finds it empty or cut short) it exits 1, which the `|| exit 2` wiring turns into a block.
 #
-# WHAT COUNTS AS A WRITE (reads are never denied)
+# WHAT COUNTS AS A WRITE (reads are never denied, except in a text that holds a substitution: see the last rule below)
 #   - Edit, Write, MultiEdit, NotebookEdit: the target's real path (symlinks followed, case-insensitive compare).
 #   - git MCP tools: every tool except the read ones (status, log, diff, show, blame, reflog, fetch, working
 #     directory tools, git_push (judged by its remote, below), and the list/show modes of branch, tag, remote, stash). The folder is the
@@ -32,6 +32,9 @@
 #     curl -o/-O, wget; find with -delete, -fprint or -exec of a write verb; xargs of those.
 #     `bash -c STRING` and `eval STRING` are read recursively.
 #     Relative operands resolve against the tracked folder; a glob is judged by its directory prefix.
+#     A text that holds a substitution ($( ), backticks, <( ), >( ), =( ), anywhere, in a nested string too) is not trusted to the
+#     parse: it is denied when it names a protected place (absolute, ~ or $HOME spelling) or runs in one with a write verb or
+#     a redirect in it (sub_guard). That also denies a read of a protected file, or a heredoc that only names one, in the same text.
 #
 # KNOWN LIMITS (this is a guard against mistakes and the classifier is a second line, not a sandbox)
 #   Not read: for a git MCP push, a remote changed earlier, submodule pushes, a bare word that is no configured
@@ -44,7 +47,16 @@
 #   formatters with an in-place flag), env -C, a < or > inside a standalone (( )) arithmetic command, a tilde form other than
 #   ~ and ~/ (~+, ~-, ~user), g-prefixed coreutils names (gmkfifo, grm), CDPATH, and FIFOs made by cpio, pax or bsdtar. A
 #   recursive delete or move of a folder that contains a protected root is caught only for the session's own root
-#   and for ~/.claude.
+#   and for ~/.claude. A `~user`, `~+` or `~-` spelling is read as no path. A glob in a settings file name (settings.js?n) is
+#   judged by its folder, not as the file. At most 80 words are judged in one call, and a text with a substitution and over
+#   150 distinct path-like words is denied: each word costs about 40 ms and a hook past its 10 s timeout lets the call through.
+#   On bash 3.2 a `< <(cmd)` leaks a descriptor, and the hook crashed (exit 133, the call goes through) after about 250 of them:
+#   none are left in the guard or in lib/shell-parse.sh; a here-document does not leak (and a probe denies when one cannot be
+#   written). A call whose parse takes over 6 s is denied (lib/shell-parse.sh sp_budget); a path over 1024 characters is denied.
+#   Not read, single calls: a recursive copy or extract of a folder that holds a protected place into an ancestor of it
+#   (cp -R /tmp/x/ ~ with /tmp/x/.claude/settings.json made earlier; rsync, tar -xf -C ~, unzip -d ~), brace expansion
+#   (~/.claude{,}/settings.json), a leading $VAR other than $HOME ($PWD/hooks/x, ${HOME%/}/..), ~+, a bundled option with its
+#   value attached (curl -so/path, tar -xC/path).
 #
 # Reads JSON from stdin. Returns a JSON deny decision or nothing; exit 0 always (but `exit 1` when a lib file is
 # missing: the `|| exit 2` wiring blocks the call). No `set -e`: it would break the exit-0-always contract. Runs on bash 3.2.
@@ -261,9 +273,30 @@ judge_into() {
 
 ANC=0
 # judge_target <path> <what the call does>: deny when the path lands in a protected place.
+# Each word judged costs about 40 ms (several forks) and the hook has a 10 s timeout, past which the call goes through unchecked
+# (bash 3.2 also crashed, with the same result, after about 250 executions of `< <(...)`). So the work is bounded here, for every
+# caller: the 81st distinct word judged in one call is denied, never cut short. The same word in the same folder is judged once
+# (mv and cp judge their operands twice, sub_guard and the parse judge the same words), and /dev/ targets cost nothing. The
+# words seen are kept in arrays and compared whole: a string of them would let one word that holds the separator hide another.
+# A path over 1024 characters is denied (a ${p//..} on a long one is quadratic), and the clock budget of lib/shell-parse.sh applies.
+JUDGED=0
+JC=()
+JA=()
+JP=()
 judge_target() {
-  local p="$1" verb="$2" c
+  local p="$1" verb="$2" c k
   [ -n "$p" ] || return 0
+  case "$p" in /dev/*) return 0 ;; esac
+  for ((k = 0; k < JUDGED; k++)); do  # a judgement with the ancestor check (ANC=1) covers one without
+    if [ "${JP[k]}" = "$p" ] && [ "${JC[k]}" = "$CWD" ] && { [ "${JA[k]}" = 1 ] || [ "$ANC" != 1 ]; }; then return 0; fi
+  done
+  JC[JUDGED]=$CWD
+  JA[JUDGED]=$ANC
+  JP[JUDGED]=$p
+  JUDGED=$((JUDGED + 1))
+  sp_budget
+  [ "${#p}" -le 1024 ] || deny "a path of more than 1024 characters cannot be read within the hook's time limit - blocked (fail-closed)."
+  [ "$JUDGED" -le 80 ] || deny "this call names more than 80 distinct paths to judge, which cannot be done within the hook's time limit (a call past it would go through unchecked). Split it into several calls."
   case "$p" in
     /dev/*) return 0 ;;
     '$HOME' | '${HOME}') p=$HOME_R ;;
@@ -300,7 +333,9 @@ judge_target() {
     if [ "$ANC" = 1 ] && anc_check "$c"; then
       deny "$verb would remove or move $p, $PROT_WHAT. A person does that themselves."
     fi
-  done < <(candidates "$p")
+  done <<EOF
+$(candidates "$p")
+EOF
   return 0
 }
 
@@ -578,6 +613,7 @@ on_command() {
       done
       for a in "$@"; do
         if [ "$inx" = 1 ]; then
+          sp_budget  # sp_lc forks for a word with a capital, once per -exec
           sp_lc "$a"
           case "$SP_LC" in
             rm | rmdir | unlink | shred | touch | mkdir | mkfifo | mknod | chmod | chown | chgrp | truncate | tee | mv | cp | install | ln | rsync | dd | patch) writes=1 ;;
@@ -694,14 +730,106 @@ git_tool() {
   return 0
 }
 
+# ---- substitutions ----------------------------------------------------------------------------------------------
+
+# sub_guard <command text>: a substitution ($( ), backticks, <( ), >( ), =( ), in a string or a nested -c string too) runs a
+# command the text does not show, and where its group ends is a guess the parser can get wrong on text bash itself reads
+# differently (a `)` in a case pattern, a quote or paren inside backticks). So the parse is not trusted around one: the text
+# is denied when it could touch a protected place, whatever the parser made of its words. The text is read with quotes,
+# backslashes and line continuations dropped first (`$''(`, `$\<newline>(` still open a substitution). Could touch, read
+# fail-closed: a word names a protected place in a spelling judge_target resolves (absolute, ~, $HOME, also behind a short
+# option as in -C/dir, or relative with `..`), or the session runs in a protected folder (or in ~/.claude) and the text holds
+# a write verb or a redirect. With a write verb in the text every word is judged, as a path from the session folder and as
+# something removed or moved (`rm -rf ~/.claude`, `cp f ~/.claude/` after a substitution). Cost: such a text that only
+# reads a protected file, a heredoc or string that only names one or a word that is a verb name ("find the cause"), a
+# redirect sign anywhere (`->`, `$((a>b))`), a write verb from a protected folder, and an rm or mv next to a bare `~` or `/`
+# are denied too. A quoted path with spaces is judged too (a quoted string that holds a space and starts like a path); a bare
+# word is judged when a write verb is in the text and it names something in the session folder (`cd live`). A text with more
+# than 150 distinct path-like words is denied (the scan itself slows down with them), and every word judged counts toward the
+# limit in judge_target. Not read: ${ cmd; }, a path assembled at run time, a bare relative
+# word without a write verb, and a `cd` chain from an unprotected folder when the verb itself comes from a substitution
+# (`$(which rm) -rf hooks`).
+sub_guard() {
+  local t=$1 rd w c s r wr=0 inprot=0 pw=() bw=() seen="|" quoted=0 big=0
+  case "$t" in *'('* | *'`'*) ;; *) return 0 ;; esac  # every opener has a ( or a backtick
+  case "$t" in *[\"\'\\]*) quoted=1 ;; esac
+  # One awk pass drops line continuations and empty quote pairs and bares `$'` and `$"`, then tr drops the quotes and backslashes. Not
+  # ${t//...}: bash 3.2 is quadratic in the matches (35 s for the bracket class on 9 KB, 11 s for 900 `2>&1`).
+  t=$(printf '%s' "$t" | awk 'BEGIN { RS = "\001"; ORS = "" } { gsub(/\\\n/, ""); gsub(/\047\047/, ""); gsub(/""/, ""); gsub(/\$\047/, "\047"); gsub(/\$"/, "\""); print }' | tr -d "\"'\\\\")
+  case "$t" in *'$('* | *'`'* | *'<('* | *'>('* | *'=('*) ;; *) return 0 ;; esac
+  rd=$(printf '%s' "$t" | sed -E 's#>&[0-9-]##g; s#>{1,2} ?/dev/null##g')
+  case "$rd" in *'>'*) wr=1 ;; esac
+  t=$(printf '%s' "$t" | sed 's#\$(# #g')  # `rm$(x)` and `$(x)rm` still show their verb
+  if [ "$quoted" = 1 ]; then  # a quoted path may hold spaces: judge each quoted string that holds one and starts like a path
+    while IFS= read -r s; do
+      s=${s#?}
+      s=${s%?}
+      case "$s" in /* | '~'* | '$HOME'* | '${HOME}'*) pw[${#pw[@]}]=$s ;; esac
+    done <<EOF
+$(printf '%s' "$1" | grep -oE "\"[/~\$][^\"]* [^\"]*\"|'[/~\$][^']* [^']*'")
+EOF
+  fi
+  t=$(printf '%s' "$t" | tr ' \t;|&<>()`=:' '\n')
+  # A write verb anywhere among the words (its last path component, lower case): one tr and one grep over the text. Not a sp_lc per
+  # word: that forks for every word with a capital, and 4500 of them took 13 s, past the hook's timeout.
+  if printf '%s\n' "$t" | tr '[:upper:]' '[:lower:]' | grep -Eq '^(.*/)?(rm|rmdir|unlink|shred|touch|mkdir|mkfifo|mknod|chmod|chown|chgrp|truncate|tee|mv|cp|install|ln|rsync|dd|patch|sed|perl|tar|unzip|curl|wget|find|xargs)$'; then wr=1; fi
+  while IFS= read -r w; do
+    case "$w" in
+      -[A-Za-z]/* | -[A-Za-z]'~'* | -[A-Za-z]'$HOME'* | -[A-Za-z]'${HOME}'*) w=${w#-?} ;;
+      -* | "") continue ;;
+    esac
+    case "$w" in  # a word with a / or .., or in ~ or $HOME spelling, is judged; a bare word only when it is a name in the session folder (a cd target)
+      / | '~') continue ;;
+      */* | '~'* | '$HOME'* | '${HOME}'* | ..) ;;
+      *) [ -e "$SESSION_CWD/$w" ] && bw[${#bw[@]}]=$w; continue ;;
+    esac
+    case "$seen" in *"|$w|"*) continue ;; esac  # (only path-like words: bare ones in the string made the scan quadratic)
+    seen="$seen$w|"
+    [ "${#pw[@]}" -lt 150 ] || { big=1; break; }  # the scan itself slows with the words it keeps (5000 paths: 11 s)
+    pw[${#pw[@]}]=$w
+  done <<EOF
+$t
+EOF
+  if [ "$wr" = 1 ]; then  # a protected session folder denies, so the words need no further look
+    c=$(phys_any "$SESSION_CWD")
+    [ "$(lower "$c")" = "$LHOME_R/.claude" ] && deny "a command that holds a substitution and writes (or may) would run in ~/.claude, and the substitution is not read reliably. Run it from a clone under /tmp, or put the substitution in its own call and write with plain paths."
+    while IFS= read -r c; do
+      prot_check "$c" && inprot=1
+    done <<EOF
+$(candidates "$c")
+EOF
+    [ "$inprot" = 1 ] && deny "a command that holds a substitution and writes (or may) would run in $PROT_WHAT, and the substitution is not read reliably. Run it from a clone under /tmp, or put the substitution in its own call and write with plain paths."
+  fi
+  [ "$big" = 1 ] && deny "a command that holds a substitution and more than 150 path-like words is too long to read reliably. Split it, or keep the substitution out of the call that writes."
+  for w in "${pw[@]}"; do
+    case "$w" in
+      //*[!/]*) ;;
+      //*) continue ;;
+    esac
+    ANC=0
+    case "$w" in
+      /* | '~'* | '$HOME'* | '${HOME}'*) ANC=$wr ;;  # with a write verb it may also be removed or moved (rm -rf ~/.claude)
+      .. | ../* | */.. | */../*) ;;
+      *) [ "$wr" = 1 ] || continue ;;  # a relative word is judged only with a write verb in the text
+    esac
+    judge_target "$w" "a command that holds a substitution (not read reliably)"
+    ANC=0
+  done
+  if [ "$wr" = 1 ]; then
+    for w in "${bw[@]}"; do judge_target "$w" "a command that holds a substitution and a write verb (not read reliably)"; done
+  fi
+  return 0
+}
+
 # ---- dispatch ---------------------------------------------------------------------------------------------------
 
 find_session_root
+sp_probe
 
 case "$TOOL" in
   Edit | Write | MultiEdit) judge_target "$(ti .file_path)" "$TOOL" ;;
   NotebookEdit) judge_target "$(ti .notebook_path)" "$TOOL" ;;
-  Bash | Monitor) shell_parse "$(ti .command)" ;;
+  Bash | Monitor) CMDTEXT=$(ti .command); sub_guard "$CMDTEXT"; shell_parse "$CMDTEXT" ;;
   mcp__git-mcp__*) git_tool ;;
 esac
 
