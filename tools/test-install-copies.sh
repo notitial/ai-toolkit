@@ -412,19 +412,21 @@ expect_re "CONFLICT for the link pointing elsewhere" "$OUT" '^CONFLICT +\.claude
 expect_re "UNLINKED for the new hook" "$OUT" '^UNLINKED +\.claude/hooks/new\.sh'
 expect_has "links summary" "$OUT" "links     6 linked, 1 unlinked, 1 conflicting"
 
-case_start "status 6b: protected-paths-guard.sh is wired only by its fail-closed command"
+case_start "status 6b: each guard is wired only by its fail-closed command"
 new_case
 setup_current
-commit_main hooks/protected-paths-guard.sh '#!/bin/sh'
-chmod 755 "$R/hooks/protected-paths-guard.sh"
-ln -s "$R/hooks/protected-paths-guard.sh" "$H/.claude/hooks/protected-paths-guard.sh"
-jq -n '{hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: "$HOME/.claude/hooks/h.sh"}, {type: "command", command: "$HOME/.claude/hooks/protected-paths-guard.sh"}]}]}}' > "$H/.claude/settings.json"
-ic status
-expect_re "the bare command is STALE for it" "$OUT" '^STALE +hooks/protected-paths-guard\.sh runs as the bare path'
-jq -n '{hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: "$HOME/.claude/hooks/h.sh"}, {type: "command", command: "/bin/bash -p \"$HOME/.claude/hooks/protected-paths-guard.sh\" || exit 2"}]}]}}' > "$H/.claude/settings.json"
-ic status
-expect_not "the wrapped command is wired" "$OUT" "protected-paths-guard.sh runs as the bare path"
-expect_not "and not MISSING" "$OUT" "protected-paths-guard.sh is not wired"
+for g in protected-paths-guard secret-detector destructive-blocker git-mcp-guard gh-block; do
+  commit_main "hooks/$g.sh" '#!/bin/sh'
+  chmod 755 "$R/hooks/$g.sh"
+  ln -s "$R/hooks/$g.sh" "$H/.claude/hooks/$g.sh"
+  jq -n --arg c "\$HOME/.claude/hooks/$g.sh" '{hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: "$HOME/.claude/hooks/h.sh"}, {type: "command", command: $c}]}]}}' > "$H/.claude/settings.json"
+  ic status
+  expect_re "the bare command is STALE for $g" "$OUT" "^STALE +hooks/$g\\.sh runs as the bare path"
+  jq -n --arg c "/bin/bash -p \"\$HOME/.claude/hooks/$g.sh\" || exit 2" '{hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: "$HOME/.claude/hooks/h.sh"}, {type: "command", command: $c}]}]}}' > "$H/.claude/settings.json"
+  ic status
+  expect_not "the wrapped command is wired for $g" "$OUT" "hooks/$g.sh runs as the bare path"
+  expect_not "and $g is not MISSING" "$OUT" "hooks/$g.sh is not wired"
+done
 
 case_start "status 7: a regular file or a dangling link where a link belongs is a conflict"
 new_case
@@ -610,6 +612,21 @@ expect_has "the hooks are listed" "$MODES" "hooks/secret-detector.sh"
 expect_has "the lock script is listed" "$MODES" "tools/workspace-lock/workspace-lock.sh"
 expect_has "the launcher is listed" "$MODES" "tools/github-mcp/launch"
 expect_not "none of them is committed without the executable bit" "$MODES" "100644 "
+
+# A guard that cannot start must block the call: Claude Code blocks only on exit 2, so every guard's template command is
+# the wrapper that turns any other failure into exit 2. A bare command would let the call through.
+case_start "this repository: every guard's template command ends in || exit 2"
+for g in protected-paths-guard secret-detector destructive-blocker git-mcp-guard gh-block; do
+  CMDS=$(jq -r --arg g "$g.sh" '[.hooks.PreToolUse[]? | .hooks[]?.command | strings | select(contains($g))] | .[]' "$TPL")
+  expect_true "the template wires $g" test -n "$CMDS"
+  BAD=$(printf '%s\n' "$CMDS" | grep -v -x -F -e "/bin/bash -p \"\$HOME/.claude/hooks/$g.sh\" || exit 2")
+  expect_true "$g runs as /bin/bash -p ... || exit 2 in every entry" test -z "$BAD"
+done
+# No other hook script is wrapped, so the list above (and check_wired's) names every wrapped one.
+WRAPPED=$(jq -r '[.hooks.PreToolUse[]? | .hooks[]?.command | strings | select(startswith("/bin/bash -p \"$HOME/.claude/hooks/"))] | .[]' "$TPL" | sed -e 's|^/bin/bash -p "$HOME/.claude/hooks/||' -e 's|[.]sh" [|][|] exit 2$||' | sort | tr '\n' ' ')
+expect_true "the wrapped hooks are the five guards" test "$WRAPPED" = "destructive-blocker gh-block git-mcp-guard protected-paths-guard secret-detector "
+GUARD=$(jq -r '[.hooks.PreToolUse[]? | .hooks[]?.command | strings | select(contains("github-mcp/guard.sh"))] | .[]' "$TPL")
+expect_true "the github guard entry is /bin/bash -p ... || exit 2" test "${GUARD%%<checkout>*}" = "/bin/bash -p '" -a "${GUARD##*guard.sh}" = "' || exit 2"
 
 case_start "order: settings.json in one fixed order"
 new_case

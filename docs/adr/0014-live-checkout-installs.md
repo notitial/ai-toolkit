@@ -41,7 +41,7 @@ edit). Nothing is owned by root and nothing needs `sudo`.
 - **Fail closed.** The guard's hook command is `/bin/bash -p '<checkout>/tools/github-mcp/guard.sh' || exit 2`, so a
   guard that cannot start blocks the call. The launcher refuses a checkout path that `/setup-claude` writes no guard
   hook for.
-- **Permission rules.** The template denies the `~/.claude` link paths and asks on every edit of the user settings.
+- **Permission rules.** The template denies the `~/.claude` link paths. It once also asked on every edit of the user settings; [ADR 0017](0017-protected-paths-hook.md)'s hook denies those first, so the ask was removed.
   `/setup-claude` once also wrote Edit denies on the live checkout's own paths; [ADR 0017](0017-protected-paths-hook.md)
   replaced them with a hook that hard-denies writes to a marked checkout.
 - **Committed files only.** `/setup-claude` links only the agents, hooks, rules and skills committed at `HEAD`

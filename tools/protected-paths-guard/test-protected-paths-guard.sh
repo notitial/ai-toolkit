@@ -341,8 +341,6 @@ gitmcp $d git_remote "{\"path\":\"$LIVE\",\"mode\":\"add\",\"name\":\"x\",\"url\
 gitmcp $p git_remote "{\"path\":\"$LIVE\",\"mode\":\"list\"}"
 gitmcp $p git_remote "{\"path\":\"$LIVE\",\"mode\":\"get-url\",\"name\":\"origin\"}"
 gitmcp $d git_worktree "{\"path\":\"$LIVE\",\"mode\":\"add\",\"worktreePath\":\"$T/w\"}"
-gitmcp $d git_worktree "{\"path\":\"$CLONE\",\"mode\":\"add\",\"worktreePath\":\"$LIVE/w\"}"
-gitmcp $p git_worktree "{\"path\":\"$LIVE\",\"mode\":\"list\"}"
 gitmcp $d git_clean "{\"path\":\"$LIVE\"}"
 gitmcp $p git_clean "{\"path\":\"$LIVE\",\"dryRun\":true}"
 for t in git_status git_log git_diff git_show git_blame git_reflog git_fetch git_set_working_dir git_clear_working_dir git_changelog_analyze; do

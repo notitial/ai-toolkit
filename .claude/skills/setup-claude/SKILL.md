@@ -433,8 +433,8 @@ Only remove these specific listed patterns. Do not remove other non-git Bash per
 **Deny entries:** Read `permissions.deny` from the template. **Add** any entry not already present in the live `deny` array (create the array if absent). **Never remove** existing live `deny` entries, except those in `_migration.removeReplacedDeny` — they are security controls that may have been added outside this skill; report any live-only entries instead of touching them. `_deny_read_comment` in the template explains the secret-file rules.
 
 **Ask entries:** Read `permissions.ask` from the template (`caffeinate` and `pkill -x caffeinate`, which start and stop a keep-awake power assertion, the
-github MCP write tools, and edits to any `.mcp.json` or to `~/.claude/settings.json` and `~/.claude/settings.local.json`;
-the settings write this step ends with prompts once, and so does every later edit by any session). **Add** any entry not
+github MCP write tools, and edits to any `.mcp.json`; there is none for `~/.claude/settings*.json`, which
+`hooks/protected-paths-guard.sh` hard-denies before any rule runs). **Add** any entry not
 already present in the live `ask` array (create it if absent); **never remove** a live `ask` entry, and report
 live-only ones. An ask rule prompts even in auto mode and wins over a matching allow rule, so a live allow
 entry never suppresses the prompt. Prompts are invisible to the model: after adding an entry, ask the user to
@@ -524,11 +524,11 @@ bash tools/install-copies.sh status
 Any `STALE github` or `MISSING github` line is a failure. Report `DRIFT: github MCP guard missing` /
 `command differs`, and never edit or copy the guard yourself.
 
-The other hook commands reference `$HOME/.claude/hooks/<script>.sh` — these are the scripts installed in Step 3. The one exception besides the github guard is `protected-paths-guard.sh`, whose command is `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2` (same reason: a guard that cannot start blocks the call).
+The other hook commands reference `$HOME/.claude/hooks/<script>.sh` — these are the scripts installed in Step 3. The exceptions are the guards: `protected-paths-guard.sh`, `secret-detector.sh`, `destructive-blocker.sh`, `git-mcp-guard.sh` and `gh-block.sh`, whose command is `/bin/bash -p "$HOME/.claude/hooks/<script>.sh" || exit 2` (same reason as the github guard: a guard that cannot start blocks the call). Claude Code blocks only on exit 2, so a bare command that fails to start (a missing link, a lost execute bit, a bash error) lets the call through.
 
 **`protected-paths-guard.sh` is the one control that also protects this skill's own work:** once it is wired, an unwired or stale entry is `DRIFT` like any other, and a checkout without its marker is reported under Step 3's **Protected checkout**.
 
-**Its command is compared too (assert; fail loud):** the live entry under `PreToolUse` that references `protected-paths-guard.sh` must have a `command` byte-identical to the template's, not only the same matcher. The additive merge keys on (event, matcher, script path), read as the `.claude/hooks/<name>.sh` text anywhere in the command (inside the wrapper's quotes too), so a live entry that still carries the older bare `$HOME/.claude/hooks/protected-paths-guard.sh` command looks present and nothing replaces it, although that form lets a call through when the guard cannot start. Report `DRIFT: protected-paths-guard command differs on PreToolUse — live: <live>, template: <template>`, show the user the before/after, and replace the command in the live entry on their go, in place (never add a second entry beside it). Like every settings change, it goes through the staged copy.
+**The guards' commands are compared too (assert; fail loud):** for each of the five guards above, the live entry under `PreToolUse` that references it must have a `command` byte-identical to the template's, not only the same matcher. The additive merge keys on (event, matcher, script path), read as the `.claude/hooks/<name>.sh` text anywhere in the command (inside the wrapper's quotes too), so a live entry that still carries the older bare `$HOME/.claude/hooks/<name>.sh` command looks present and nothing replaces it, although that form lets a call through when the guard cannot start. Report `DRIFT: <script> command differs on PreToolUse — live: <live>, template: <template>`, show the user the before/after, and replace the command in the live entry on their go, in place (never add a second entry beside it). Like every settings change, it goes through the staged copy. `status` reports the bare form as `STALE`.
 
 ### Auto mode
 

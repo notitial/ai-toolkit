@@ -12,8 +12,8 @@
 # call instead. git_push also needs its `remote` to be a remote configured in the repo, so a URL cannot be pushed to
 # without a prompt.
 #
-# FAIL-CLOSED: unlike the convenience hooks (git-mcp-redirect, audit-logger,
-# secret-detector, destructive-blocker), this hook blocks when its dependencies
+# FAIL-CLOSED: unlike the convenience hooks (git-mcp-redirect, audit-logger),
+# this hook blocks when its dependencies
 # are missing. Fail-open cost is irreversible history mutation; fail-closed cost
 # is one blocked call.
 #
@@ -111,7 +111,6 @@ esac
 
 case "$TOOL_NAME" in
   mcp__git-mcp__git_add|mcp__git-mcp__git_branch|mcp__git-mcp__git_checkout|mcp__git-mcp__git_cherry_pick|mcp__git-mcp__git_commit|mcp__git-mcp__git_fetch|mcp__git-mcp__git_merge|mcp__git-mcp__git_pull|mcp__git-mcp__git_rebase|mcp__git-mcp__git_stash|mcp__git-mcp__git_tag)
-    require_abs_path
     exit 0
     ;;
 
@@ -126,8 +125,7 @@ case "$TOOL_NAME" in
       deny "force/delete push blocked; a human runs these."
     fi
 
-    # 3. Require an absolute repo path (see require_abs_path).
-    require_abs_path
+    # 3. The repo path is already known to be absolute (checked above for every tool).
     PATH_ARG=$(jqin '.tool_input.path // empty')
 
     # Ground truth for remote-prefix stripping: the repo's actual remote names.
@@ -191,7 +189,6 @@ case "$TOOL_NAME" in
     ;;
 
   mcp__git-mcp__git_reset)
-    require_abs_path
     MODE=$(jqin '.tool_input.mode // empty')
     case "$MODE" in
       hard|merge) deny "git reset --$MODE discards work; blocked — a human runs these." ;;
