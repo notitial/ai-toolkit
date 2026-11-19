@@ -128,8 +128,8 @@ GitHub API: it fetches `refs/pull/<N>/head`, builds the context folder from git 
 `isDraft` false so the gate passes, `pr-files.json`, `pr.diff`), checks the head out in a clone under `--work-dir`
 (default `/tmp/review-replay`), restores `.claude/` and the root `CLAUDE.md` from the PR's merge base as the workflow
 does (`--base` defaults to `auto`: the default branch's tip, whose merge base with the head is what GitHub diffs),
-puts the command where the kit checkout has it, and runs `claude -p` with the workflow's own `--disallowedTools`, `TOOLS` and result schema,
-read from `claude-review-kit.yml` so they cannot drift. Each run is one full review: use the subscription outside a busy
+puts the command where the kit checkout has it, and runs `claude -p` with the workflow's own `--disallowedTools` and `TOOLS`, read from `claude-review-kit.yml`, and the kit's result schema file,
+so they cannot drift. Each run is one full review: use the subscription outside a busy
 window and run PRs one after the other.
 
 ```text
@@ -258,7 +258,7 @@ jobs:
   workflow file (`job.workflow_sha`), so a caller pinned to a SHA runs that SHA's scripts. Nothing to install.
 - **The command** (`claude-pr-review.md` in this folder) comes from the same checkout: `review` checks it out with
   `collect.py` and the prompt names the file, so there is no `.claude/commands/` copy to install or keep in step. The
-  result schema is in the workflow only (`RESULT_SCHEMA`, passed as `--json-schema`). The command keeps its
+  result schema is in the kit's `reviewer/result-schema.json` only (`review` passes it as `--json-schema`, `publish` checks the result against it). The command keeps its
   frontmatter and its `$ARGUMENTS` placeholder, which only the frozen v3.4 needs (it runs the command as a slash
   command); both go with that file. This command is v4.0's and no longer pairs with v3.4: a repo on v3.4 keeps the
   command copy it has.
@@ -563,9 +563,14 @@ Don't loosen any of this when adapting the files.
 - **A re-run that finds its review does not update the overview:** when a failure after the review (the link, the
   thread recount) or a resolve that finished in the re-run changed the state, the overview and the review keep what
   they said until the next request.
+- **A failure right after the approval can leave it standing on newer code:** when a push lands while the approval is
+  being posted and the head re-read or the dismissal then fails (or a 5xx on submit hides a review that did land), the
+  job fails, but the overview already says clean and a re-run stops at the review. Check the approval against the
+  head; `@claude review` reviews it again.
 - **A body finding's heading shows Claude's line number** even when its line text didn't match.
-- Legacy authors (`claude[bot]` threads, the `github-actions[bot]` summary) are still trusted by the gates, for PRs
-  reviewed by v2.3: remove once no repo using the kit has an open PR reviewed by v2.3.
+- **A PR reviewed by v2.3 or earlier is reviewed again:** `collect` and `publish` trust only the App's threads, replies
+  and overview, so a `claude[bot]` thread or a `github-actions[bot]` summary covers nothing. The `preflight` and `review`
+  gates still count those authors, so an automatic review of such a PR is skipped; ask with `@claude review`.
 
 ## Upkeep
 

@@ -59,7 +59,7 @@
 # issue_comment runs always use the caller from the default branch, and the action restores .claude and CLAUDE.md from
 # main too. Which copy of this file runs is the caller's `uses:` ref: a pinned SHA, or, for a repo that calls its own
 # copy by a local `./` path, the caller's own commit. No step executes anything from the PR checkout: the review command and the
-# thread and publish logic are in tools/claude-review/ (claude-pr-review.md, collect.py, publish.py), checked out from the commit of
+# thread and publish logic are in tools/claude-review/ (claude-pr-review.md, collect.py, publish.py, reviewer/result-schema.json), checked out from the commit of
 # this file (see the step "Check out the kit's scripts"), and PR, comment and Claude text reaches it only through files and env vars,
 # never through `${{ }}` in a `run:`. A PR that changes the caller, or a local copy of this file or its scripts, runs
 # its own copy, with the Claude key in `review` and the App key in `appcheck` and `publish`.
@@ -296,11 +296,6 @@ jobs:
       # Claude's tools, the same in every mode: none of them can post. Read, Glob and Grep need no allow rule inside
       # the checkout and REVIEW_DIR, and must not get a bare one (that allows every path).
       TOOLS: 'Agent,Task'
-      # What every run returns (Claude gets it through --json-schema; the command describes the fields): whether it
-      # found no issues, whether it stopped as ineligible, the findings, one verdict per open thread it judged (comment
-      # runs), and a short overview. Kept out of the `${{ }}` below, where its braces could end the expression. The limits keep the
-      # result well under the 1 MiB `publish` accepts.
-      RESULT_SCHEMA: '{"type":"object","properties":{"no_issues":{"type":"boolean"},"stopped":{"type":"boolean"},"findings":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"path":{"type":"string","maxLength":512},"line":{"type":"integer"},"side":{"type":"string","enum":["LEFT","RIGHT"]},"start_line":{"type":"integer"},"start_side":{"type":"string","enum":["LEFT","RIGHT"]},"body":{"type":"string","maxLength":4000},"line_text":{"type":"string","maxLength":500}},"required":["path","line","side","body","line_text"],"additionalProperties":false}},"threads":{"type":"array","maxItems":100,"items":{"type":"object","properties":{"thread_id":{"type":"string"},"verdict":{"type":"string","enum":["resolved","open"]},"reply":{"type":"string","maxLength":800}},"required":["thread_id","verdict","reply"],"additionalProperties":false}},"overview":{"type":"string","maxLength":600}},"required":["no_issues","stopped","findings","threads","overview"],"additionalProperties":false}'
     steps:
       # REVIEW_DIR is the folder Claude may read besides the checkout: the PR's details and diff, and in comment runs
       # the threads. It's set here because a job's own env can't use the runner context.
@@ -377,7 +372,7 @@ jobs:
             exit 1
           fi
 
-      # The kit's review command and thread script, from the commit of this workflow file: a caller's pinned SHA, or the
+      # The kit's review command, thread script and result schema, from the commit of this workflow file: a caller's pinned SHA, or the
       # caller's own commit for a local `./` call (on pull_request that is the PR's merge commit, so a PR that edits the
       # command or a script runs its edit). Not from a checkout of the PR. (job.workflow_repository and job.workflow_sha
       # name the file that defines this job, not the caller.) An empty sha would check out the kit's default branch, so
@@ -392,13 +387,24 @@ jobs:
           sparse-checkout: |
             tools/claude-review/claude-pr-review.md
             tools/claude-review/collect.py
+            tools/claude-review/reviewer/result-schema.json
           sparse-checkout-cone-mode: false
           fetch-depth: 1
           persist-credentials: false
 
+      # What every run returns, from the kit's schema file (publish checks the result against the same file): whether it
+      # found no issues, whether it stopped as ineligible, the findings, one verdict per open thread it judged (comment
+      # runs), and a short overview. Claude gets it through --json-schema, as one line from the env; the file has no
+      # single quote, which a test checks. The limits keep the result well under the 1 MiB `publish` accepts.
+      - name: Load the result schema
+        if: steps.regate.outputs.skip != 'true'
+        run: |
+          schema=$(jq -c . .claude-review-kit/tools/claude-review/reviewer/result-schema.json)
+          echo "RESULT_SCHEMA=${schema}" >> "$GITHUB_ENV"
+
       # Comment runs only. Writes the review's earlier threads to a file for the review command: `open` ones to judge (with
       # replies, last comment id), `raised` ones (unresolved but not followable) as context only. Resolved threads are left out. A thread is
-      # the review's when the App (or claude[bot], before v2.4) started it. A moved PR: all context. Logs counts only.
+      # the review's when the App started it. A moved PR: all context. Logs counts only.
       - name: Collect Claude's review threads
         id: collect
         if: github.event_name == 'issue_comment'
@@ -550,7 +556,7 @@ jobs:
 
   # Posts the review as the App. It runs on the key runner (see `appcheck`), never on the runners of `preflight` and
   # `review`, with no PR checkout, no Claude and no action but the token minter, download-artifact and the checkout of
-  # the kit's own scripts: only publish.py, from the commit of this file. In order: on a push, dismiss the App's
+  # the kit's own files: only publish.py and the result schema, from the commit of this file. In order: on a push, dismiss the App's
   # approval of an older commit; read and check Claude's result; reply in the threads (App token); resolve the ones Claude judged fixed (GITHUB_TOKEN, the only token here with contents: write, which
   # resolveReviewThread needs); count the open threads; write the overview comment; submit the review. Nothing is
   # posted when the PR moved after the review. Logs counts only.
@@ -600,7 +606,9 @@ jobs:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha || 'job.workflow_sha-was-empty' }}
           path: .claude-review-kit
-          sparse-checkout: tools/claude-review/publish.py
+          sparse-checkout: |
+            tools/claude-review/publish.py
+            tools/claude-review/reviewer/result-schema.json
           sparse-checkout-cone-mode: false
           fetch-depth: 1
           persist-credentials: false

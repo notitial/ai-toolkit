@@ -1,5 +1,5 @@
 """The `review` job's "Collect Claude's review threads" script: which threads it follows up, and when it skips Claude
-because this head is already covered. The App and the legacy authors (claude[bot], github-actions) both count."""
+because this head is already covered. Only the App's threads, replies and overview count."""
 import contextlib, io, json, os, pathlib, runpy, tempfile, unittest
 from unittest import mock
 
@@ -44,9 +44,11 @@ class Collect(unittest.TestCase):
         self.gh.add_issue_comment(f"<!-- claude-review:summary sha={HEAD} result=clean -->\nx")
         self.assertEqual(self.collect()[0].get("covered"), "true")
 
-    def test_legacy_summary_counts_as_clean(self):
+    def test_legacy_authors_and_a_summary_without_a_result_cover_nothing(self):
         self.gh.add_issue_comment(f"## Code review\n\n<!-- claude-review:summary sha={HEAD} -->", login="github-actions[bot]")
-        self.assertEqual(self.collect()[0].get("covered"), "true")
+        self.gh.add_issue_comment(f"<!-- claude-review:summary sha={HEAD} -->\nx", login=APP + "[bot]")
+        self.gh.add_issue_comment(f"<!-- claude-review:summary sha={HEAD} result=clean -->\nx", login="github-actions[bot]")
+        self.assertNotIn("covered", self.collect()[0])
 
     def test_clean_overview_at_another_head_or_by_someone_else(self):
         self.gh.add_issue_comment(f"<!-- claude-review:summary sha={OLD} result=clean -->\nx")
@@ -60,13 +62,13 @@ class Collect(unittest.TestCase):
         self.gh.add_issue_comment(f"<!-- claude-review:summary sha={HEAD} result=clean -->\nx")
         self.assertEqual(self.collect()[0].get("covered"), "true")
 
-    def test_threads_from_the_app_and_claude_are_followed(self):
+    def test_threads_from_the_app_are_followed(self):
         app = self.gh.add_thread(bot(APP), "App finding")
-        legacy = self.gh.add_thread(bot("claude"), "Legacy finding")
+        self.gh.add_thread(bot("claude"), "Legacy finding")
         self.gh.add_thread(user("someone"), "A person's thread")
         resolved = self.gh.add_thread(bot(APP), "Fixed", resolved=True)
         outputs, threads = self.collect()
-        self.assertEqual({t["thread_id"] for t in threads["open"]}, {app, legacy})
+        self.assertEqual({t["thread_id"] for t in threads["open"]}, {app})
         self.assertEqual(threads["raised"], [])   # resolved: no longer covers its issue, so a regression is a new finding
         self.assertNotIn("covered", outputs)
         self.assertNotIn(resolved, {t["thread_id"] for t in threads["open"]})
@@ -74,11 +76,16 @@ class Collect(unittest.TestCase):
     def test_open_reply_for_this_head_covers_and_resolved_reply_is_retried(self):
         replied = self.gh.add_thread(bot(APP), "x")
         self.gh.thread_comment(replied, bot(APP), marker("open"))
-        legacy = self.gh.add_thread(bot("claude"), "y")
-        self.gh.thread_comment(legacy, bot("github-actions"), marker("resolved"))
+        unresolved = self.gh.add_thread(bot(APP), "y")
+        self.gh.thread_comment(unresolved, bot(APP), marker("resolved"))
         outputs, _ = self.collect(mode="followup")
         self.assertEqual(outputs.get("covered"), "true")
-        self.assertEqual(json.loads(outputs["retry_ids"]), [legacy])
+        self.assertEqual(json.loads(outputs["retry_ids"]), [unresolved])
+
+    def test_a_reply_by_the_legacy_author_is_not_this_workflows(self):
+        t = self.gh.add_thread(bot(APP), "x")
+        self.gh.thread_comment(t, bot("github-actions"), marker("open"))
+        self.assertNotIn("covered", self.collect(mode="followup")[0])
 
     def test_reply_for_another_head_is_pending(self):
         t = self.gh.add_thread(bot(APP), "x")
@@ -101,6 +108,14 @@ class Collect(unittest.TestCase):
         self.assertNotIn("covered", outputs)
         self.assertNotIn("retry_ids", outputs)
         self.assertEqual(len(threads["open"]), 2)
+
+    def test_the_too_long_count_leaves_out_resolved_threads(self):
+        for resolved in (True, False):
+            tid = self.gh.add_thread(bot(APP), "Long", resolved=resolved)
+            self.gh.threads[tid]["more_comments"] = True
+        _, threads = self.collect()
+        self.assertEqual(len(threads["raised"]), 1)
+        self.assertIn("(1 too long to follow)", self.log)
 
     def test_followup_with_nothing_open_is_covered(self):
         self.assertEqual(self.collect(mode="followup")[0].get("covered"), "true")

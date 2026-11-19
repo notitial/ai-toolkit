@@ -7,14 +7,12 @@ FOLLOWUP_MARKER = re.compile(
 SUMMARY_PREFIX = "<!-- claude-review:summary "
 SLOT_OPEN, SLOT_CLOSE = "<!-- claude-review:overview -->", "<!-- /claude-review:overview -->"
 MODES = ("initial", "rereview", "followup")
-SIDES = ("LEFT", "RIGHT")
-RESULT_KEYS = {"no_issues", "stopped", "findings", "threads", "overview"}
-FINDING_KEYS = {"path", "line", "side", "start_line", "start_side", "body", "line_text"}
 # Fences GitHub renders as something richer than code (diagrams, maps, 3D, math): their content is treated as prose.
 RICH_FENCES = {"mermaid", "geojson", "topojson", "stl", "math"}
 FORBIDDEN = ("<!--", "-->", "claude-review:")
 ZWSP = "\u200b"
 BODY_BUDGET = 60000   # GitHub's limit for a review or comment body is 65536 characters
+SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reviewer", "result-schema.json")
 ERRORS = (OSError, ValueError, RuntimeError, KeyError, TypeError, IndexError)
 
 
@@ -120,9 +118,9 @@ def author(c):
     return a.get("__typename"), a.get("login")
 
 
-def started_by_claude(ctx, c):
-    """A thread this review started: the App's inline finding, or a legacy claude[bot] comment."""
-    return author(c) in (("Bot", "claude"), ("Bot", ctx.app_login))
+def by_app(ctx, c):
+    """A comment the App posted: an inline finding (it starts a thread) or a reply of this workflow."""
+    return author(c) == ("Bot", ctx.app_login)
 
 
 def on_this_pr(ctx, node):
@@ -130,11 +128,6 @@ def on_this_pr(ctx, node):
     pr = node.get("pullRequest") or {}
     repo = (pr.get("repository") or {}).get("nameWithOwner") or ""
     return pr.get("number") == ctx.number and repo.lower() == ctx.repo.lower()
-
-
-def by_this_workflow(ctx, c):
-    """A reply this workflow posted: the App's, or a legacy github-actions one."""
-    return author(c) in (("Bot", "github-actions"), ("Bot", ctx.app_login))
 
 
 # --- Sanitizer for Claude's text (finding bodies, the overview) ---
@@ -258,26 +251,35 @@ def is_int(v):
     return isinstance(v, int) and not isinstance(v, bool)
 
 
-def is_str(v, limit):
-    return isinstance(v, str) and len(v) <= limit
-
-
-def valid_finding(f):
-    return (isinstance(f, dict) and set(f) <= FINDING_KEYS and {"path", "line", "side", "body"} <= set(f)
-            and is_str(f["path"], 512) and f["path"] != "" and is_int(f["line"]) and f["side"] in SIDES
-            and is_str(f["body"], 4000)
-            and ("start_line" not in f or is_int(f["start_line"]))
-            and ("start_side" not in f or f["start_side"] in SIDES)
-            and ("line_text" not in f or is_str(f["line_text"], 500)))
-
-
-def valid_thread(t):
-    return (isinstance(t, dict) and set(t) == {"thread_id", "verdict", "reply"} and isinstance(t["thread_id"], str)
-            and t["verdict"] in ("resolved", "open") and is_str(t["reply"], 800))
+def conforms(schema, value, root):
+    """Whether `value` fits `schema`: the JSON Schema subset result-schema.json uses (type, enum, minLength, maxLength, maxItems,
+    properties, required, additionalProperties false, items, and a local $ref)."""
+    if "$ref" in schema:
+        node = root
+        for part in schema["$ref"][2:].split("/"):   # "#/$defs/name"
+            node = node[part]
+        return conforms(node, value, root)
+    kind = schema.get("type")
+    if kind == "integer" and not is_int(value):
+        return False
+    if kind in ("object", "array", "string", "boolean") and not isinstance(
+            value, {"object": dict, "array": list, "string": str, "boolean": bool}[kind]):
+        return False
+    if "enum" in schema and value not in schema["enum"]:
+        return False
+    if kind == "string":
+        return schema.get("minLength", 0) <= len(value) <= schema.get("maxLength", len(value))
+    if kind == "array":
+        return len(value) <= schema.get("maxItems", len(value)) and all(conforms(schema["items"], v, root) for v in value)
+    if kind == "object":
+        props = schema["properties"]
+        return (set(schema.get("required", ())) <= set(value) and set(value) <= set(props)
+                and all(conforms(props[k], v, root) for k, v in value.items()))
+    return True
 
 
 def load_result(path):
-    """(result, None) when the file holds a well-formed result, else (None, why)."""
+    """(result, None) when the file holds a result that fits the result schema, else (None, why)."""
     try:
         size = os.path.getsize(path)
     except (OSError, TypeError, ValueError):
@@ -291,14 +293,12 @@ def load_result(path):
             data = json.load(f)
     except (OSError, ValueError):
         return None, "not JSON"
-    ok = (isinstance(data, dict) and set(data) == RESULT_KEYS
-          and isinstance(data["no_issues"], bool) and isinstance(data["stopped"], bool)
-          and isinstance(data["findings"], list) and len(data["findings"]) <= 8
-          and all(valid_finding(f) for f in data["findings"])
-          and isinstance(data["threads"], list) and len(data["threads"]) <= 100
-          and all(valid_thread(t) for t in data["threads"])
-          and is_str(data["overview"], 600))
-    return (data, None) if ok else (None, "the wrong shape")
+    try:
+        with open(SCHEMA, encoding="utf-8") as f:
+            schema = json.load(f)
+    except (OSError, ValueError):
+        return None, "the result schema is missing"
+    return (data, None) if conforms(schema, data, schema) else (None, "the wrong shape")
 
 
 INCOMPLETE = "issues reported without findings"
@@ -316,22 +316,11 @@ def contradiction(mode, data):
 # --- Thread replies (comment runs) ---
 
 def reply_text(ctx, text, verdict, head):
-    while True:
-        cleaned = text
-        for s in ("<!--", "-->", "claude-review:followup"):
-            cleaned = cleaned.replace(s, "")
-        if cleaned == text:
-            break
-        text = cleaned
-    # Defuse mentions and fences, escape every markdown and HTML character that could make a viewer's browser
-    # load something (images, links, tags) or open a code span (backticks, so nothing is ever left unescaped),
-    # break bare URLs so they don't autolink, and quote it. The reply then shows as plain text.
-    text = text.replace("@", "@​").replace("~~~", "~​~​~").strip()[:800].strip()
-    text = re.sub(r"([\w.-]+/[\w.-]+)#(?=\d)", "\\1#" + ZWSP, text)   # cross-repo references make backlinks
-    text = re.sub(r"([\\`\[\]()!<>&$])", r"\\\1", text).replace("://", ":/​/").replace("www.", "www​.")
-    if not text:
-        text = "The current code handles this." if verdict == "resolved" else "This still looks open in the current code."
-    quoted = "\n".join("> " + line for line in text.splitlines())
+    """Claude's reply, sanitized like a finding and quoted, then this workflow's marker for the head. Tabs are expanded
+    first: the "> " prefix shifts a tab stop, so a tab-indented fence line would count differently quoted than judged."""
+    text = sanitize(text.expandtabs(4)).strip() or (
+        "The current code handles this." if verdict == "resolved" else "This still looks open in the current code.")
+    quoted = "\n".join("> " + line for line in text.split("\n"))   # not splitlines(): sanitize() saw only "\n" as a line break
     return f"{quoted}\n\n— Claude review follow-up\n<!-- claude-review:followup verdict={verdict} sha={head} mode={ctx.mode} -->"
 
 
@@ -349,9 +338,26 @@ query($id: ID!) {
 """
 
 
+def open_thread(ctx, thread_id, token=None):
+    """The thread when it is on this PR, this review started it and it is still open. Else None, counted as skipped."""
+    node = gql(ctx, THREAD, {"id": thread_id}, token=token)["node"]
+    if not node or not node["first"]["nodes"] or not node["last"]["nodes"]:
+        reason = "thread gone"
+    elif not on_this_pr(ctx, node):
+        reason = "thread on another PR"
+    elif not by_app(ctx, node["first"]["nodes"][0]):
+        reason = "not a Claude thread"
+    elif node["isResolved"]:
+        reason = "already resolved"
+    else:
+        return node
+    ctx.skip(reason)
+    return None
+
+
 def marker_verdict(ctx, comment, head):
     """(verdict, mode) of a valid marker: posted by this workflow, for the current head. Else (None, None)."""
-    if not by_this_workflow(ctx, comment):
+    if not by_app(ctx, comment):
         return None, None
     m = FOLLOWUP_MARKER.search(comment.get("body") or "")
     return (m.group(1), m.group(3)) if m and m.group(2) == head else (None, None)
@@ -381,18 +387,8 @@ def reply_in_threads(ctx, items):
             ctx.skip("not a collected open thread")
             continue
         try:
-            node = gql(ctx, THREAD, {"id": thread_id})["node"]
-            if not node or not node["last"]["nodes"] or not node["first"]["nodes"]:
-                ctx.skip("thread gone")
-                continue
-            if not on_this_pr(ctx, node):
-                ctx.skip("thread on another PR")
-                continue
-            if not started_by_claude(ctx, node["first"]["nodes"][0]):
-                ctx.skip("not a Claude thread")
-                continue
-            if node["isResolved"]:
-                ctx.skip("resolved meanwhile")
+            node = open_thread(ctx, thread_id)
+            if not node:
                 continue
             last = node["last"]["nodes"][0]
             # This workflow's own reply for this head comes first: on a re-run it is the thread's new last comment.
@@ -420,42 +416,18 @@ def reply_in_threads(ctx, items):
 
 # --- Resolve (GITHUB_TOKEN: the App has no contents permission, which resolveReviewThread needs) ---
 
-RESOLVE_THREAD = """
-query($id: ID!) {
-  node(id: $id) {
-    ... on PullRequestReviewThread {
-      isResolved
-      pullRequest { number repository { nameWithOwner } }
-      first: comments(first: 1) { nodes { author { __typename login } } }
-      last: comments(last: 1) { nodes { author { __typename login } body } }
-    }
-  }
-}
-"""
-
-
 def resolve_threads(ctx, ids):
     """Resolves a thread only if this review started it, it's still open, and its last comment is this workflow's
     `verdict=resolved` marker for the head the review judged."""
     forbidden = False
     for thread_id in dict.fromkeys(ids):
         try:
-            node = gql(ctx, RESOLVE_THREAD, {"id": thread_id}, token=ctx.gh_token)["node"]
-            if not node or not node["first"]["nodes"] or not node["last"]["nodes"]:
-                ctx.skip("thread gone")
-                continue
-            if not on_this_pr(ctx, node):
-                ctx.skip("thread on another PR")
-                continue
-            if not started_by_claude(ctx, node["first"]["nodes"][0]):
-                ctx.skip("not a Claude thread")
-                continue
-            if node["isResolved"]:
-                ctx.skip("already resolved")
+            node = open_thread(ctx, thread_id, token=ctx.gh_token)
+            if not node:
                 continue
             last = node["last"]["nodes"][0]
             m = FOLLOWUP_MARKER.search(last.get("body") or "")
-            if not by_this_workflow(ctx, last) or not m or m.group(1, 2) != ("resolved", ctx.head):
+            if not by_app(ctx, last) or not m or m.group(1, 2) != ("resolved", ctx.head):
                 ctx.skip("last comment isn't this review's resolved marker")
                 continue
             if forbidden:
@@ -498,7 +470,7 @@ def scan_threads(ctx):
         threads = page["repository"]["pullRequest"]["reviewThreads"]
         for t in threads["nodes"]:
             first = (t["comments"]["nodes"] or [None])[0]
-            if not first or not started_by_claude(ctx, first):
+            if not first or not by_app(ctx, first):
                 continue
             if t["isResolved"]:
                 resolved += 1

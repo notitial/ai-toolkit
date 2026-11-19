@@ -4,7 +4,7 @@ in `appcheck` and `publish`, whose runner is the optional key pool, every job's 
 caller's ceiling, the caller's credentials mapped by name, pinned actions)."""
 import json, re, unittest
 
-from workflow import CALLER, COLLECT, COMMAND, HERE, PUBLISH, WORKFLOW, parse_yaml, triggers
+from workflow import CALLER, COLLECT, COMMAND, HERE, PUBLISH, SCHEMA, WORKFLOW, parse_yaml, triggers
 
 
 class Workflow(unittest.TestCase):
@@ -34,7 +34,8 @@ class Workflow(unittest.TestCase):
         self.need_yaml()
         self.assertEqual(re.findall(r"python3 -I (\S+)", self.text),
                          [f".claude-review-kit/tools/claude-review/{n}" for n in ("collect.py", "publish.py")])
-        files = {"review": ["claude-pr-review.md", "collect.py"], "publish": ["publish.py"]}
+        schema = "reviewer/result-schema.json"   # the result schema: Claude gets it in `review`, `publish` checks against it
+        files = {"review": ["claude-pr-review.md", "collect.py", schema], "publish": ["publish.py", schema]}
         for job, script in (("review", "collect.py"), ("publish", "publish.py")):
             steps = self.wf["jobs"][job]["steps"]
             [checkout] = [s for s in steps if s.get("name") == "Check out the kit's scripts"]
@@ -90,12 +91,21 @@ class Workflow(unittest.TestCase):
         self.assertIn("\nArguments: $ARGUMENTS\n", COMMAND.read_text(encoding="utf-8"))
 
     def test_result_schema_is_valid_and_shell_safe(self):
-        # The one copy of the schema: Claude gets it through --json-schema, and the command no longer repeats it.
+        # The one copy of the schema is the kit's file: `review` hands it to Claude through --json-schema as one line from
+        # the env, `publish` checks the result against it, and the command no longer repeats it.
         self.need_yaml()
-        schema = self.wf["jobs"]["review"]["env"]["RESULT_SCHEMA"]
-        parsed = json.loads(schema)
+        text = SCHEMA.read_text(encoding="utf-8")
+        parsed = json.loads(text)
         self.assertEqual(parsed["required"], ["no_issues", "stopped", "findings", "threads", "overview"])
-        self.assertNotIn("'", schema)
+        self.assertNotIn("'", text)
+        self.assertNotIn("RESULT_SCHEMA", self.wf["jobs"]["review"].get("env", {}))
+        steps = self.wf["jobs"]["review"]["steps"]
+        names = [s.get("name") for s in steps]
+        load = steps[names.index("Load the result schema")]
+        self.assertIn("jq -c . .claude-review-kit/tools/claude-review/reviewer/result-schema.json", load["run"])
+        self.assertIn(">> \"$GITHUB_ENV\"", load["run"])
+        self.assertLess(names.index("Check out the kit's scripts"), names.index("Load the result schema"))
+        self.assertLess(names.index("Load the result schema"), names.index("Run the Claude code review"))
 
     def test_no_expression_in_any_run(self):
         self.need_yaml()
@@ -188,7 +198,7 @@ class Workflow(unittest.TestCase):
 
     def test_findings_carry_their_line_text(self):   # L1
         self.need_yaml()
-        item = json.loads(self.wf["jobs"]["review"]["env"]["RESULT_SCHEMA"])["properties"]["findings"]["items"]
+        item = json.loads(SCHEMA.read_text(encoding="utf-8"))["properties"]["findings"]["items"]
         self.assertIn("line_text", item["required"])
         self.assertEqual(item["properties"]["line_text"], {"type": "string", "maxLength": 500})
         command = COMMAND.read_text(encoding="utf-8")

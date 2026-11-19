@@ -1,0 +1,102 @@
+{
+  "type": "object",
+  "properties": {
+    "no_issues": {
+      "type": "boolean"
+    },
+    "stopped": {
+      "type": "boolean"
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "line": {
+            "type": "integer"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "LEFT",
+              "RIGHT"
+            ]
+          },
+          "start_line": {
+            "type": "integer"
+          },
+          "start_side": {
+            "type": "string",
+            "enum": [
+              "LEFT",
+              "RIGHT"
+            ]
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "line_text": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "path",
+          "line",
+          "side",
+          "body",
+          "line_text"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "threads": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "properties": {
+          "thread_id": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "resolved",
+              "open"
+            ]
+          },
+          "reply": {
+            "type": "string",
+            "maxLength": 800
+          }
+        },
+        "required": [
+          "thread_id",
+          "verdict",
+          "reply"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "overview": {
+      "type": "string",
+      "maxLength": 600
+    }
+  },
+  "required": [
+    "no_issues",
+    "stopped",
+    "findings",
+    "threads",
+    "overview"
+  ],
+  "additionalProperties": false
+}
