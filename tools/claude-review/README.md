@@ -11,16 +11,16 @@ The review is a **reusable workflow**, [`.github/workflows/claude-review-kit.yml
 triggers, the permission ceiling and the credentials; see [The reusable kit](#the-reusable-kit). This repo runs the
 review that way, and its tests read the kit from that path.
 
-The two files in this folder are the **vendored copies** for repos that have not moved to the reusable kit: the
-workflow, **frozen at v3.4** (never edited; deleted once no repo uses it), and the review command, which every repo
-still installs by copy. A repo on a vendored copy copies both byte for byte and changes only the lines listed in
-[Replacement points](#replacement-points). This repo's installed command equals the canonical one (`tests/test_install.py`
-checks).
+The kit reads the review command, [claude-pr-review.md](claude-pr-review.md), from its own checkout: no copy is
+installed in a repo that calls it, and this repo has none. The workflow beside it is the **vendored copy** for repos
+that have not moved to the reusable kit, **frozen at v3.4** (never edited; deleted once no repo uses it). Only a repo
+on that copy still installs the command by hand: both files byte for byte, changing only the lines listed in
+[Replacement points](#replacement-points).
 
 | File | Install path in the target repo | SHA-256 |
 |---|---|---|
 | [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` (frozen v3.4) | `302603c31c1dff049046af03ce06ba2e96314c63561d2dbd29f2be65dbb5a760` |
-| [claude-pr-review.md](claude-pr-review.md) | `.claude/commands/claude-pr-review.md` | `2f76a0bc11718f605a974aa9c5a70e249b7279f1ec56e51583446e7390d69407` |
+| [claude-pr-review.md](claude-pr-review.md) | `.claude/commands/claude-pr-review.md` (frozen v3.4 only) | `9537f11bd44055f511c441b1e8410f138da36785312982417611f126ccdedb06` |
 
 **Version:** v3.4 (2026-11-17; as a reusable workflow, 2026-11-19, with no behaviour change): the review step runs with `--permission-mode default`. Since `claude-code-action` v1.0.273 a
 session that has a prompt starts in auto mode, where a tool call no allow rule covers can be approved by a safety
@@ -122,7 +122,7 @@ GitHub API: it fetches `refs/pull/<N>/head`, builds the context folder from git 
 `isDraft` false so the gate passes, `pr-files.json`, `pr.diff`), checks the head out in a clone under `--work-dir`
 (default `/tmp/review-replay`), restores `.claude/` and the root `CLAUDE.md` from the PR's merge base as the workflow
 does (`--base` defaults to `auto`: the default branch's tip, whose merge base with the head is what GitHub diffs),
-installs the command, and runs `claude -p` with the workflow's own `--disallowedTools`, `TOOLS` and result schema,
+puts the command where the kit checkout has it, and runs `claude -p` with the workflow's own `--disallowedTools`, `TOOLS` and result schema,
 read from `claude-review-kit.yml` so they cannot drift. Each run is one full review: use the subscription outside a busy
 window and run PRs one after the other.
 
@@ -168,8 +168,10 @@ How it is applied:
   `pr-files.json`) and the overview says so; otherwise a PR could write "skip `hooks/`" into its own review. Land
   REVIEW.md changes in a PR that nothing else depends on.
 - Findings in skip paths are dropped and the rest trimmed to the cap after validation.
-- The command is read from `main` (`.claude/` is restored from main on every run), so a command change takes effect
-  once it has landed; a `REVIEW.md` added in the same PR is not read by that PR's own review.
+- The command is read from the kit's checkout, at the commit of the workflow file that runs: a caller's pinned SHA,
+  so a command change reaches a repo when it changes its pin. In this repo, which calls the kit by a local path, a
+  `pull_request` run uses the PR's own command (as it uses the PR's own scripts) and a comment run uses main's. A
+  `REVIEW.md` added in a PR is not read by that PR's own review.
 
 Keep it under about 60 lines; every line is read by every review agent on every review.
 
@@ -248,7 +250,12 @@ jobs:
 - **Check names** read `<caller job id> / <job name>`, for example `claude-review / Publish the review`.
 - **The scripts** (`collect.py`, `publish.py` in this folder) are checked out by the kit itself, at the commit of its own
   workflow file (`job.workflow_sha`), so a caller pinned to a SHA runs that SHA's scripts. Nothing to install.
-- **The command** is still installed by copy at `.claude/commands/claude-pr-review.md`, from the canonical file here.
+- **The command** (`claude-pr-review.md` in this folder) comes from the same checkout: `review` checks it out with
+  `collect.py` and the prompt names the file, so there is no `.claude/commands/` copy to install or keep in step. The
+  result schema is in the workflow only (`RESULT_SCHEMA`, passed as `--json-schema`). The command keeps its
+  frontmatter and its `$ARGUMENTS` placeholder because the frozen v3.4 still runs it as a slash command; both go with
+  that file. A repo on v3.4 that kept the earlier command copy (SHA `2f76a0bc...`) still works: its workflow passes
+  its own `--json-schema`.
 - The prerequisites below apply to both ways of installing; "the workflow" means the kit.
 
 ### Prerequisites
@@ -557,12 +564,9 @@ Don't loosen any of this when adapting the files.
 
 ## Upkeep
 
-- Keep `RESULT_SCHEMA` in the workflow byte-identical with the schema in the command's "The result" section (a test
-  checks).
 - Keep the cost record's `reviewer` string (`claude-pr-review@v3.4`) equal to the version above (a test checks).
 - Run `tests/` after any change to `collect.py` or `publish.py`.
 - `REVIEW.md` (repo root) is the repo's own file, not part of the kit: edit it freely.
-- A change to the review goes in the reusable kit and, for the command, in the canonical command plus this repo's
-  installed copy in the same PR (`tests/test_install.py` fails until they match). A repo on the reusable kit picks it up
-  by changing the SHA in its caller. The frozen v3.4 workflow is not edited; a repo still on it moves to the reusable
+- A change to the review, the command included, goes in the reusable kit. A repo on the reusable kit picks it up by
+  changing the SHA in its caller. The frozen v3.4 workflow is not edited; a repo still on it moves to the reusable
   kit.

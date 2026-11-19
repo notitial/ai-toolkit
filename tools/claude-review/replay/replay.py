@@ -2,7 +2,7 @@
 """Replay one pull request through the review command offline, with a local `claude -p`.
 
 Builds the same context folder the workflow's prep steps build (pr.json, pr-files.json, pr.diff) from git alone,
-checks the PR head out in a clone under a work folder, installs the review command there and runs it with the
+checks the PR head out in a clone under a work folder, puts the review command where the kit checkout has it and runs it with the
 workflow's tool limits and result schema. The result and the run's cost go to a results folder outside the repo.
 Nothing is posted anywhere. See README.md next to this file.
 """
@@ -12,6 +12,9 @@ KIT = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOW = KIT.parents[1] / ".github" / "workflows" / "claude-review-kit.yml"   # the reusable workflow
 # 7.4's model line: "- Model: `opus` for <kinds> candidate; `sonnet` for <kinds> candidate." The first model is the one patched,
 # whichever kinds the command gives it (the line was reworded when the defect verifier moved to sonnet).
+# Where the workflow's review job checks the kit out, and the prompt it gives Claude (a test pins both to the workflow).
+COMMAND_PATH = ".claude-review-kit/tools/claude-review/claude-pr-review.md"
+PROMPT_HEAD = f"Follow the instructions in {COMMAND_PATH}. In that file, $ARGUMENTS is: "
 VERIFIER_LINE = re.compile(r"^(- Model: )`opus`( for [^`\n]*candidate; `[a-z0-9.-]+` for )", re.M)
 
 
@@ -237,7 +240,10 @@ def main(argv=None):
     slug = args.repo.replace("/", "_")
     work = pathlib.Path(args.work_dir).expanduser().resolve() / slug
     clone, merge_base = prepare_clone(args, work)
-    cmd_path = clone / ".claude" / "commands" / "claude-pr-review.md"
+    cmd_path = clone / COMMAND_PATH
+    kit_dir = clone / COMMAND_PATH.split("/")[0]
+    if os.path.lexists(kit_dir):   # the workflow's guard: a symlink here would aim the write below elsewhere
+        raise SystemExit(f"the PR holds {kit_dir.name}, the folder the review kit checks itself out into: not replayed")
     cmd_path.parent.mkdir(parents=True, exist_ok=True)
     cmd_path.write_text(command_text)
     ctx = work / f"context-{args.pr}-{args.head[:8]}"
@@ -245,7 +251,7 @@ def main(argv=None):
     files = build_context(clone, ctx, args, merge_base)
     if not files:
         raise SystemExit("the PR changes no files between the merge base and the head: nothing to review")
-    prompt = f"/claude-pr-review {args.repo}/pull/{args.pr} --mode initial --context {ctx}"
+    prompt = f"{PROMPT_HEAD}{args.repo}/pull/{args.pr} --mode initial --context {ctx}"
     cmd = claude_command(settings, ctx, prompt, args.model)
     print(f"prepared {args.repo}#{args.pr}: {len(files)} files, clone {clone}, context {ctx}", file=sys.stderr)
     if args.prepare_only:

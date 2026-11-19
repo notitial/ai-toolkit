@@ -138,12 +138,18 @@ class ContextEdgeCases(unittest.TestCase):
 class Command(unittest.TestCase):
     def test_tool_limits_and_model_reach_the_claude_command(self):
         s = replay.workflow_settings(replay.WORKFLOW.read_text())
-        cmd = replay.claude_command(s, pathlib.Path("/ctx"), "/claude-pr-review x", "sonnet")
+        cmd = replay.claude_command(s, pathlib.Path("/ctx"), "a prompt", "sonnet")
         self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
         self.assertEqual(cmd[cmd.index("--allowedTools") + 1], "Agent,Task")
         self.assertEqual(cmd[cmd.index("--add-dir") + 1], "/ctx")
         self.assertEqual(cmd[cmd.index("--permission-mode") + 1], "default")
         self.assertNotIn("Bash", cmd[cmd.index("--allowedTools") + 1])
+
+
+    def test_prompt_and_command_path_are_the_workflows(self):
+        text = replay.WORKFLOW.read_text()
+        self.assertIn(f'prompt: "{replay.PROMPT_HEAD}${{{{ github.repository }}}}/pull/', text)
+        self.assertEqual(replay.COMMAND_PATH, ".claude-review-kit/tools/claude-review/claude-pr-review.md")
 
 
 class Summarize(unittest.TestCase):

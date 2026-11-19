@@ -45,8 +45,8 @@ local path keeps what a PR that edits the review has always done: it is reviewed
 repo pins the kit by full commit SHA (`uses: <owner>/ai-toolkit/.github/workflows/claude-review-kit.yml@<sha>`),
 so upgrading is one line.
 
-**Scripts.** The kit's Python is `collect.py` and `publish.py` in `tools/claude-review/`. `review` (comment runs) and
-`publish` check the kit out into `.claude-review-kit/` (sparse, their own script only, no credentials kept) at
+**Scripts.** The kit's Python is `collect.py` and `publish.py` in `tools/claude-review/`. `review` (every run) and
+`publish` check the kit out into `.claude-review-kit/` (sparse, only the files they use, no credentials kept) at
 `job.workflow_repository` and `job.workflow_sha`, and run the script from there with `python3 -I`. In GitHub's `job`
 context those name the repository and commit of the workflow file that defines the job, so inside a called workflow
 they name the kit, not the caller. The PR checkout step is never a script source. The checkout lives under the
@@ -67,7 +67,12 @@ the kit's default branch; that is why the scripts use it rather than `main`.
 **Migration.** The vendored workflow, `tools/claude-review/claude-review.yml`, is frozen at v3.4, with its SHA row,
 for repos that have not moved; it is deleted once none uses it. This record covers the first step: the kit moves,
 its behaviour does not change, and the command stays installed in each repo. The second step moved the scripts into
-files (above) with no change to them. Later steps feed the command to the review from the kit and simplify what
+files (above) with no change to them. The third step feeds the command to the review from the kit's checkout: `review`
+checks it out with `collect.py` on every run, the prompt tells Claude to follow that file (the action restores
+`.claude/` from the default branch, so a copy placed there would not survive), and the installed copy and the schema
+copy inside it are gone (`--json-schema` gives the shape). The command's trust source becomes the kit's pinned commit
+instead of each repo's default branch; for this repo's local call, a `pull_request` run uses the PR's own command, the
+same as its scripts. Later steps simplify what
 `publish` posts. Each is its own PR and amends this record where it changes a rule.
 
 ## Consequences
@@ -93,4 +98,5 @@ files (above) with no change to them. Later steps feed the command to the review
   `job.workflow_sha` resolved to this repository and the commit of the called workflow file, which for the local call
   is the PR's merge commit; the sparse checkout of one script by commit SHA worked and the script ran from it. Not
   yet seen: a SHA-pinned call from another repository, where the value is the kit's pinned commit and a local call
-  cannot tell it from the caller's own; and `review`'s checkout, which only comment runs reach.
+  cannot tell it from the caller's own; and Claude reading the command from the kit's file (a plain prompt that names it, instead of a slash command) under
+  `--permission-mode default`: the first live run of the third step, which is the PR's own review, is the test.

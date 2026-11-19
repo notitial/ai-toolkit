@@ -1,6 +1,6 @@
 # REVIEW.md
 
-The owner's brief for the automatic PR review (`.claude/commands/claude-pr-review.md`). It narrows and directs the
+The owner's brief for the automatic PR review (`tools/claude-review/claude-pr-review.md`). It narrows and directs the
 review; it does not replace CLAUDE.md, the finding format or the "concrete, reachable trigger" rule. How the
 convention works: `tools/claude-review/README.md`, "REVIEW.md".
 
@@ -33,7 +33,9 @@ In the review workflow and `tools/github-mcp/`: anything that lets a secret, tok
 a comment or a file. In the workflow: PR, comment or Claude text that reaches a `run:` through `${{ }}`; a kit job
 without its own `permissions:` (it would inherit the caller's ceiling); a secret the kit uses that the caller doesn't
 map by name, or `secrets: inherit`; a change to the frozen `tools/claude-review/claude-review.yml` (v3.4); and a change
-to `tools/claude-review/claude-pr-review.md` that isn't made to the installed copy too.
+to `tools/claude-review/claude-pr-review.md` that weakens its trust rules, its private-data pass or its verification, or
+tells agents to skip a path (this repo's own `pull_request` run follows the PR's copy of the command; a later
+`@claude review` comment run follows main's).
 
 In a fix, in any path: a new branch, flag or guard for the one reported case while the same cause still breaks a
 sibling input or state through the general path. Name that input or state as the trigger.
