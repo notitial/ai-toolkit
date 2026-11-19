@@ -62,8 +62,11 @@ kit, and simplify what `publish` posts. Each is its own PR and amends this recor
 - A repo's required-check names change: a called job reports as `<caller job id> / <job name>`.
 - ADR 0015's byte-identical-copies model still holds for the build kit; the review kit no longer follows it.
 - The verdict inputs are checked in `publish` (two accepted values each), since a called workflow has no choice type.
+- Fork and Dependabot `pull_request` runs: GitHub documents that a fork's write permissions are changed to read after
+  the workflow's own `permissions:` are applied, and that a Dependabot run's token is read-only by default and the
+  `permissions:` key raises it. Neither is documented as a start-up failure, which comes from a called job asking
+  for more than its caller grants. The kit still skips both in `preflight`.
 - Unverified until a live run: that the three credentials reach the called workflow (GitHub documents that `vars` come
-  from the caller's repository); what a fork or Dependabot `pull_request` run does now that it is a nested call, since
-  GitHub caps those tokens to read while the kit asks for write (a start-up failure instead of today's clean skip,
-  which a job-level `if:` on the caller may or may not prevent); and that Dependabot proposes bumps for a SHA-pinned
-  reusable workflow.
+  from the caller's repository); whether a called job that asks for write passes start-up in a fork run, where the
+  caller's write is adjusted down (the docs do not say which level the check sees); and that Dependabot proposes bumps
+  for a SHA-pinned reusable workflow.
