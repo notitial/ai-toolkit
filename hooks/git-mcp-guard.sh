@@ -35,7 +35,7 @@
 # the input cannot be inspected, so block.
 HOOK=git-mcp-guard
 S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
-. "${S%/*}/lib/hook-common.sh" || exit 1
+. "${S%/*}/lib/hook-common.sh" && [ "${HOOK_COMMON_LOADED:-}" = 1 ] || exit 1
 TOOL_NAME=$(field '.tool_name // empty')
 
 # Normalize a ref to a plain branch name: refs/heads/main, heads/main -> main.

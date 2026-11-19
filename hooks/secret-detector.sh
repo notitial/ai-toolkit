@@ -14,7 +14,7 @@ set -uo pipefail
 
 HOOK=secret-detector
 S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
-. "${S%/*}/lib/hook-common.sh" || exit 1
+. "${S%/*}/lib/hook-common.sh" && [ "${HOOK_COMMON_LOADED:-}" = 1 ] || exit 1
 
 # Input that is not a JSON object cannot be scanned: deny. The audit row carries none of that input, only the cwd
 # and the tool name when jq can read them.

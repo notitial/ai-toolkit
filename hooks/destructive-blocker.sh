@@ -14,7 +14,7 @@
 
 HOOK=destructive-blocker
 S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
-. "${S%/*}/lib/hook-common.sh" || exit 1
+. "${S%/*}/lib/hook-common.sh" && [ "${HOOK_COMMON_LOADED:-}" = 1 ] || exit 1
 
 case $INPUT in
   *[![:space:]]*)

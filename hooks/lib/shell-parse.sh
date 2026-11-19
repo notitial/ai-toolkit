@@ -333,3 +333,5 @@ shell_parse() {
   [ "${#SEG[@]}" -gt 0 ] && sp_command "${SEG[@]}"
   return 0
 }
+
+SHELL_PARSE_LOADED=1  # keep this the last line: the hook checks it to know the whole file was read

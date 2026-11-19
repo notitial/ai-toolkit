@@ -17,7 +17,7 @@
 #
 # NEVER ASKS. Every decision is a deny or silence. It names no repository or tool of any project.
 # FAIL-CLOSED without jq (as git-mcp-guard): the input cannot be read, so the call is denied. Without lib/hook-common.sh
-# or lib/shell-parse.sh it exits 1, which the `|| exit 2` wiring turns into a block.
+# or lib/shell-parse.sh (or finds it empty or cut short) it exits 1, which the `|| exit 2` wiring turns into a block.
 #
 # WHAT COUNTS AS A WRITE (reads are never denied)
 #   - Edit, Write, MultiEdit, NotebookEdit: the target's real path (symlinks followed, case-insensitive compare).
@@ -52,8 +52,8 @@ MARKER=.protected-checkout
 
 HOOK=protected-paths-guard
 S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
-. "${S%/*}/lib/hook-common.sh" || exit 1
-. "${S%/*}/lib/shell-parse.sh" || exit 1
+. "${S%/*}/lib/hook-common.sh" && [ "${HOOK_COMMON_LOADED:-}" = 1 ] || exit 1
+. "${S%/*}/lib/shell-parse.sh" && [ "${SHELL_PARSE_LOADED:-}" = 1 ] || exit 1
 TOOL=$(field '.tool_name // empty')
 
 if [ -z "$TOOL" ]; then
@@ -944,7 +944,7 @@ find_session_root
 case "$TOOL" in
   Edit | Write | MultiEdit) judge_target "$(ti .file_path)" "$TOOL" ;;
   NotebookEdit) judge_target "$(ti .notebook_path)" "$TOOL" ;;
-  Bash | Monitor) shell_parse "$(ti .command)" || exit 1 ;;  # not defined (an empty lib): a block, as for a missing one
+  Bash | Monitor) shell_parse "$(ti .command)" ;;
   mcp__git-mcp__*) git_tool ;;
 esac
 

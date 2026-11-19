@@ -104,21 +104,41 @@ check "a hook without on_redirect is denied" "$([ "$(printf '%s' "$out" | jq -r 
 out=$("$SH" "$T/run.sh" $'a\tb\nc' 2>&1)
 check "tab and newline are not refused" "$([ "$(printf '%s\n' "$out" | head -1)" = 'C[/s] <a> <b>' ] && echo 1 || echo 0)"
 
-# fail-closed: a guard that finds hook-common.sh but not shell-parse.sh exits 1 (the `|| exit 2` wiring blocks on it)
-mkdir -p "$T/part/lib"
-cp "$GUARD" "$T/part/protected-paths-guard.sh"
-cp "$T/hooks/lib/hook-common.sh" "$T/part/lib/"
+# fail-closed: sourcing succeeds on an empty or cut-short file, so each lib ends by setting a marker and the guard's
+# source line checks it. A guard with a lib file missing, empty or cut short (its last line dropped) exits 1, which the
+# `|| exit 2` wiring blocks, for a Bash, an Edit and a git MCP call alike.
 GIN='{"tool_name":"Bash","tool_input":{"command":"ls"},"cwd":"/tmp"}'
-cp "$T/hooks/lib/shell-parse.sh" "$T/part/lib/"
-printf '%s' "$GIN" | HOME="$T/home" "$SH" "$T/part/protected-paths-guard.sh" >/dev/null 2>&1
-check "guard with both lib files exits 0" "$([ $? = 0 ] && echo 1 || echo 0)"
-rm "$T/part/lib/shell-parse.sh"
-printf '%s' "$GIN" | HOME="$T/home" "$SH" "$T/part/protected-paths-guard.sh" >/dev/null 2>&1
-check "guard without lib/shell-parse.sh exits 1" "$([ $? = 1 ] && echo 1 || echo 0)"
-
-: >"$T/part/lib/shell-parse.sh"
-printf '%s' "$GIN" | HOME="$T/home" "$SH" "$T/part/protected-paths-guard.sh" >/dev/null 2>&1
-check "guard with an empty lib/shell-parse.sh exits 1" "$([ $? = 1 ] && echo 1 || echo 0)"
+EIN='{"tool_name":"Edit","tool_input":{"file_path":"/tmp/x"},"cwd":"/tmp"}'
+MIN='{"tool_name":"mcp__git-mcp__git_add","tool_input":{"path":"/tmp/x"},"cwd":"/tmp"}'
+rc_of() {  # rc_of <hook file> <input>: the hook's exit code
+  printf '%s' "$2" | HOME="$T/home" "$SH" "$1" >/dev/null 2>&1
+  echo $?
+}
+damage() {  # damage <lib name> <ok|missing|empty|cut>: lay out $T/part with that lib file in that state
+  rm -r "$T/part" 2>/dev/null
+  mkdir -p "$T/part/lib"
+  cp "$GUARD" "${GUARD%/*}/destructive-blocker.sh" "$T/part/"
+  cp "$T/hooks/lib/hook-common.sh" "$T/hooks/lib/shell-parse.sh" "$T/part/lib/"
+  case "$2" in
+    missing) rm "$T/part/lib/$1.sh" ;;
+    empty) : >"$T/part/lib/$1.sh" ;;
+    cut) sed '$d' "$T/hooks/lib/$1.sh" >"$T/part/lib/$1.sh" ;;
+  esac
+}
+damage shell-parse ok
+check "guard with both lib files exits 0" "$([ "$(rc_of "$T/part/protected-paths-guard.sh" "$GIN")" = 0 ] && echo 1 || echo 0)"
+for lib in hook-common shell-parse; do
+  for state in missing empty cut; do
+    damage $lib $state
+    for in in "$GIN" "$EIN" "$MIN"; do
+      check "guard with $state lib/$lib.sh exits 1 ($(printf '%s' "$in" | jq -r .tool_name))" "$([ "$(rc_of "$T/part/protected-paths-guard.sh" "$in")" = 1 ] && echo 1 || echo 0)"
+    done
+  done
+done
+for state in empty cut; do
+  damage hook-common $state
+  check "destructive-blocker with $state lib/hook-common.sh exits 1" "$([ "$(rc_of "$T/part/destructive-blocker.sh" "$GIN")" = 1 ] && echo 1 || echo 0)"
+done
 
 echo "shell-parse: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

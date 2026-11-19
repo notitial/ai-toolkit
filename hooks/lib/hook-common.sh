@@ -1,7 +1,8 @@
 # The preamble the PreToolUse hooks share. Sourced, never run. The hook sets HOOK to its own name and finds this file
 # beside its real path (the hooks are links in ~/.claude/hooks, so the lib stays in the protected checkout):
-#   HOOK=<name>; S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S"); . "${S%/*}/lib/hook-common.sh" || exit 1
-# (a bare `exit 1` is what the guards' `|| exit 2` wiring turns into a block). Bash 3.2.
+#   HOOK=<name>; S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S"); . "${S%/*}/lib/hook-common.sh" && [ "${HOOK_COMMON_LOADED:-}" = 1 ] || exit 1
+# (a bare `exit 1` is what the guards' `|| exit 2` wiring turns into a block; the marker catches an empty or cut-short
+# file, which sources without error). Bash 3.2.
 # It checks for jq (a hook that must fail open checks first and exits before it sources this), reads stdin into
 # INPUT and defines field, decide, audit_deny and deny. The hook keeps its own checks of what INPUT holds.
 
@@ -33,3 +34,5 @@ deny() {  # deny <reason for the log> [message for the agent, default "<hook>: <
   decide deny "${2:-$HOOK: $1}"
   exit 0
 }
+
+HOOK_COMMON_LOADED=1  # keep this the last line: the hook checks it to know the whole file was read
