@@ -163,6 +163,38 @@ class Workflow(unittest.TestCase):
         for name in ("Set up Node", "Install Claude Code"):   # the install runs the package's own install script
             self.assertNotIn("secrets.", json.dumps(self.review_step(name)))
 
+    def fetch_step(self, pr_head, checked_out):
+        """Runs the "Fetch the PR for Claude" step with a fake `gh` and `git`; returns the step's GITHUB_OUTPUT text and log."""
+        step = self.review_step("Fetch the PR for Claude")
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            bin_ = tmp / "bin"
+            bin_.mkdir()
+            (bin_ / "gh").write_text(
+                '#!/bin/sh\ncase "$*" in "pr view"*) echo \'{"headRefOid":"%s"}\' ;; "api"*) echo \'[]\' ;; *) echo diff ;; esac\n' % pr_head)
+            (bin_ / "git").write_text("#!/bin/sh\necho %s\n" % checked_out)
+            for f in bin_.iterdir():
+                f.chmod(0o755)
+            out = tmp / "output"
+            env = {"PATH": f"{bin_}:{os.environ['PATH']}", "HOME": str(tmp), "GITHUB_OUTPUT": str(out), "GITHUB_REPOSITORY": "o/r",
+                   "PR_NUMBER": "7", "REVIEW_DIR": str(tmp / "ctx"), "GH_TOKEN": "x"}
+            done = subprocess.run(["bash", "-e", "-c", step["run"]], env=env, capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            return out.read_text(), done.stdout
+
+    def test_a_pr_that_moved_while_queued_runs_no_claude_step(self):
+        # The checkout is the commit preflight read; the metadata is read when the job starts. Different commits: no review.
+        self.need_yaml()
+        old, new = "a" * 40, "b" * 40
+        outputs, log = self.fetch_step(pr_head=new, checked_out=old)
+        self.assertIn("moved=true", outputs)
+        self.assertIn(f"head_sha={old}", outputs)
+        self.assertIn("::notice::The PR moved after this review was requested", log)
+        outputs, _ = self.fetch_step(pr_head=old, checked_out=old)
+        self.assertNotIn("moved=true", outputs)
+        for name in ("Set up Node", "Install Claude Code", "Run the Claude code review"):
+            self.assertIn("steps.fetch.outputs.moved != 'true'", self.review_step(name)["if"])
+
     def run_step(self, claude_script, **env):
         """Runs the "Run the Claude code review" step as Actions does, with a fake `claude` that records its environment
         and arguments. Returns (the process, the environment the fake saw, its arguments, the stream file, that folder's mode)."""

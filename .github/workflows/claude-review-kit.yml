@@ -363,7 +363,13 @@ jobs:
           fi
           echo "Fetched the PR: $(jq length "$REVIEW_DIR/pr-files.json") files"
           echo "Fetched the PR: $(wc -c < "$REVIEW_DIR/pr.diff") bytes of diff"
-          echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          head=$(git rev-parse HEAD)
+          echo "head_sha=$head" >> "$GITHUB_OUTPUT"
+          now=$(jq -r .headRefOid "$REVIEW_DIR/pr.json")
+          if [ "$now" != "$head" ]; then
+            echo "::notice::The PR moved after this review was requested (checked out ${head:0:7}, now ${now:0:7}): no review ran. Comment again to review the new head."
+            echo "moved=true" >> "$GITHUB_OUTPUT"
+          fi
 
       # The kit goes into the workspace beside the PR's files. A PR that commits this path (a symlink could aim the
       # checkout's clean-up elsewhere) fails the run before anything is written there.
@@ -411,14 +417,14 @@ jobs:
       # because that checkout sits inside the PR's workspace: a session started there would load the PR's root CLAUDE.md as
       # a parent folder's memory. The copy's own folder holds the kit's CLAUDE.md and nothing the PR wrote.
       - name: Set up Node
-        if: steps.regate.outputs.skip != 'true' && steps.collect.outputs.covered != 'true'
+        if: steps.regate.outputs.skip != 'true' && steps.fetch.outputs.moved != 'true' && steps.collect.outputs.covered != 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: 22
           package-manager-cache: false
 
       - name: Install Claude Code
-        if: steps.regate.outputs.skip != 'true' && steps.collect.outputs.covered != 'true'
+        if: steps.regate.outputs.skip != 'true' && steps.fetch.outputs.moved != 'true' && steps.collect.outputs.covered != 'true'
         run: |
           set -o pipefail
           cp -R .claude-review-kit/tools/claude-review/reviewer "${RUNNER_TEMP}/claude-review-setup"
@@ -442,7 +448,7 @@ jobs:
       # Any change that lets this step run, import or source a file from the PR's checkout voids all of this.
       - name: Run the Claude code review
         id: review
-        if: steps.regate.outputs.skip != 'true' && steps.collect.outputs.covered != 'true'
+        if: steps.regate.outputs.skip != 'true' && steps.fetch.outputs.moved != 'true' && steps.collect.outputs.covered != 'true'
         timeout-minutes: 24
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
