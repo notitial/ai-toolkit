@@ -11,11 +11,12 @@
 #
 # This catches the commands an agent types by mistake, not a command built to slip past it. Decisions are
 # recorded through the sibling audit-logger.sh when it is present. Reads JSON from stdin; exit 0 always (`exit 1` if
-# lib/hook-common.sh is missing, which the `|| exit 2` wiring blocks).
+# lib/hook-common.sh or lib/shell-parse.sh is missing or cut short, which the `|| exit 2` wiring blocks).
 
 HOOK=destructive-blocker
 S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
 . "${S%/*}/lib/hook-common.sh" && [ "${HOOK_COMMON_LOADED:-}" = 1 ] || exit 1
+. "${S%/*}/lib/shell-parse.sh" && [ "${SHELL_PARSE_LOADED:-}" = 1 ] || exit 1
 
 case $INPUT in
   *[![:space:]]*)
@@ -76,55 +77,6 @@ while IFS= read -r stmt; do
   [ -n "$stmt" ] && ! matches '[[:space:]]WHERE([[:space:]]|$)' "$stmt" && blocked "SQL delete without WHERE clause"
 done < <(printf '%s\n' "$PATTEXT" | grep -oiE "(^|[\"';(])[[:space:]]*DELETE[[:space:]]+FROM[[:space:]]+[^[:space:];]+[^;\"']*" || true)
 
-# Segments: each line split at | ; & ( ) and backticks outside quotes, with the quotes removed, so a grep pattern
-# such as "sudo|rm -rf" stays one argument. A quoted `sh -c` / `eval` argument, or quoted text holding $( or a
-# backtick, is a command line of its own and is printed again, split the same way.
-SEGAWK='
-  function flush() { if (seg ~ /[^ ]/) print seg; seg = "" }
-  {
-    seg = ""; q = ""; extra = ""
-    for (i = 1; i <= length($0); i++) {
-      c = substr($0, i, 1)
-      if (q != "") {
-        if (c == q) { if (cmd || inner ~ /\$\(|\140/) extra = extra inner "\n"; q = ""; continue }
-        if (c == "\\" && q == "\"") { c = c substr($0, i + 1, 1); i++ }
-        seg = seg c; inner = inner c; continue
-      }
-      if (c == "\047" || c == "\"") {
-        q = c; inner = ""
-        cmd = (seg ~ /(^|[ \/])(sh|bash|zsh|dash|ksh|su)( +-[A-Za-z]+)* +-[A-Za-z]*c +$/ || seg ~ /(^| )eval +$/)
-        continue
-      }
-      if (c ~ /[|;&()\140]/) { flush(); continue }
-      if (c == "\\") { c = c substr($0, i + 1, 1); i++ }
-      seg = seg c
-    }
-    flush()
-    if (extra != "") { gsub(/[|;&()\140]/, "\n", extra); printf "%s", extra }
-  }'
-
-# Words that only lead a command: wrappers, shell keywords, options, numbers (timeout 5), assignments, and the
-# shell of `sh -c`. The value after a sudo option such as -u USER, or a timeout option such as -s SIGNAL, is skipped
-# with its option. skip_leaders moves I past them in the words W; set_prog names the program at I.
-skip_leaders() {
-  local wrap=""
-  while [ "$I" -lt "${#W[@]}" ]; do
-    case "$wrap/${W[I]}" in
-      sudo/-[uUgCDhprtT] | sudo/--user | sudo/--group | timeout/-[sk] | timeout/--signal | timeout/--kill-after)
-        I=$((I + 2)); continue ;;
-    esac
-    case "${W[I]}" in
-      sudo | timeout) wrap=${W[I]} ;;
-      doas | env | */env | command | exec | nice | nohup | time | stdbuf) wrap="" ;;
-      if | while | until | elif | then | do | else | '!' | '{' | '{}') ;;
-      sh | bash | zsh | dash | ksh | su | eval | -* | [0-9]* | [A-Za-z_]*=*) ;;
-      *) return ;;
-    esac
-    I=$((I + 1))
-  done
-}
-set_prog() { PROG=${W[I]:-}; PROG=${PROG#\\}; PROG=${PROG##*/}; }
-
 check_rm() {  # check_rm <words after rm>: -r and -f in any order
   local w r=0 f=0
   for w in "$@"; do
@@ -138,34 +90,35 @@ check_rm() {  # check_rm <words after rm>: -r and -f in any order
   [ "$r$f" = 11 ] && blocked "Recursive forced deletion (flags in any order)"
 }
 
-ASK_CLASS=""
-scan_segment() {  # scan_segment <segment>: hard checks deny here; bulk deletes set ASK_CLASS
-  local j
-  W=($1)
-  I=0
-  skip_leaders; set_prog
-  case "$PROG" in
-    rm) check_rm "${W[@]:I+1}" ;;
-    xargs)
-      I=$((I + 1)); skip_leaders; set_prog
-      [ "$PROG" = rm ] && { check_rm "${W[@]:I+1}"; ASK_CLASS="xargs rm"; } ;;
+# lib/shell-parse.sh reads the command text and hands each simple command, quotes removed and wrappers (sudo, env,
+# timeout, ...) and shell keywords skipped, to on_command: a `sh -c` or `eval` string and a $( ) are read too.
+# Hard checks deny here; the bulk deletes (xargs rm, find -delete, find -exec rm) set ASK_CLASS for the ask below.
+ASK_CLASS="" FROM=""
+on_command() {
+  local verb
+  sp_lc "${1##*/}"; verb=$SP_LC
+  shift
+  case "$verb" in
+    rm) check_rm "$@"; [ -z "$FROM" ] || ASK_CLASS=$FROM ;;
+    xargs) FROM="xargs rm"; sp_xargs "$@"; FROM="" ;;
     find)
-      for ((j = I + 1; j < ${#W[@]}; j++)); do
-        case "${W[j]}" in
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
           -delete) ASK_CLASS="find with -delete or -exec rm" ;;
-          -exec | -execdir | -ok | -okdir)
-            I=$((j + 1)); skip_leaders; set_prog
-            [ "$PROG" = rm ] && { check_rm "${W[@]:I+1}"; ASK_CLASS="find with -delete or -exec rm"; } ;;
+          -exec | -execdir | -ok | -okdir) FROM="find with -delete or -exec rm"; sp_command "${@:2}"; FROM="" ;;
         esac
+        shift
+      done ;;
+    *)  # a shell further along (docker exec c sh -c 'rm -rf x') runs its string too
+      while [ "$#" -gt 0 ]; do
+        sp_lc "${1##*/}"
+        case "$SP_LC" in sh | bash | zsh | dash | ksh | su) sp_command "$@"; break ;; esac
+        shift
       done ;;
   esac
 }
-
-set -f   # the words of a segment must never glob against the cwd
-while IFS= read -r seg; do
-  case "$seg" in *rm* | *find* | *xargs*) scan_segment "$seg" ;; esac
-done < <(printf '%s\n' "$COMMAND" | tr '\t' ' ' | awk "$SEGAWK")
-set +f
+on_redirect() { :; }
+shell_parse "$COMMAND"
 # A python one-liner or heredoc that deletes files is rm by another name.
 if matches 'python[0-9.]*([[:space:]]+-[A-Za-z]*)*[[:space:]]+(-[A-Za-z]*c|<<)' "$COMMAND" &&
   matches 'rmtree|os\.(remove|unlink|rmdir|removedirs)|\.unlink\(' "$COMMAND"; then
