@@ -55,7 +55,6 @@ suites() {
   suite git-mcp-guard        0 bash                                  'bash tools/git-mcp-guard/test-git-mcp-guard.sh'
   suite git-mcp-redirect     0 bash                                  'bash tools/git-mcp-redirect/test-git-mcp-redirect.sh'
   suite github-mcp-guard     0 bash                                  'bash tools/github-mcp/test-guard.sh'
-  suite github-mcp-update    0 bash                                  'bash tools/github-mcp/test-update-check.sh'
   suite install-copies       0 bash                                  'bash tools/test-install-copies.sh'
   suite protected-paths-guard 0 jq                                   'bash tools/protected-paths-guard/test-protected-paths-guard.sh'
   suite secret-detector      0 bash                                  'bash tools/secret-detector/test-secret-detector.sh'

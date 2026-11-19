@@ -5,7 +5,7 @@
 #   ghm-status   the github MCP lines of ait-status: install.conf (the launcher and the guard read it), the checkout
 #                on a clean main, the server binary, the server registration and the guard hook, all pointing here
 #   ghm-test     the github MCP suites of this (live) checkout, i.e. of main; to test a branch, run
-#                bash tools/github-mcp/test-guard.sh and test-update-check.sh in its /tmp clone
+#                bash tools/github-mcp/test-guard.sh in its /tmp clone
 # The launcher and the guard run from the live checkout (it stays on main and only moves with a fast-forward pull
 # after a merge), so there is nothing to install: a merge plus the pull is the install.
 # Tests: bash tools/test-ait.sh
@@ -17,7 +17,7 @@ ait() { builtin cd "$AIT_ROOT" }
 ait-status() { bash "$AIT_ROOT/tools/install-copies.sh" status }
 
 ghm-test() {
-  bash "$AIT_ROOT/tools/github-mcp/test-guard.sh" && bash "$AIT_ROOT/tools/github-mcp/test-update-check.sh"
+  bash "$AIT_ROOT/tools/github-mcp/test-guard.sh"
 }
 
 # Read-only: the github lines of the status. Fails unless every one of them is ok.

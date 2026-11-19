@@ -322,12 +322,12 @@ expect_re "an http server shows its URL and type" "$OUT" '^STALE +github MCP ser
 case_start "status 2b3: another hook under the same matcher is not the guard"
 new_case
 setup_current
-jq -n --arg c "/bin/bash -p '$R/tools/github-mcp/guard.sh' || exit 2" '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: "$HOME/.claude/hooks/github-mcp-update-check.sh"}, {type: "command", command: $c}]}]}}' > "$H/.claude/settings.json"
+jq -n --arg c "/bin/bash -p '$R/tools/github-mcp/guard.sh' || exit 2" '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: "$HOME/.claude/hooks/other-hook.sh"}, {type: "command", command: $c}]}]}}' > "$H/.claude/settings.json"
 ic status
-expect_re "the guard is found beside the update-check hook" "$OUT" '^ok +github MCP guard hook points at this checkout$'
-jq -n '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: "$HOME/.claude/hooks/github-mcp-update-check.sh"}]}]}}' > "$H/.claude/settings.json"
+expect_re "the guard is found beside another hook" "$OUT" '^ok +github MCP guard hook points at this checkout$'
+jq -n '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: "$HOME/.claude/hooks/other-hook.sh"}]}]}}' > "$H/.claude/settings.json"
 ic status
-expect_re "only the update-check hook: the guard hook is MISSING" "$OUT" '^MISSING +github MCP guard hook \(none in'
+expect_re "only another hook: the guard hook is MISSING" "$OUT" '^MISSING +github MCP guard hook \(none in'
 
 
 case_start "status 2c: HEAD must be on origin/main"
