@@ -13,9 +13,8 @@ run (`github_write_owners`, `github_keychain_account`, and the optional `github_
 | `launch` | The launcher, run from this checkout: `claude mcp add --scope user github -- <checkout>/tools/github-mcp/launch` |
 | `guard.sh` | The PreToolUse guard for the tools of the `github` MCP server, run from this checkout through the hook entry `/setup-claude` writes |
 | `bin/github-mcp-server` | The pinned server binary, downloaded by hand (see Install); not tracked (`.gitignore`) |
-| `server.sha256` | The binary's hash, one `shasum -a 256` line (`<64 hex>  github-mcp-server`), tracked and reviewed with the code; the launcher and the update check run the binary only if it matches |
+| `server.sha256` | The binary's hash, one `shasum -a 256` line (`<64 hex>  github-mcp-server`), tracked and reviewed with the code; the launcher runs the binary only if it matches |
 | `test-guard.sh` | Tests for both, including a check that the guard's tool list equals the launcher's |
-| `test-update-check.sh` | Tests for `hooks/github-mcp-update-check.sh`, the hook that says when an upgrade is due (see Upgrades) |
 
 Nothing is copied or root-owned: the launcher and the guard run from the live checkout, which stays on `main` and moves
 only with `git pull --ff-only` after a merge. A merge plus that pull is the install. Agents edit in `/tmp` clones, never
@@ -164,7 +163,7 @@ shasum -a 256 <checkout>/tools/github-mcp/bin/github-mcp-server
 Put that line into `tools/github-mcp/server.sha256` in the clone, with the file name `github-mcp-server` as the second
 column, and commit it. The pin takes effect once it is merged and pulled; until then the launcher refuses to start.
 
-The launcher and the guard need nothing more: they are in the checkout. Run `bash tools/github-mcp/test-guard.sh` and `test-update-check.sh` in your `/tmp` clone before you
+The launcher and the guard need nothing more: they are in the checkout. Run `bash tools/github-mcp/test-guard.sh` in your `/tmp` clone before you
 merge; after the merge, `git -C <checkout> pull --ff-only` is the install. `ghm-status` shows, without changing
 anything, whether the checkout is on a clean `main` with `HEAD` on `origin/main`, the binary matches the pin, and the server and
 the guard hook point at the checkout.
@@ -201,28 +200,18 @@ stop the rollout until the denylist is fixed.
 
 ## Upgrades
 
-Nothing upgrades the pinned binary on its own. `hooks/github-mcp-update-check.sh` (PreToolUse on
-`^mcp__github__.*$`, installed by `/setup-claude` like the other `hooks/` scripts) says when one is due:
-
-- At most once every 7 days, on a github call, it starts a background check, one at a time. The check reads the
-  installed `--version` and asks the GitHub API, with no token, for the latest release and the reviewed advisories
-  on `github.com/github/github-mcp-server`.
-- A notice is due when the release is newer than the installed version, or when an advisory applies. An advisory
-  applies when it hasn't been withdrawn, the installed version is in its vulnerable range, and its first patched
-  version is newer. One with no patched version applies when it was published after the installed build.
-  Prereleases and tags that aren't `vX.Y.Z` are ignored.
-- A failed call or an unexpected answer keeps the previous notice, and the check retries about a day later.
-- While a notice is pending, the first github call each day shows it as a message to the user. Installing a
-  different version clears it, and the next call checks again.
-- It never blocks a call and makes no permission decision. Its state is in `~/.cache/mcp-github/` (`checked`,
-  `notice.json`, `shown`, and `lock.d` while a check runs). Deleting that folder forces a new check on the next call.
-  It needs macOS `date` and `find`.
+Nothing upgrades the pinned binary on its own. `.github/workflows/github-mcp-pin-check.yml` runs every Monday
+and compares the version pinned in the first paragraph above with the latest release and with the reviewed
+advisories on `github.com/github/github-mcp-server` that affect it. When the pin is behind or an advisory applies,
+it opens one issue, `github-mcp-server pin is out of date` (or updates it), and closes it once the pin is
+current. The workflow reads the `pinned at **vX.Y.Z**` text in the first paragraph, so an upgrade PR updates it too;
+if that text is missing or the GitHub API fails, the run fails, so a change shows as a red run, not as silence.
 
 An upgrade repeats the download with the new tag and records the new hash in `server.sha256` in the same PR, after
 re-reading the tool snapshots
 (`pkg/github/__toolsnaps__/*.snap`) for renamed tools and new `method` values. A renamed tool or a new `method` value
 needs a `launch` and `guard.sh` change in the same PR, then the merge and the pull; the new binary goes into `bin/`
-(Install). Until the pin and the binary agree, the launcher refuses to start and the update check stays silent.
+(Install). Until the pin and the binary agree, the launcher refuses to start.
 
 ## Token rotation
 

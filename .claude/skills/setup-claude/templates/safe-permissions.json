@@ -229,17 +229,6 @@
         ]
       },
       {
-        "_comment": "Tells the user when the pinned github-mcp-server has a newer release or an applicable advisory: at most every 7 days a detached, tokenless curl compares them with the installed --version, and a pending notice shows as a systemMessage once a day. Never blocks (no permission decision, always exits 0).",
-        "matcher": "^mcp__github__.*$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/hooks/github-mcp-update-check.sh",
-            "timeout": 10
-          }
-        ]
-      },
-      {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__git-mcp__.*",
         "hooks": [
           {

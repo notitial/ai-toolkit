@@ -1,0 +1,44 @@
+name: GitHub MCP pin check
+
+# Weekly: opens or updates one issue when the github-mcp-server pinned in tools/github-mcp/README.md is behind the
+# latest release or has a published advisory, and closes it when neither holds. It manages only the issue the
+# Actions bot created, never one a user opened with the same title. Upgrade steps: that README, Upgrades.
+
+on:
+  schedule:
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency: github-mcp-pin-check
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pin=$(grep -m1 -oE 'pinned at \*\*v[0-9]+\.[0-9]+\.[0-9]+\*\*' tools/github-mcp/README.md | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          latest=$(gh api repos/github/github-mcp-server/releases/latest --jq .tag_name | grep -xE 'v[0-9]+\.[0-9]+\.[0-9]+')
+          latest=${latest#v}
+          mod=github.com/github/github-mcp-server
+          ids=$(gh api -X GET advisories -f type=reviewed -f ecosystem=go -f per_page=100 \
+            -f "affects=$mod@$pin,$mod/v2@$pin" \
+            --jq '[.[] | select(.withdrawn_at == null) | .ghsa_id | select(test("^GHSA-[0-9a-z-]+$"))] | join(" ")')
+          title='github-mcp-server pin is out of date'
+          n=$(gh issue list --state open --limit 200 --search 'author:app/github-actions' --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
+          if [ "$(printf '%s\n%s\n' "$pin" "$latest" | sort -V | tail -n 1)" != "$pin" ] || [ -n "$ids" ]; then
+            body="Pinned: v$pin. Latest release: v$latest. Advisories that affect the pin: ${ids:-none}. Steps: tools/github-mcp/README.md, Upgrades."
+            if [ -n "$n" ]; then gh issue edit "$n" --body "$body"; else gh issue create --title "$title" --body "$body"; fi
+          elif [ -n "$n" ]; then
+            gh issue close "$n" --comment "The pin is current."
+          fi

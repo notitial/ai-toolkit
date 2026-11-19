@@ -188,11 +188,10 @@ check "bad settings: links are still removed" '[ ! -L "$C/hooks/gh-block.sh" ]'
 
 # ---- runtime state
 mkhome
-mkdir -p "$C/.eta" "$H/.cache/mcp-github" "$H/.local/state/claude-statusline/limits"
+mkdir -p "$C/.eta" "$H/.local/state/claude-statusline/limits"
 echo x > "$H/.local/state/claude-statusline/limits/readings-x.json"
-echo x > "$C/.eta/records.jsonl"; echo x > "$H/.cache/mcp-github/checked"
+echo x > "$C/.eta/records.jsonl"
 run --apply
-check "state: the update-check cache is removed" '[ ! -e "$H/.cache/mcp-github" ]'
 check "state: the statusline readings folder is removed" '[ ! -e "$H/.local/state/claude-statusline" ]'
 check "state: the ASK item is kept (the ETA log)" '[ -f "$C/.eta/records.jsonl" ]'
 check "state: the ASK item is listed" 'grep -q "^ASK .*\.eta" "$T/out"'
@@ -404,10 +403,10 @@ check "links: a whole-folder link into the checkout is removed, the checkout is 
 
 # ---- a state folder reached through a symlink that leaves the home is not removed
 mkhome
-mkdir -p "$T/outside/mcp-github"; echo keep > "$T/outside/mcp-github/checked"
-ln -s "$T/outside" "$H/.cache"
+mkdir -p "$T/outside/state/claude-statusline"; echo keep > "$T/outside/state/claude-statusline/readings"
+ln -s "$T/outside" "$H/.local"
 run --apply
-check "outside: a path whose folder is a link out of the home is skipped, not removed" '[ -f "$T/outside/mcp-github/checked" ] && grep -q "SKIP .*outside the home" "$T/out"'
+check "outside: a path whose folder is a link out of the home is skipped, not removed" '[ -f "$T/outside/state/claude-statusline/readings" ] && grep -q "SKIP .*outside the home" "$T/out"'
 
 # ---- install-time settings: removed (with keys another installer added), a symlink kept; rendered autoMode lines go
 conf_fixture() { printf '%s\n' 'github_write_owners=example-user' 'github_keychain_account=example-user' 'github_username=example-user' > "$C/install.conf"; chmod 600 "$C/install.conf"; }

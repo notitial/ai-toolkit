@@ -27,7 +27,6 @@ printf 'guard\n' > "$R/tools/github-mcp/guard.sh"
 printf '#!/bin/sh\n' > "$T/github-mcp-server"
 (cd "$T" && /usr/bin/shasum -a 256 github-mcp-server) > "$R/tools/github-mcp/server.sha256"
 printf 'echo guard-suite\n' > "$R/tools/github-mcp/test-guard.sh"
-printf 'echo update-suite\n' > "$R/tools/github-mcp/test-update-check.sh"
 git init -q -b main "$R"
 git init -q --bare -b main "$T/origin.git"
 git -C "$R" remote add origin "$T/origin.git"
@@ -56,7 +55,6 @@ out=$(z 'ait; pwd')
 expect_has "ait changes to the checkout" "$out" "$R"
 out=$(z ghm-test)
 expect_has "ghm-test runs the guard suite" "$out" "guard-suite"
-expect_has "ghm-test runs the update-check suite" "$out" "update-suite"
 out=$(z ait-status)
 expect_has "ait-status runs install-copies.sh status" "$out" "links "
 
