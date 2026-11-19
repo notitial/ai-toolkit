@@ -363,7 +363,7 @@ curl_bundle_O() {
 # applied cd, pushd and popd to CWD, and read bash -c and eval strings.
 on_command() {
   local verb a i n w idx start
-  sp_lc "$1"  # a case-insensitive file system runs RM and Cp
+  sp_lc "$1"  # a case-insensitive file system runs RM too
   verb=$SP_LC
   shift
   case "$verb" in
@@ -684,14 +684,21 @@ git_tool() {
 # sub_guard <command text>: a substitution ($( ), backticks, <( ), >( ), =( ), in a string or a nested -c string too) runs a
 # command the text does not show, and where its group ends is a guess the parser can get wrong on text bash itself reads
 # differently (a `)` in a case pattern, a quote or paren inside backticks). So the parse is not trusted around one: the text
-# is denied when it could touch a protected place, whatever the parser made of its words. Could touch, read fail-closed: a
-# word names a protected place in a spelling judge_target resolves (absolute, ~, $HOME, also behind a short option as in
-# -C/dir, or a relative one with `..`; quotes and backslashes dropped first), or the session runs in a protected folder (or
-# in ~/.claude) and the text holds a write verb or a redirect. Cost: such a text that only reads a protected file, a heredoc
-# or string that only names one or a word that is a verb name ("find the cause"), a redirect sign anywhere (`->`, `$((a>b))`)
-# and a write verb from a protected folder are denied too. Not gated: ${ cmd; } and a path assembled at run time.
+# is denied when it could touch a protected place, whatever the parser made of its words. The text is read with quotes,
+# backslashes and line continuations dropped first (`$''(`, `$\<newline>(` still open a substitution). Could touch, read
+# fail-closed: a word names a protected place in a spelling judge_target resolves (absolute, ~, $HOME, also behind a short
+# option as in -C/dir, or relative with `..`), or the session runs in a protected folder (or in ~/.claude) and the text holds
+# a write verb or a redirect. With a write verb in the text every word is judged, as a path from the session folder and as
+# something removed or moved (`rm -rf ~/.claude`, `cp f ~/.claude/` after a substitution). Cost: such a text that only
+# reads a protected file, a heredoc or string that only names one or a word that is a verb name ("find the cause"), a
+# redirect sign anywhere (`->`, `$((a>b))`), a write verb from a protected folder, and a write verb next to a bare `~` or `/`
+# are denied too. Not gated: ${ cmd; } and a path assembled at run time.
 sub_guard() {
-  local t=$1 rd w c wr=0 inprot=0
+  local t=$1 rd w c wr=0 inprot=0 pw=()
+  t=${t//\\$'\n'/}
+  t=${t//\$\'/\'}
+  t=${t//\$\"/\"}
+  t=${t//[\"\'\\]/}
   case "$t" in *'$('* | *'`'* | *'<('* | *'>('* | *'=('*) ;; *) return 0 ;; esac
   rd=${t//>&[0-9-]/}
   rd=${rd//>>[ ]\/dev\/null/}
@@ -699,14 +706,14 @@ sub_guard() {
   rd=${rd//>[ ]\/dev\/null/}
   rd=${rd//>\/dev\/null/}
   case "$rd" in *'>'*) wr=1 ;; esac
-  t=${t//[\"\'\\]/}
   t=${t//'$('/ }  # `rm$(x)` and `$(x)rm` still show their verb
   t=${t//[ $'\t;|&<>()`=:']/$'\n'}
   while IFS= read -r w; do
     case "$w" in
-      /* | '~'* | '$HOME'* | '${HOME}'* | *..*) judge_target "$w" "a command that holds a substitution (not read reliably)" ;;
-      -[A-Za-z]/* | -[A-Za-z]'~'* | -[A-Za-z]'$HOME'* | -[A-Za-z]'${HOME}'*) judge_target "${w#-?}" "a command that holds a substitution (not read reliably)" ;;
+      -[A-Za-z]/* | -[A-Za-z]'~'* | -[A-Za-z]'$HOME'* | -[A-Za-z]'${HOME}'*) w=${w#-?} ;;
+      -* | "") continue ;;
     esac
+    pw[${#pw[@]}]=$w
     sp_lc "$w"
     case "$SP_LC" in
       rm | rmdir | unlink | shred | touch | mkdir | chmod | chown | chgrp | truncate | tee | mv | cp | install | ln | rsync | dd | patch | sed | perl | tar | unzip | curl | wget | find | xargs) wr=1 ;;
@@ -714,6 +721,17 @@ sub_guard() {
   done <<EOF
 $t
 EOF
+  for w in "${pw[@]}"; do
+    if [ "$wr" = 1 ]; then
+      ANC=1
+      judge_target "$w" "a command that holds a substitution and a write verb (not read reliably)"
+      ANC=0
+    else
+      case "$w" in
+        /* | '~'* | '$HOME'* | '${HOME}'* | *..*) judge_target "$w" "a command that holds a substitution (not read reliably)" ;;
+      esac
+    fi
+  done
   [ "$wr" = 1 ] || return 0
   c=$(phys_any "$SESSION_CWD")
   [ "$(lower "$c")" = "$LHOME_R/.claude" ] && deny "a command that holds a substitution and writes (or may) would run in ~/.claude, and the substitution is not read reliably. Run it from a clone under /tmp, or put the substitution in its own call and write with plain paths."

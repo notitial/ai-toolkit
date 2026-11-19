@@ -17,8 +17,10 @@
 # interpreter that runs git (python -c, make), a shell fed by a pipe (echo git push | sh), a wrapper the parser does
 # not know (chronic, ...), ssh, a string nested more than 3 bash -c deep, a git binary called by its dashed name (git-push), and config that runs a program set through
 # the environment or a config file (GIT_CONFIG_*) in front of help, cat-file or describe.
-# A command that holds a substitution where the subcommand should be (git -C "$(pwd)" push) has no readable subcommand
-# and is denied; so is git -c, which can set a config that runs a program.
+# A command that holds a substitution where the subcommand should be (git $(echo push)) has no readable subcommand and is
+# denied; a quoted substitution as an option's value (git -C "$(pwd)" rev-parse) is just a word, an unquoted one (it
+# can split into more options: git -C $(echo . -c x=y) help) is denied. git -c is denied too: it can set a config that
+# runs a program.
 
 HOOK=git-mcp-redirect
 S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
@@ -88,8 +90,9 @@ on_command() {
   shift
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      -C|--git-dir|--work-tree) shift; shift ;;
-      --git-dir=*|--work-tree=*|--no-pager|--paginate|-P|-p) shift ;;
+      -C|--git-dir|--work-tree) case "${2:-}" in *'$(..)'*) unclassifiable ;; esac; shift; shift ;;
+      --git-dir=*|--work-tree=*) case "$1" in *'$(..)'*) unclassifiable ;; esac; shift ;;
+      --no-pager|--paginate|-P|-p) shift ;;
       *) break ;;
     esac
   done
