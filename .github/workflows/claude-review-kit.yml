@@ -12,7 +12,7 @@
 #     github-actions summary), so this reviews each PR once. Fork PRs are skipped with a notice and pushes by
 #     Dependabot are skipped: their runs get no secrets, so the review would only fail. "@claude review" still works.
 #   - a comment starting with "@claude review" on an open PR, from someone with write access (`--mode rereview`).
-#     This follows up on open threads, reviews the whole PR again (even a draft), and reopens a fixed one that's back.
+#     This follows up on open threads, reviews the whole PR again (even a draft); a fixed issue that is back is a new finding.
 #     "@claude review --comments" (`--mode followup`) does the thread follow-up only, which is much cheaper. In both,
 #     Claude judges each open thread, and `publish` replies in the thread and resolves the ones Claude judged fixed.
 #     The comment text never reaches Claude: the mode is picked by a fixed startsWith() test and the prompt is fixed.
@@ -38,8 +38,8 @@
 # `appcheck` and `publish`, which run on GitHub-hosted runners by default, or on a dedicated pool that meets the rule
 # in the README (set the variable CLAUDE_REVIEW_KEY_RUNS_ON below); never on the runners of `preflight` and `review`.
 # The App has Pull requests: read and write and no other permission (no Contents), so it can comment and review but
-# never push. Resolving a thread needs contents: write (GitHub's rule for resolveReviewThread), so `publish` resolves,
-# and reopens, with its own GITHUB_TOKEN: the timeline shows "github-actions resolved this conversation".
+# never push. Resolving a thread needs contents: write (GitHub's rule for resolveReviewThread), so `publish` resolves
+# with its own GITHUB_TOKEN: the timeline shows "github-actions resolved this conversation".
 #
 # Verdict: `publish` decides it from Claude's result, never Claude, and it is a signal only. The App's review must
 # never satisfy a required review: scope any required reviews to people, or set the inputs changes-event and
@@ -300,7 +300,7 @@ jobs:
       # found no issues, whether it stopped as ineligible, the findings, one verdict per open thread it judged (comment
       # runs), and a short overview. Kept out of the `${{ }}` below, where its braces could end the expression. The limits keep the
       # result well under the 1 MiB `publish` accepts.
-      RESULT_SCHEMA: '{"type":"object","properties":{"no_issues":{"type":"boolean"},"stopped":{"type":"boolean"},"findings":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"path":{"type":"string","maxLength":512},"line":{"type":"integer"},"side":{"type":"string","enum":["LEFT","RIGHT"]},"start_line":{"type":"integer"},"start_side":{"type":"string","enum":["LEFT","RIGHT"]},"body":{"type":"string","maxLength":4000},"line_text":{"type":"string","maxLength":500},"reopens":{"type":"string","maxLength":200}},"required":["path","line","side","body","line_text"],"additionalProperties":false}},"threads":{"type":"array","maxItems":100,"items":{"type":"object","properties":{"thread_id":{"type":"string"},"verdict":{"type":"string","enum":["resolved","open"]},"reply":{"type":"string","maxLength":800}},"required":["thread_id","verdict","reply"],"additionalProperties":false}},"overview":{"type":"string","maxLength":600}},"required":["no_issues","stopped","findings","threads","overview"],"additionalProperties":false}'
+      RESULT_SCHEMA: '{"type":"object","properties":{"no_issues":{"type":"boolean"},"stopped":{"type":"boolean"},"findings":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"path":{"type":"string","maxLength":512},"line":{"type":"integer"},"side":{"type":"string","enum":["LEFT","RIGHT"]},"start_line":{"type":"integer"},"start_side":{"type":"string","enum":["LEFT","RIGHT"]},"body":{"type":"string","maxLength":4000},"line_text":{"type":"string","maxLength":500}},"required":["path","line","side","body","line_text"],"additionalProperties":false}},"threads":{"type":"array","maxItems":100,"items":{"type":"object","properties":{"thread_id":{"type":"string"},"verdict":{"type":"string","enum":["resolved","open"]},"reply":{"type":"string","maxLength":800}},"required":["thread_id","verdict","reply"],"additionalProperties":false}},"overview":{"type":"string","maxLength":600}},"required":["no_issues","stopped","findings","threads","overview"],"additionalProperties":false}'
     steps:
       # REVIEW_DIR is the folder Claude may read besides the checkout: the PR's details and diff, and in comment runs
       # the threads. It's set here because a job's own env can't use the runner context.
@@ -397,7 +397,7 @@ jobs:
           persist-credentials: false
 
       # Comment runs only. Writes the review's earlier threads to a file for the review command: `open` ones to judge (with
-      # replies, last comment id), `raised` ones (resolved, or not followable) as context a rereview may reopen. A thread is
+      # replies, last comment id), `raised` ones (unresolved but not followable) as context only. Resolved threads are left out. A thread is
       # the review's when the App (or claude[bot], before v2.4) started it. A moved PR: all context. Logs counts only.
       - name: Collect Claude's review threads
         id: collect
@@ -449,7 +449,7 @@ jobs:
 
       # Hands Claude's result to `publish`, which runs on another runner: the structured output of the transcript's
       # result message (read with jq from the execution file, never through an env var, which would cap it at
-      # 128 KiB), plus the collected thread ids (open ones with their last comment id, raised ones with `reopenable`), in a
+      # 128 KiB), plus the collected thread ids (open ones with their last comment id), in a
       # fresh mode-700 folder uploaded as an artifact for one day. No result (Claude stopped without one) uploads nothing, and
       # `publish` posts no verdict. Logs sizes only.
       - name: Save the result
@@ -472,7 +472,7 @@ jobs:
             exit 0
           fi
           if [ -f "$THREADS_FILE" ]; then
-            jq -c '{head_sha, open: [.open[] | {thread_id, last_comment_id}], raised: [(.raised // [])[] | {thread_id, reopenable}]}' "$THREADS_FILE" > "$dir/threads.json"
+            jq -c '{head_sha, open: [.open[] | {thread_id, last_comment_id}]}' "$THREADS_FILE" > "$dir/threads.json"
           fi
           echo "dir=$dir" >> "$GITHUB_OUTPUT"
 
@@ -516,7 +516,7 @@ jobs:
                  mode: $mode,
                  event: $event,
                  head_sha: ($head | if test("^[0-9a-f]{40}$") then . else null end),
-                 reviewer: "claude-pr-review@v3.4",
+                 reviewer: "claude-pr-review@v4.0",
                  action: "anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc",
                  total_cost_usd: ((.total_cost_usd | numbers) // null),
                  duration_ms: ((.duration_ms | numbers) // null),
@@ -565,7 +565,7 @@ jobs:
     runs-on: ${{ vars.CLAUDE_REVIEW_KEY_RUNS_ON != '' && fromJSON(vars.CLAUDE_REVIEW_KEY_RUNS_ON) || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
-      contents: write        # resolveReviewThread and unresolveReviewThread only (see above)
+      contents: write        # resolveReviewThread only (see above)
       pull-requests: write
     env:
       # The review's verdict events. COMMENT instead of REQUEST_CHANGES gives no blocking state; COMMENT instead of

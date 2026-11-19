@@ -12,7 +12,7 @@ MODES = ("initial", "rereview", "followup")
 RESULTS = ("clean", "issues", "stopped", "followup")
 SIDES = ("LEFT", "RIGHT")
 RESULT_KEYS = {"no_issues", "stopped", "findings", "threads", "overview"}
-FINDING_KEYS = {"path", "line", "side", "start_line", "start_side", "body", "line_text", "reopens"}
+FINDING_KEYS = {"path", "line", "side", "start_line", "start_side", "body", "line_text"}
 FINDING_MARK = "<!-- claude-review:finding -->"   # one per body finding: Claude's text can't contain it
 # Fences GitHub renders as something richer than code (diagrams, maps, 3D, math): their content is treated as prose.
 RICH_FENCES = {"mermaid", "geojson", "topojson", "stl", "math"}
@@ -77,7 +77,7 @@ class Ctx:
         self.approve_event = env.get("APPROVE_EVENT", "APPROVE")
         if self.changes_event not in ("REQUEST_CHANGES", "COMMENT") or self.approve_event not in ("APPROVE", "COMMENT"):
             sys.exit("::error::changes-event must be REQUEST_CHANGES or COMMENT, and approve-event APPROVE or COMMENT")
-        self.counts = Counter(replied=0, resolved=0, reopened=0, dismissed=0, inline=0, body=0, dropped=0,
+        self.counts = Counter(replied=0, resolved=0, dismissed=0, inline=0, body=0, dropped=0,
                               moved=0, skipped=0)
         self.reasons = Counter()
         self.failed = 0
@@ -286,8 +286,7 @@ def valid_finding(f):
             and is_str(f["body"], 4000)
             and ("start_line" not in f or is_int(f["start_line"]))
             and ("start_side" not in f or f["start_side"] in SIDES)
-            and ("line_text" not in f or is_str(f["line_text"], 500))
-            and ("reopens" not in f or is_str(f["reopens"], 200)))
+            and ("line_text" not in f or is_str(f["line_text"], 500)))
 
 
 def valid_thread(t):
@@ -493,95 +492,6 @@ def resolve_threads(ctx, ids):
             ctx.counts["resolved"] += 1
         except ERRORS as e:
             ctx.fail("Resolving a thread", e)
-
-
-# --- Reopen (a rereview finding whose issue was fixed and is back) ---
-
-REOPEN_NOTE = "Regressed: this was fixed earlier, and the current code has the issue again. "
-
-
-def reopen_threads(ctx, findings):
-    """For each finding Claude marked `reopens`, unresolves that thread (GITHUB_TOKEN, like resolve) and posts the
-    finding in it as the App. Only a thread `review` collected as reopenable at this head qualifies: one this
-    review started, resolved after this workflow's `resolved` reply for an earlier head. A `reopens` naming
-    another thread collected for this PR is dropped, since that thread already covers the issue (a person's
-    resolve stays). Any other one, and a failed reopen, posts as a new finding: better than a lost one. Returns
-    the findings still to post."""
-    if not any("reopens" in f for f in findings):
-        return findings
-    reopenable, collected_ids = set(), set()
-    try:
-        with open(ctx.env.get("THREADS_FILE", "")) as fh:
-            collected = json.load(fh)
-        if collected.get("head_sha") == ctx.head:
-            raised = collected.get("raised", [])
-            reopenable = {t["thread_id"] for t in raised if t.get("reopenable") is True}
-            collected_ids = {t["thread_id"] for t in collected.get("open", []) + raised}
-    except (OSError, ValueError, TypeError, KeyError, AttributeError) as e:
-        ctx.fail("Reading the collected threads", e)
-    left, done, forbidden = [], set(), False
-    for f in findings:
-        thread_id = f.get("reopens")
-        if thread_id is None:
-            left.append(f)
-            continue
-        if thread_id in done or (thread_id in collected_ids and thread_id not in reopenable):
-            ctx.skip("regression already covered by its thread")
-            continue
-        if thread_id not in reopenable or forbidden:
-            ctx.skip("regression posted as a new finding")
-            left.append(f)
-            continue
-        done.add(thread_id)
-        unresolved = False
-        try:
-            node = gql(ctx, THREAD, {"id": thread_id})["node"]
-            if (not node or not node["first"]["nodes"] or not node["last"]["nodes"] or not on_this_pr(ctx, node)
-                    or not started_by_claude(ctx, node["first"]["nodes"][0])):
-                ctx.skip("regression's thread gone or not Claude's")
-                left.append(f)
-                continue
-            last = node["last"]["nodes"][0]
-            if marker_verdict(ctx, last, ctx.head) == ("open", "rereview"):
-                # This workflow already reopened it for this head: a re-run counts it and posts nothing. If it
-                # was resolved again since, a person did that, and their resolve stays.
-                if node["isResolved"]:
-                    ctx.skip("regression resolved again by a person")
-                else:
-                    ctx.counts["reopened"] += 1
-                continue
-            m = FOLLOWUP_MARKER.search(last.get("body") or "") if by_this_workflow(ctx, last) else None
-            if not node["isResolved"] or not (m and m.group(1) == "resolved" and m.group(2) != ctx.head):
-                ctx.skip("regression's thread changed since it was collected")
-                left.append(f)
-                continue
-            try:
-                gql(ctx, "mutation($id: ID!) { unresolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }",
-                    {"id": thread_id}, token=ctx.gh_token)
-            except RuntimeError as e:
-                if isinstance(e, ApiError) or "FORBIDDEN" not in str(e):
-                    raise
-                print("contents: write isn't enough to reopen: regressions post as new findings")
-                ctx.skip("reopening not permitted")
-                forbidden = True
-                left.append(f)
-                continue
-            unresolved = True
-            first_id = int(node["first"]["nodes"][0]["fullDatabaseId"])
-            rest(ctx, "POST", f"/repos/{ctx.repo}/pulls/{ctx.number}/comments/{first_id}/replies",
-                 {"body": reply_text(ctx, REOPEN_NOTE + f["body"], "open", ctx.head)})
-            ctx.counts["reopened"] += 1
-        except ERRORS as e:
-            ctx.fail("Reopening a thread", e)
-            if unresolved:
-                # Resolve it back, so the thread doesn't sit open under the old "fixed" reply.
-                try:
-                    gql(ctx, "mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }",
-                        {"id": thread_id}, token=ctx.gh_token)
-                except ERRORS as e2:
-                    ctx.fail("Resolving a thread back", e2)
-            left.append(f)
-    return left
 
 
 THREADS = """
@@ -881,10 +791,6 @@ def overview_text(ctx, st):
     parts = [f"{SUMMARY_PREFIX}sha={ctx.head} result={st['result']} -->\n"
              f"### Claude review · `{ctx.head[:7]}` · {ctx.mode}",
              f"**Result:** {st['line']}"]
-    reopened = ctx.counts["reopened"]
-    if reopened:
-        parts.append(f"**Regressions:** {reopened} resolved thread{'s' if reopened != 1 else ''} reopened: "
-                     f"the issue is back in the current code.")
     parts += ctx.stale
     if st["fallback"]:
         parts += finding_items(st["fallback"], BODY_BUDGET - 4000)
@@ -1002,9 +908,6 @@ def publish(ctx):
         to_resolve += reply_in_threads(ctx, data["threads"])
     if to_resolve:
         resolve_threads(ctx, to_resolve)
-    # A regression reopens its old thread before the count, so the open thread asks for changes.
-    if findings and ctx.mode == "rereview":
-        findings = reopen_threads(ctx, findings)
     try:
         resolved, open_links = scan_threads(ctx)
     except ERRORS as e:
@@ -1050,8 +953,6 @@ def publish(ctx):
             decision, result, line = "approve", "clean", "No issues found."
         elif ctx.counts["dropped"]:
             decision, result, line = "none", "issues", "No finding named one of this PR's files. No verdict."
-        elif ctx.reasons["regression already covered by its thread"]:
-            decision, result, line = "none", "issues", "No new findings: Claude's are on resolved threads. No verdict."
         else:
             decision, result, line = "none", "issues", "No new findings, but this run couldn't finish its thread updates."
     else:
@@ -1235,7 +1136,7 @@ def main(env=None):
         c = ctx.counts
         summary = (f"Publish: {c['inline']} inline, {c['body']} in body, {c['dropped']} dropped, "
                    f"{c['moved']} moved, verdict {ctx.verdict}, "
-                   f"{c['replied']} replied, {c['resolved']} resolved, {c['reopened']} reopened, "
+                   f"{c['replied']} replied, {c['resolved']} resolved, "
                    f"{c['dismissed']} dismissed, "
                    f"{c['skipped']} skipped, {ctx.failed} failed")
         print(summary)

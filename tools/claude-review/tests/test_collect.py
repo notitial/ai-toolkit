@@ -67,29 +67,9 @@ class Collect(unittest.TestCase):
         resolved = self.gh.add_thread(bot(APP), "Fixed", resolved=True)
         outputs, threads = self.collect()
         self.assertEqual({t["thread_id"] for t in threads["open"]}, {app, legacy})
-        self.assertEqual(len(threads["raised"]), 1)
+        self.assertEqual(threads["raised"], [])   # resolved: no longer covers its issue, so a regression is a new finding
         self.assertNotIn("covered", outputs)
         self.assertNotIn(resolved, {t["thread_id"] for t in threads["open"]})
-        # v2.5: resolved by a person (no `resolved` reply from this workflow), so it isn't reopenable.
-        self.assertEqual((threads["raised"][0]["thread_id"], threads["raised"][0]["reopenable"]), (resolved, False))
-        self.assertNotIn("comments", threads["raised"][0])
-
-    def test_only_a_thread_this_workflow_resolved_at_an_earlier_head_is_reopenable(self):   # v2.5, review B2
-        fixed = self.gh.add_thread(bot(APP), "SQLi", resolved=True)
-        self.gh.thread_comment(fixed, user("dev"), "Fixed in abc.")
-        self.gh.thread_comment(fixed, bot(APP), marker("resolved", sha=OLD))
-        legacy = self.gh.add_thread(bot("claude"), "Old", resolved=True)
-        self.gh.thread_comment(legacy, bot("github-actions"), marker("resolved", sha=OLD))
-        at_head = self.gh.add_thread(bot(APP), "Now", resolved=True)
-        self.gh.thread_comment(at_head, bot(APP), marker("resolved"))
-        after = self.gh.add_thread(bot(APP), "Then", resolved=True)
-        self.gh.thread_comment(after, bot(APP), marker("resolved", sha=OLD))
-        self.gh.thread_comment(after, user("dev"), "Won't fix.")
-        forged = self.gh.add_thread(bot(APP), "Forged", resolved=True)
-        self.gh.thread_comment(forged, user("dev"), marker("resolved", sha=OLD))
-        raised = {t["thread_id"]: t for t in self.collect()[1]["raised"]}
-        self.assertEqual({t for t, r in raised.items() if r["reopenable"]}, {fixed, legacy})
-        self.assertEqual([c["body"] for c in raised[fixed]["comments"]][1], "Fixed in abc.")   # Claude sees the replies
 
     def test_open_reply_for_this_head_covers_and_resolved_reply_is_retried(self):
         replied = self.gh.add_thread(bot(APP), "x")
@@ -109,8 +89,8 @@ class Collect(unittest.TestCase):
         self.gh.add_thread(bot(APP), "x")
         self.gh.head = OLD
         outputs, threads = self.collect()
-        self.assertEqual((threads["open"], len(threads["raised"])), ([], 1))
-        self.assertIs(threads["raised"][0]["reopenable"], False)   # moved, not resolved: never reopened
+        self.assertEqual((threads["open"], len(threads["raised"])), ([], 1))   # context only: not followed up
+        self.assertEqual(set(threads["raised"][0]), {"thread_id", "path", "line", "issue"})
         self.assertNotIn("covered", outputs)
 
     def test_pending_thread_runs_claude_and_queues_no_retry(self):

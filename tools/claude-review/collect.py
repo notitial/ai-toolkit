@@ -88,13 +88,13 @@ for t in threads["nodes"]:
         continue
     too_long = t["comments"]["pageInfo"]["hasNextPage"]
     long_threads += too_long
+    if t["isResolved"]:
+        continue   # a resolved thread no longer covers its issue: if the issue is back, it is an ordinary new finding
     said = [{"author": who(c), "created_at": c["createdAt"], "body": c["body"]} for c in comments]
     m = ours(comments[-1])
-    if t["isResolved"] or moved or too_long:
-        # Reopenable (v2.5): resolved after this workflow's `resolved` reply for an earlier head, so it can regress.
-        ok = t["isResolved"] and not (moved or too_long) and bool(m) and m.group(1) == "resolved" and m.group(2) != head_sha
-        raised.append({"thread_id": t["id"], "reopenable": ok, "path": t["path"], "line": t["line"] or t["originalLine"],
-                       "issue": comments[0]["body"], **({"comments": said} if ok else {})})
+    if moved or too_long:
+        raised.append({"thread_id": t["id"], "path": t["path"], "line": t["line"] or t["originalLine"],
+                       "issue": comments[0]["body"]})
         continue
     open_threads.append({
         "thread_id": t["id"], "path": t["path"], "line": t["line"],
