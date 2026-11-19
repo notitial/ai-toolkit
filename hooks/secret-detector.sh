@@ -8,13 +8,15 @@
 # An exact example file name (.env.example, .env.sample, .env.template, .env.dist) may be read, searched and written.
 #
 # Reads JSON from stdin and prints a deny decision, or nothing to allow. Exit 0 always (`exit 1` if lib/hook-common.sh is
-# missing, which the `|| exit 2` wiring blocks).
+# missing, as is lib/shell-parse.sh, which the `|| exit 2` wiring blocks). For a command that names grep or rg, a control byte in
+# the text, or a shape the parser cannot read exactly (lib/shell-parse.sh lists them), is denied, and every heredoc body is read as a script.
 
 set -uo pipefail
 
 HOOK=secret-detector
 S=${BASH_SOURCE[0]}; [ -L "$S" ] && S=$(readlink "$S")
 . "${S%/*}/lib/hook-common.sh" && [ "${HOOK_COMMON_LOADED:-}" = 1 ] || exit 1
+. "${S%/*}/lib/shell-parse.sh" && [ "${SHELL_PARSE_LOADED:-}" = 1 ] || exit 1
 
 # Input that is not a JSON object cannot be scanned: deny. The audit row carries none of that input, only the cwd
 # and the tool name when jq can read them.
@@ -121,48 +123,55 @@ env_clean() {
     -e 's#(^|[[:space:]])--exclude(-dir)?[= ][^[:space:]]+#\1#g; s#(^|[[:space:]])(-g|--glob)[= ]+["'"'"']?![^[:space:]]+#\1#g'
 }
 
-# Segments of a command, one per line as "<words>\036<segment>": split at | ; & outside quotes, so a grep
-# pattern such as 'A|B' stays in its segment. In <words> a quoted string becomes its text when it holds no
-# space ('.' stays a path, --exclude='*.env*' a flag) and the word Q when it does (a pattern like "a . b").
-segments() {
-  printf '%s\n' "$1" | awk '
-    function flush() { if (raw ~ /[^ \t]/) printf "%s\036%s\n", words, raw; words = ""; raw = "" }
-    {
-      q = ""
-      for (i = 1; i <= length($0); i++) {
-        c = substr($0, i, 1)
-        if (q != "") {
-          if (c == q) { raw = raw q qs q; words = words ((qs == "" || qs ~ /[ \t]/) ? "Q" : qs); q = "" }
-          else qs = qs c
-        }
-        else if (c == "\047" || c == "\"") { q = c; qs = "" }
-        else if (c ~ /[|;&]/) flush()
-        else { raw = raw c; words = words c }
-      }
-      if (q != "") { raw = raw q qs; words = words "Q" }
-      flush()
-    }'
-}
-
-# recursive_env_search <words>: the segment runs a recursive grep, or an rg that also reads hidden or
-# ignored files. Whatever the path, it may read a .env below it, so it needs an exclude (checked by the caller).
-recursive_env_search() {
-  local w kind=""
-  set -f
-  for w in $(printf '%s' "$1" | tr '()`' '   '); do
-    if [ -z "$kind" ]; then
-      case "${w##*/}" in grep|egrep|fgrep) kind=grep ;; rg) kind=rg ;; esac
-      continue
-    fi
-    case "$kind/$w" in
-      grep/--recursive|grep/--dereference-recursive) set +f; return 0 ;;
-      grep/-[!-]*) case "$w" in *[rR]*) set +f; return 0 ;; esac ;;
-      rg/--hidden|rg/--no-ignore*|rg/--unrestricted|rg/-.|rg/-u|rg/-uu|rg/-uuu) set +f; return 0 ;;
+# on_command <words>: lib/shell-parse.sh hands every simple command of a Bash command here (quotes removed, wrappers
+# skipped, `sh -c` strings and $( ) read too). A recursive grep, or an rg that also reads hidden or ignored files, may read
+# a .env below whatever path it is given, so it needs an exclude: --exclude='*.env*' (grep), -g '!*.env*' (rg).
+# `.env*` is not enough: it misses <name>.env files such as prod.env, which ENVTOK treats as secret too.
+# A grep behind xargs or find -exec is read as a command of its own, a shell further along (docker exec c sh -c 'grep -r x .')
+# runs its string, and a grep or rg anywhere among a command's words (ssh h grep -r x ., gtimeout 5 grep -r x .) is judged from there.
+on_command() {
+  local kind="" a prev="" rec=0 ex=0
+  case "${1##*/}" in
+    grep | egrep | fgrep) kind=grep ;;
+    rg) kind=rg ;;
+    xargs) shift; sp_xargs "$@"; return 0 ;;
+    find)
+      shift
+      while [ "$#" -gt 0 ]; do
+        case "$1" in -exec | -execdir | -ok | -okdir) sp_command "${@:2}" ;; esac
+        shift
+      done
+      return 0 ;;
+    *)
+      shift
+      while [ "$#" -gt 0 ]; do
+        case "${1##*/}" in
+          sh | bash | zsh | dash | ksh | su) sp_command "$@"; break ;;
+          grep | egrep | fgrep | rg) on_command "$@"; break ;;
+        esac
+        shift
+      done
+      return 0 ;;
+  esac
+  shift
+  for a in "$@"; do
+    case "$a" in *[[:space:]]*) prev=$a; continue ;; esac  # a quoted pattern, not an option
+    case "$kind/$a" in
+      grep/--recursive | grep/--dereference-recursive) rec=1 ;;
+      grep/-[!-]*) case "$a" in *[rR]*) rec=1 ;; esac ;;
+      rg/--hidden | rg/--no-ignore* | rg/--unrestricted | rg/-. | rg/-u | rg/-uu | rg/-uuu) rec=1 ;;
     esac
+    case "$prev/$a" in
+      --exclude/'*.env*' | -g/'!*.env*' | --glob/'!*.env*') ex=1 ;;
+    esac
+    case "$a" in --exclude='*.env*' | -g='!*.env*' | --glob='!*.env*') ex=1 ;; esac
+    prev=$a
   done
-  set +f
-  return 1
+  [ "$rec" = 1 ] && [ "$ex" = 0 ] &&
+    deny "blocked recursive search over .env" "A recursive search may read .env files. Add --exclude='*.env*' (grep) or -g '!*.env*' (rg), or use the Grep tool."
+  return 0
 }
+on_redirect() { :; }
 
 # keychain_read <command>: prints a word when the command may print a Keychain secret, nothing otherwise.
 # Secret: `security find-generic-password` or `find-internet-password` (a prefix of 6+ characters counts, as the
@@ -249,16 +258,9 @@ if [ "$TOOL_NAME" = "Bash" ]; then
     deny "blocked .env write (redirection/tee/heredoc)" "Attempting to write to a .env file via redirection, tee, dd or heredoc. These files contain secrets and should not be modified by agents."
   fi
   if match_in -qE '(^|[^[:alnum:]_.-])(grep|egrep|fgrep|rg)[[:space:]]' "$CONTENT"; then
-    while IFS=$'\036' read -r words seg; do
-      recursive_env_search "$words" || continue
-      # Allowed when the segment excludes *.env* (grep --exclude, rg -g '!...'). `.env*` is not enough: it misses
-      # <name>.env files such as prod.env, which ENVTOK treats as secret too.
-      match_in -qE '(^|[[:space:]])--exclude[= ]["'"'"']?\*\.env\*["'"'"']?([[:space:]]|$)' "$seg" && continue
-      match_in -qE '(^|[[:space:]])(-g|--glob)[= ]+["'"'"']?!\*\.env\*["'"'"']?([[:space:]]|$)' "$seg" && continue
-      deny "blocked recursive search over .env" "A recursive search may read .env files. Add --exclude='*.env*' (grep) or -g '!*.env*' (rg), or use the Grep tool."
-    done <<EOF_SEGS
-$(segments "$CONTENT")
-EOF_SEGS
+    CWD=""
+    SP_ALL_HEREDOCS=1  # as in destructive-blocker: any heredoc body may be a script
+    shell_parse "$CONTENT"
   fi
 fi
 

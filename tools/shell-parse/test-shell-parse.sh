@@ -132,6 +132,16 @@ expect "a substitution that is the whole -c string is not read again" 'bash -c "
 PARSE_SET_U=1 expect "groups under set -u" '(a; b) c; echo "$(mk)" x; cp $(mk) y' 'C[/s] <a>' 'C[/s] <b>' 'C[/s] <c>' 'C[/s] <mk>' 'C[/s] <echo> <$(...)> <x>' 'C[/s] <mk>' 'C[/s] <cp> <$(..)> <y>'
 expect "a group the text leaves open gives back the words parked in front of it" 'cp x $(mk' 'C[/s] <mk>' 'C[/s] <cp> <x>'
 
+# a heredoc piped to a shell on the same line reaches that shell
+expect "heredoc piped to a shell" $'cat <<EOF | bash\nrm /x\nEOF' 'C[/s] <cat>' 'C[/s] <rm> </x>' 'C[/s] <bash>'
+expect "heredoc piped to a non-shell is skipped" $'cat <<EOF | wc\nrm /x\nEOF' 'C[/s] <cat>' 'C[/s] <wc>'
+SP_ALL_HEREDOCS=1 expect "opt-in: every heredoc body is a script" $'ssh h <<EOF\nrm /x\nEOF' 'C[/s] <ssh> <h>' 'C[/s] <rm> </x>'
+SP_ALL_HEREDOCS=1 expect "opt-in: a refused line drops only itself" $'ssh h <<EOF\necho done (in that case)\nrm /x\nEOF' 'C[/s] <ssh> <h>' 'C[/s] <rm> </x>'
+SP_ALL_HEREDOCS=1 expect "opt-in: a body of one refused line is skipped" $'cat <<EOF\nskip it (in that case).\nEOF' 'C[/s] <cat>'
+expect "a body does not reach a shell after &&" $'cat <<EOF > f && bash run.sh\nrm /x\nEOF' 'R[/s] <f>' 'C[/s] <cat>' 'C[/s] <bash> <run.sh>'
+expect "a body does not reach a shell after ;" $'cat <<EOF > f ; bash run.sh\nrm /x\nEOF' 'R[/s] <f>' 'C[/s] <cat>' 'C[/s] <bash> <run.sh>'
+expect "a body does not reach a shell after ||" $'cat <<EOF > f || bash run.sh\nrm /x\nEOF' 'R[/s] <f>' 'C[/s] <cat>' 'C[/s] <bash> <run.sh>'
+expect "without the opt-in a body for a non-shell is skipped" $'ssh h <<EOF\nrm /x\nEOF' 'C[/s] <ssh> <h>'
 # a group ends exactly at its ): a case pattern (whose ) ends nothing) or a ) inside ${x/)/} in a substitution is refused
 refuse "case in a substitution" 'echo $(case x in x) rm /p;; esac) y'
 refuse "case in a substitution, glued to the verb" 'echo$(case x in x) rm /p;; esac)'
@@ -170,6 +180,16 @@ expect "a plain substitution with parameter expansion reads normally" 'echo $(ec
 expect "the word case in a plain string is not a case" 'echo "case x" $(a)' 'C[/s] <a>' 'C[/s] <echo> <case x> <$(..)>'
 # nested strings
 expect "bash -c" 'bash -c "cd /n; a > f"; b' 'R[/n] <f>' 'C[/n] <a>' 'C[/s] <bash> <-c> <cd /n; a > f>' 'C[/s] <b>'
+# wrapper edges
+expect "time --" 'time -- rm /x' 'C[/s] <rm> </x>'
+expect "sudo -T" 'sudo -T 5 rm /x' 'C[/s] <rm> </x>'
+expect "eval --" 'eval -- "rm /x"' 'C[/s] <rm> </x>' 'C[/s] <eval> <--> <rm /x>'
+# options between -c and its string are not the string
+expect "bash -c --" 'bash -c -- "rm /x"' 'C[/s] <rm> </x>' 'C[/s] <bash> <-c> <--> <rm /x>'
+expect "bash -c -x" 'bash -c -x "rm /x"' 'C[/s] <rm> </x>' 'C[/s] <bash> <-c> <-x> <rm /x>'
+expect "sh -c -e" 'sh -c -e "rm /x"' 'C[/s] <rm> </x>' 'C[/s] <sh> <-c> <-e> <rm /x>'
+expect "bash -c -o pipefail" 'bash -c -o pipefail "rm /x"' 'C[/s] <rm> </x>' 'C[/s] <bash> <-c> <-o> <pipefail> <rm /x>'
+expect "bash -O extglob -c" 'bash -O extglob -c "rm /x"' 'C[/s] <rm> </x>' 'C[/s] <bash> <-O> <extglob> <-c> <rm /x>'
 expect "sh -ec and bash -lc" "sh -ec \"a\"; bash -lc 'b'" 'C[/s] <a>' 'C[/s] <sh> <-ec> <a>' 'C[/s] <b>' 'C[/s] <bash> <-lc> <b>'
 expect "eval" 'eval "x; y > z" w' 'C[/s] <x>' 'R[/s] <z>' 'C[/s] <y> <w>' 'C[/s] <eval> <x; y > z> <w>'
 expect "three levels are read, the fourth is not" 'bash -c "bash -c \"bash -c \\\"bash -c a\\\"\""' \

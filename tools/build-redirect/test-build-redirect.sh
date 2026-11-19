@@ -166,7 +166,7 @@ check pass "heredoc body after the shell one" $'bash <<A\nls\nA\ncat <<B\nswiftl
 check deny "escaped space then a hash is not a comment" $'cd My\\ #1 && xcodebuild -scheme App build'
 check deny "ANSI-C string with an escaped quote" $'echo $\'it\\\'s\'\nxcodebuild -scheme App build'
 check deny "heredoc body ending in a backslash does not hide the rest" $'cat <<\'EOF\' > f\nrun \\\nEOF\nxcodebuild -scheme App build'
-check deny "heredoc with no end line is scanned" $'cat <<EOF\nxcodebuild -scheme App build'
+check pass "heredoc with no end line feeds cat, it runs nothing" $'cat <<EOF\nxcodebuild -scheme App build'
 check pass "no build tool at all"          'ls -la'
 check pass "empty command"                 ''
 
@@ -197,18 +197,18 @@ out=$(withproj '{"tool_name":"Bash","cwd":".","tool_input":{"command":"xcodebuil
 if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: relative cwd falls back to CLAUDE_PROJECT_DIR: $out"; fi
 
 # The gaps the hook header names, pinned so the header stays true: change both together.
-check pass "known gap: time wrapper"       'time xcodebuild -scheme App build'
-check pass "known gap: nohup wrapper"      'nohup ./gradlew assembleDebug'
-check pass "known gap: xargs wrapper"      'echo x | xargs swiftlint lint'
-check pass "known gap: shell -c string"    "bash -c './gradlew assembleDebug'"
+check deny "time wrapper"                  'time xcodebuild -scheme App build'
+check deny "nohup wrapper"                 'nohup ./gradlew assembleDebug'
+check deny "xargs wrapper"                 'echo x | xargs swiftlint lint'
+check deny "shell -c string"               "bash -c './gradlew assembleDebug'"
 check pass "known gap: option value named clean" 'xcodebuild -scheme App -derivedDataPath clean'
 check pass "known gap: variable as the task" './gradlew $TASK'
 check pass "known gap: task abbreviation"  './gradlew aD'
 check pass "known gap: system gradle"      'gradle assembleDebug'
 check pass "known gap: spliced name"       'x"code"build -scheme App build'
-check pass "known gap: option after sudo"  'sudo -u x xcodebuild -scheme App build'
+check deny "option after sudo"             'sudo -u x xcodebuild -scheme App build'
 check pass "known gap: substitution in an unquoted heredoc" $'cat <<EOF\n$(xcodebuild -scheme App build)\nEOF'
-check pass "known gap: arithmetic shift as a heredoc" $'echo $((1<<n))\nxcodebuild -scheme App build\nn'
+check deny "arithmetic shift is no heredoc" $'echo $((1<<n))\nxcodebuild -scheme App build\nn'
 
 # Input that is not a JSON object passes, like empty input: the redirect is advisory.
 want() {  # want <deny|pass> <label> <stdin json>
@@ -237,6 +237,14 @@ fi
 out=$(bash_in 'xcodebuild -scheme App build' | env -u CLAUDE_PROJECT_DIR HOME="$T" PATH=/nonexistent "$SH" "$T/hooks/build-redirect.sh" 2>/dev/null)
 rc=$?
 if [ "$rc" = 0 ] && [ -z "$out" ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: no-jq fail-open (rc=$rc): $out"; fi
+
+# Fails open without the parser, and when the parser refuses the text (a control byte): nothing is denied.
+mv "$T/hooks/lib/shell-parse.sh" "$T/hooks/lib/shell-parse.sh.off"
+out=$(bash_in 'xcodebuild -scheme App build' | env -u CLAUDE_PROJECT_DIR HOME="$T" "$SH" "$T/hooks/build-redirect.sh" 2>/dev/null)
+rc=$?
+mv "$T/hooks/lib/shell-parse.sh.off" "$T/hooks/lib/shell-parse.sh"
+if [ "$rc" = 0 ] && [ -z "$out" ]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: no-parser fail-open (rc=$rc): $out"; fi
+check pass "a control byte the parser refuses fails open" $'xcodebuild -scheme App build\001'
 
 # A deny is recorded in the audit log under the input's cwd, tagged with this hook (only with the logger present).
 if [ "$HAVE_LOGGER" = 1 ]; then
