@@ -13,19 +13,19 @@ denies a post, give the user the `gh` command in a markdown code block instead.
 
 1. Open the PR as a draft (`create_pull_request` with `draft: true`). The review runs once, when the PR is marked
    ready, so a CI fix pushed after that means it saw broken or stale code. CI runs on drafts: poll
-   `pull_request_read` with `get_check_runs` every few minutes until every check outside the Claude review workflow
-   (CI, the secret scan, CodeQL) has concluded `success` on the current head. Fix a failure on the branch while it is
+   `pull_request_read` with `get_check_runs` every few minutes until every check outside the Claude review workflow (the
+   kit's checks are named `claude-review / ...`) (CI, the secret scan, CodeQL) has concluded `success` on the current head. Fix a failure on the branch while it is
    still a draft, then wait again. Only then mark it ready (`update_pull_request` with `draft: false`; the guard asks
    first, because it starts the paid run). If a required check stays queued for a long time, or a failure is outside
    the PR's scope, tell the user instead of marking it ready.
 2. Wait for the review (the runner may be queued): poll `pull_request_read` with `get_check_runs` every few minutes,
-   until the `Publish the review` run that started after you marked the PR ready completes (`Review PR` posts
+   until the `claude-review / Publish the review` run that started after you marked the PR ready completes (`Review PR` posts
    nothing; `publish` posts the findings). The draft phase left a `skipped` one on the same head: ignore it. The new
    run must conclude `success`: `skipped` means no review ran, so tell the user.
 3. Read the findings with `pull_request_read`: the reviewer App's inline comments (`get_review_comments`), the
    review body's "Not on a changed line" section (`get_reviews`) and the overview comment (`get_comments`, the one
    starting `<!-- claude-review:summary`). The App posts APPROVE or REQUEST_CHANGES. A review that did not finish
-   shows "No verdict" in the overview comment, or posts nothing at all for the head (a green `Publish the review`
+   shows "No verdict" in the overview comment, or posts nothing at all for the head (a green `claude-review / Publish the review`
    with no App review and no overview for it). Silence is never "no findings": tell the user. After a "No verdict"
    overview only a new full review runs it again; after nothing at all, the next push is reviewed afresh only if the
    App has never commented on the PR; otherwise ask the user.

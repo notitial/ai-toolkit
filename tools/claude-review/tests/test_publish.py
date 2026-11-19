@@ -857,6 +857,14 @@ class FoldBack(PublishCase):
     def test_cross_repo_until_known(self):   # F5
         self.assertIs(load_publish()["Ctx"](self.env).cross_repo, True)
 
+    def test_verdict_events_are_two_values_each(self):   # the kit's inputs changes-event and approve-event
+        Ctx = load_publish()["Ctx"]
+        for key, bad in (("CHANGES_EVENT", "APPROVE"), ("CHANGES_EVENT", ""), ("APPROVE_EVENT", "approve"),
+                         ("APPROVE_EVENT", "REQUEST_CHANGES")):
+            with self.subTest(key=key, value=bad), self.assertRaises(SystemExit):
+                Ctx(dict(self.env, **{key: bad}))
+        Ctx(dict(self.env, CHANGES_EVENT="COMMENT", APPROVE_EVENT="COMMENT"))
+
 
 class Regressions(PublishCase):
     """v2.5, live finding L7: a fixed issue that comes back reopens its old thread instead of being dropped."""

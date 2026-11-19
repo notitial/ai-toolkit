@@ -40,7 +40,7 @@ class PatchCommand(unittest.TestCase):
 
 class WorkflowSettings(unittest.TestCase):
     def test_reads_the_kit_workflow(self):
-        s = replay.workflow_settings((KIT / "claude-review.yml").read_text())
+        s = replay.workflow_settings(replay.WORKFLOW.read_text())
         self.assertEqual(s["allowed"], "Agent,Task")
         self.assertIn("Bash", s["disallowed"].split(","))
         self.assertEqual(json.loads(s["schema"])["required"], ["no_issues", "stopped", "findings", "threads", "overview"])
@@ -137,7 +137,7 @@ class ContextEdgeCases(unittest.TestCase):
 
 class Command(unittest.TestCase):
     def test_tool_limits_and_model_reach_the_claude_command(self):
-        s = replay.workflow_settings((KIT / "claude-review.yml").read_text())
+        s = replay.workflow_settings(replay.WORKFLOW.read_text())
         cmd = replay.claude_command(s, pathlib.Path("/ctx"), "/claude-pr-review x", "sonnet")
         self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
         self.assertEqual(cmd[cmd.index("--allowedTools") + 1], "Agent,Task")

@@ -9,6 +9,7 @@ Nothing is posted anywhere. See README.md next to this file.
 import argparse, datetime, gzip, hashlib, json, os, pathlib, re, shutil, subprocess, sys
 
 KIT = pathlib.Path(__file__).resolve().parent.parent
+WORKFLOW = KIT.parents[1] / ".github" / "workflows" / "claude-review-kit.yml"   # the reusable workflow
 # 7.4's model line: "- Model: `opus` for <kinds> candidate; `sonnet` for <kinds> candidate." The first model is the one patched,
 # whichever kinds the command gives it (the line was reworded when the defect verifier moved to sonnet).
 VERIFIER_LINE = re.compile(r"^(- Model: )`opus`( for [^`\n]*candidate; `[a-z0-9.-]+` for )", re.M)
@@ -204,7 +205,7 @@ def main(argv=None):
     p.add_argument("--base", default="auto", help="the PR's base commit, or auto: the merge base with the default branch")
     p.add_argument("--head", required=True, help="the PR head commit (refs/pull/N/head must contain it)")
     p.add_argument("--command", default=str(KIT / "claude-pr-review.md"), help="the review command file")
-    p.add_argument("--workflow", default=str(KIT / "claude-review.yml"), help="the workflow to take tool limits from")
+    p.add_argument("--workflow", default=str(WORKFLOW), help="the workflow to take tool limits from")
     p.add_argument("--verifier-model", help="run the 7.4 defect, interaction, security and failure-path verifiers on this model")
     p.add_argument("--model", default="sonnet", help="the lead's model; CI's main session runs on sonnet (default)")
     p.add_argument("--arm", default="asis", help="label for the results file")
