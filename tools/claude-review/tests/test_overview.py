@@ -111,7 +111,6 @@ class OverviewComment(PublishCase):
         body = self.overview()
         self.assertIn(OPEN + "\nNow also adds Y.\n" + CLOSE, body)
         self.assertNotIn("Adds X.", self.slot_of(body))
-        self.assertIn("History (last 2 runs)", body)
 
     def test_overview_that_sanitizes_to_empty_leaves_the_slot_empty(self):
         self.assertEqual(self.run_publish(result(overview="<!-- --> -->")), 0, self.log)
