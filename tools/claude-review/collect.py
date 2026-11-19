@@ -1,11 +1,10 @@
 import json, os, re, sys, urllib.request
 
-# This workflow's own markers, for the current head only (one review per branch state, below). A summary
-# marker without `result=` is from before v2.4, when it was only posted for a clean review.
+# This workflow's own markers, for the current head only (one review per branch state, below).
 FOLLOWUP_MARKER = re.compile(
     r"<!-- claude-review:followup verdict=(resolved|open) sha=([0-9a-f]{40})(?: mode=(rereview|followup))? -->")
 SUMMARY_MARKER = re.compile(
-    r"<!-- claude-review:summary sha=([0-9a-f]{40})(?: result=(clean|issues|stopped|followup))? -->")
+    r"<!-- claude-review:summary sha=([0-9a-f]{40}) result=(clean|issues|stopped|followup) -->")
 APP_LOGIN = os.environ["APP_LOGIN"]
 
 QUERY = """
@@ -76,20 +75,19 @@ if moved:
     print("The PR moved after the checkout: no thread is followed up in this run")
 
 def ours(c):
-    """A marker this workflow posted (author the App, or github-actions before v2.4), or None."""
-    return (author(c) in (("Bot", APP_LOGIN), ("Bot", "github-actions"))
-            and (FOLLOWUP_MARKER.search(c.get("body") or "") or None))
+    """A marker this workflow posted (author the App), or None."""
+    return (author(c) == ("Bot", APP_LOGIN) and (FOLLOWUP_MARKER.search(c.get("body") or "") or None))
 
 mode = os.environ["REVIEW_MODE"]
 open_threads, raised, long_threads, pending, retry = [], [], 0, 0, []
 for t in threads["nodes"]:
     comments = t["comments"]["nodes"]
-    if not comments or author(comments[0]) not in (("Bot", APP_LOGIN), ("Bot", "claude")):
+    if not comments or author(comments[0]) != ("Bot", APP_LOGIN):
         continue
-    too_long = t["comments"]["pageInfo"]["hasNextPage"]
-    long_threads += too_long
     if t["isResolved"]:
         continue   # a resolved thread no longer covers its issue: if the issue is back, it is an ordinary new finding
+    too_long = t["comments"]["pageInfo"]["hasNextPage"]
+    long_threads += too_long
     said = [{"author": who(c), "created_at": c["createdAt"], "body": c["body"]} for c in comments]
     m = ours(comments[-1])
     if moved or too_long:
@@ -117,10 +115,9 @@ with open(os.environ["THREADS_FILE"], "w") as f:
 print(f"Claude's threads: {len(open_threads)} open to follow up, {len(raised)} as context ({long_threads} too long to follow)")
 
 def summarised():
-    """This head already has a clean overview from the App (or a legacy no-findings summary)."""
-    return any((c.get("user") or {}).get("login") in (APP_LOGIN + "[bot]", "github-actions[bot]")
-               and (m := SUMMARY_MARKER.search(c.get("body") or "")) and m.group(1) == head_sha
-               and m.group(2) in (None, "clean")
+    """This head already has a clean overview from the App."""
+    return any((c.get("user") or {}).get("login") == APP_LOGIN + "[bot]"
+               and (m := SUMMARY_MARKER.search(c.get("body") or "")) and m.group(1, 2) == (head_sha, "clean")
                for c in issue_comments())
 
 # One review per branch state: skip Claude when this head was already covered. That is when every open

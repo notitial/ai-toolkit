@@ -13,6 +13,7 @@ FROZEN = HERE.parent / "claude-review.yml"       # v3.4, the vendored copy for r
 COMMAND = HERE.parent / "claude-pr-review.md"
 COLLECT = HERE.parent / "collect.py"             # the review job's thread collection (a script: run it as __main__)
 PUBLISH = HERE.parent / "publish.py"             # the publish job's script
+SCHEMA = HERE.parent / "reviewer" / "result-schema.json"   # Claude's result schema, for `review` and `publish`
 
 
 def load_publish():

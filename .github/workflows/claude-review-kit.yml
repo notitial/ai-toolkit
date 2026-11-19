@@ -296,11 +296,6 @@ jobs:
       # Claude's tools, the same in every mode: none of them can post. Read, Glob and Grep need no allow rule inside
       # the checkout and REVIEW_DIR, and must not get a bare one (that allows every path).
       TOOLS: 'Agent,Task'
-      # What every run returns (Claude gets it through --json-schema; the command describes the fields): whether it
-      # found no issues, whether it stopped as ineligible, the findings, one verdict per open thread it judged (comment
-      # runs), and a short overview. Kept out of the `${{ }}` below, where its braces could end the expression. The limits keep the
-      # result well under the 1 MiB `publish` accepts.
-      RESULT_SCHEMA: '{"type":"object","properties":{"no_issues":{"type":"boolean"},"stopped":{"type":"boolean"},"findings":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"path":{"type":"string","maxLength":512},"line":{"type":"integer"},"side":{"type":"string","enum":["LEFT","RIGHT"]},"start_line":{"type":"integer"},"start_side":{"type":"string","enum":["LEFT","RIGHT"]},"body":{"type":"string","maxLength":4000},"line_text":{"type":"string","maxLength":500}},"required":["path","line","side","body","line_text"],"additionalProperties":false}},"threads":{"type":"array","maxItems":100,"items":{"type":"object","properties":{"thread_id":{"type":"string"},"verdict":{"type":"string","enum":["resolved","open"]},"reply":{"type":"string","maxLength":800}},"required":["thread_id","verdict","reply"],"additionalProperties":false}},"overview":{"type":"string","maxLength":600}},"required":["no_issues","stopped","findings","threads","overview"],"additionalProperties":false}'
     steps:
       # REVIEW_DIR is the folder Claude may read besides the checkout: the PR's details and diff, and in comment runs
       # the threads. It's set here because a job's own env can't use the runner context.
@@ -392,13 +387,22 @@ jobs:
           sparse-checkout: |
             tools/claude-review/claude-pr-review.md
             tools/claude-review/collect.py
+            tools/claude-review/reviewer/result-schema.json
           sparse-checkout-cone-mode: false
           fetch-depth: 1
           persist-credentials: false
 
+      # What every run returns, from the kit's schema file (publish checks the result against the same file): whether it
+      # found no issues, whether it stopped as ineligible, the findings, one verdict per open thread it judged (comment
+      # runs), and a short overview. Claude gets it through --json-schema, as one line from the env; the file has no
+      # single quote, which a test checks. The limits keep the result well under the 1 MiB `publish` accepts.
+      - name: Load the result schema
+        if: steps.regate.outputs.skip != 'true'
+        run: echo "RESULT_SCHEMA=$(jq -c . .claude-review-kit/tools/claude-review/reviewer/result-schema.json)" >> "$GITHUB_ENV"
+
       # Comment runs only. Writes the review's earlier threads to a file for the review command: `open` ones to judge (with
       # replies, last comment id), `raised` ones (unresolved but not followable) as context only. Resolved threads are left out. A thread is
-      # the review's when the App (or claude[bot], before v2.4) started it. A moved PR: all context. Logs counts only.
+      # the review's when the App started it. A moved PR: all context. Logs counts only.
       - name: Collect Claude's review threads
         id: collect
         if: github.event_name == 'issue_comment'
@@ -600,7 +604,9 @@ jobs:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha || 'job.workflow_sha-was-empty' }}
           path: .claude-review-kit
-          sparse-checkout: tools/claude-review/publish.py
+          sparse-checkout: |
+            tools/claude-review/publish.py
+            tools/claude-review/reviewer/result-schema.json
           sparse-checkout-cone-mode: false
           fetch-depth: 1
           persist-credentials: false

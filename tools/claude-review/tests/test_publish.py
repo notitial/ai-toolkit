@@ -1,5 +1,5 @@
 """The `publish` script against a fake GitHub: the verdict table, idempotency, retries, dismissal, the overview
-comment, thread replies and resolve, and the legacy (v2.3) authors."""
+comment, thread replies and resolve."""
 import contextlib, io, json, os, pathlib, re, tempfile, unittest
 from unittest import mock
 
@@ -17,7 +17,7 @@ def result(**kw):
 
 
 def finding(path="src/a.py", line=2, side="RIGHT", body="Off by one.", **kw):
-    return {"path": path, "line": line, "side": side, "body": body, **kw}
+    return {"path": path, "line": line, "side": side, "body": body, "line_text": "", **kw}
 
 
 def followup_marker(verdict, sha=HEAD, mode="followup"):
@@ -406,6 +406,23 @@ class Overview(PublishCase):
         self.assertNotIn("<details>", body)
 
 
+class SchemaSubset(unittest.TestCase):
+    """`conforms` checks a result against the schema file; it resolves a local $ref, which later schemas use."""
+
+    def test_ref_and_the_keywords_the_schema_uses(self):
+        conforms = load_publish()["conforms"]
+        schema = {"type": "object", "required": ["a"], "properties": {
+            "a": {"type": "array", "maxItems": 2, "items": {"$ref": "#/$defs/item"}}}, "$defs": {
+            "item": {"type": "object", "required": ["n"], "properties": {
+                "n": {"type": "integer"}, "s": {"type": "string", "maxLength": 3, "enum": ["x", "yy"]}}}}}
+        good = {"a": [{"n": 1, "s": "yy"}, {"n": 2}]}
+        self.assertTrue(conforms(schema, good, schema))
+        for bad in ({}, {"a": [{"n": 1}] * 3}, {"a": [{"n": True}]}, {"a": [{}]}, {"a": [{"n": 1, "s": "z"}]},
+                    {"a": [{"n": 1, "extra": 1}]}, {"a": [], "b": 1}, {"a": {}}, []):
+            with self.subTest(bad=bad):
+                self.assertFalse(conforms(schema, bad, schema))
+
+
 class ResultChecks(PublishCase):
     def assert_nothing_posted(self):
         self.assertEqual(self.gh.app_reviews(), [])
@@ -431,6 +448,9 @@ class ResultChecks(PublishCase):
             result(findings=[finding(line=True)]),
             result(findings=[finding(body="x" * 4001)]),
             result(findings=[finding()] * 9),
+            result(findings=[{k: v for k, v in finding().items() if k != "line_text"}]),   # the schema requires it
+            result(findings=[finding(start_line="2")]),
+            result(threads=[{"thread_id": "t", "verdict": "open"}]),
             result(overview="x" * 601),
             result(threads=[{"thread_id": "t", "verdict": "maybe", "reply": ""}]),
         ]
@@ -503,21 +523,16 @@ class ThreadsAndMigration(PublishCase):
         self.assertEqual(self.gh.tokens("resolve"), {GH_TOKEN})
         self.assertIn("Follow-up: 1 resolved, 0 still open.", self.overview())
 
-    def test_legacy_claude_thread_is_replied_to_by_the_app_and_resolved(self):
-        tid = self.gh.add_thread(bot("claude"), "Legacy finding.")
-        last = int(self.gh.threads[tid]["comments"][-1]["fullDatabaseId"])
-        res = result(no_issues=False, threads=[{"thread_id": tid, "verdict": "resolved", "reply": "Fixed."}])
-        self.run_publish(res, {"head_sha": HEAD, "open": [{"thread_id": tid, "last_comment_id": last}]}, MODE="followup")
-        self.assertEqual(self.gh.threads[tid]["comments"][-1]["author"], bot(APP))
-        self.assertTrue(self.gh.threads[tid]["isResolved"])
-
-    def test_pending_legacy_resolved_marker_still_resolves_on_retry(self):
-        tid = self.gh.add_thread(bot("claude"), "Legacy finding.")
-        self.gh.thread_comment(tid, bot("github-actions"), followup_marker("resolved"))
-        rc = self.run_publish(HAS_RESULT="false", RAN="false", MODE="followup", RETRY_IDS=json.dumps([tid]))
-        self.assertEqual(rc, 0, self.log)
-        self.assertTrue(self.gh.threads[tid]["isResolved"])
-        self.assertIn("result=followup", self.overview())
+    def test_legacy_authors_are_not_this_reviews_threads_or_markers(self):
+        legacy = self.gh.add_thread(bot("claude"), "Legacy finding.")
+        last = int(self.gh.threads[legacy]["comments"][-1]["fullDatabaseId"])
+        res = result(no_issues=False, threads=[{"thread_id": legacy, "verdict": "resolved", "reply": "Fixed."}])
+        self.run_publish(res, {"head_sha": HEAD, "open": [{"thread_id": legacy, "last_comment_id": last}]}, MODE="followup")
+        self.assertEqual(len(self.gh.threads[legacy]["comments"]), 1)   # no reply: not a thread the App started
+        mine = self.open_app_thread()
+        self.gh.thread_comment(mine, bot("github-actions"), followup_marker("resolved"))
+        self.run_publish(HAS_RESULT="false", RAN="false", MODE="followup", RETRY_IDS=json.dumps([mine]))
+        self.assertFalse(self.gh.threads[mine]["isResolved"])   # a legacy reply is not this workflow's marker
 
     def test_resolve_refuses_threads_it_did_not_start_or_mark(self):
         theirs = self.gh.add_thread(user("someone"), "A person's thread.")

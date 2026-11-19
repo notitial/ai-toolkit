@@ -116,7 +116,7 @@ class Sanitizer(unittest.TestCase):
     def test_reply_text_escapes_dollar(self):   # F4: inline math can't wrap a span in a reply either
         import types
         out = self.ns["reply_text"](types.SimpleNamespace(mode="followup"), "$`\\href{https://e}{x}`$", "open", "a" * 40)
-        self.assertIn("\\$\\`", out)
+        self.assertIn("\\$`\\href", out)   # the span is kept as code, the `$` around it is escaped
         self.assertNotIn(" $", out.replace("\\$", ""))
 
 

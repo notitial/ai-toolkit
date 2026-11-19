@@ -258,7 +258,7 @@ jobs:
   workflow file (`job.workflow_sha`), so a caller pinned to a SHA runs that SHA's scripts. Nothing to install.
 - **The command** (`claude-pr-review.md` in this folder) comes from the same checkout: `review` checks it out with
   `collect.py` and the prompt names the file, so there is no `.claude/commands/` copy to install or keep in step. The
-  result schema is in the workflow only (`RESULT_SCHEMA`, passed as `--json-schema`). The command keeps its
+  result schema is in the kit's `reviewer/result-schema.json` only (`review` passes it as `--json-schema`, `publish` checks the result against it). The command keeps its
   frontmatter and its `$ARGUMENTS` placeholder, which only the frozen v3.4 needs (it runs the command as a slash
   command); both go with that file. This command is v4.0's and no longer pairs with v3.4: a repo on v3.4 keeps the
   command copy it has.
@@ -564,8 +564,9 @@ Don't loosen any of this when adapting the files.
   thread recount) or a resolve that finished in the re-run changed the state, the overview and the review keep what
   they said until the next request.
 - **A body finding's heading shows Claude's line number** even when its line text didn't match.
-- Legacy authors (`claude[bot]` threads, the `github-actions[bot]` summary) are still trusted by the gates, for PRs
-  reviewed by v2.3: remove once no repo using the kit has an open PR reviewed by v2.3.
+- **A PR reviewed by v2.3 or earlier is reviewed again:** `collect` and `publish` trust only the App's threads, replies
+  and overview, so a `claude[bot]` thread or a `github-actions[bot]` summary covers nothing. The `preflight` and `review`
+  gates still count those authors, so an automatic review of such a PR is skipped; ask with `@claude review`.
 
 ## Upkeep
 
