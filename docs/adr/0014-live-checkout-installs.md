@@ -36,8 +36,8 @@ edit). Nothing is owned by root and nothing needs `sudo`.
   and with every route from `.git/config` to a command switched off. The routes found so far: filters, fsmonitor,
   hooks, a pager, a lazy fetch, every transport, external diff and textconv.
 - **Pinned binary.** The server binary is not tracked. Its hash is, in `tools/github-mcp/server.sha256`, reviewed like
-  code. The launcher compares the binary to it before it reads the token, and the update-check hook runs the binary
-  only when it matches the pin committed at `main`'s `HEAD`.
+  code. The launcher compares the binary to it before it reads the token, and a weekly workflow
+  (`.github/workflows/github-mcp-pin-check.yml`) compares the pinned version with the latest release.
 - **Fail closed.** The guard's hook command is `/bin/bash -p '<checkout>/tools/github-mcp/guard.sh' || exit 2`, so a
   guard that cannot start blocks the call. The launcher refuses a checkout path that `/setup-claude` writes no guard
   hook for.

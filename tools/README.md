@@ -19,7 +19,7 @@ Scripts and their tests. `/setup-claude` links a few into `~/.claude/` (the stat
 Which suite to run after a change (`bash tools/test-all.sh NAME` runs one; keep this list in step with its `suite` lines), all under `tools/`:
 
 - `tools/gh-block/` — `bash tools/gh-block/test-gh-block.sh` after changing `hooks/gh-block.sh`.
-- `tools/github-mcp/` — `bash tools/github-mcp/test-guard.sh` after changing `guard.sh` or `launch`; `bash tools/github-mcp/test-update-check.sh` after changing `hooks/github-mcp-update-check.sh`.
+- `tools/github-mcp/` — `bash tools/github-mcp/test-guard.sh` after changing `guard.sh` or `launch`.
 - `tools/ait.zsh`, `tools/accounts.zsh`, `tools/shell-init.zsh` — `bash tools/test-ait.sh` after changing any of them (needs zsh). `tools/install-copies.sh` `status` and `accounts` are in that suite too.
 - `tools/install-copies.sh` — `bash tools/test-install-copies.sh` after changing it (its `accounts` parser and account status lines are tested by `bash tools/test-ait.sh`).
 - `tools/statusline.sh` — `bash tools/test-statusline.sh` after changing it; it also checks `rate_color_for` against `tools/pace-vectors.tsv` (regenerate with `bash tools/gen-pace-vectors.sh > tools/pace-vectors.tsv` when the colour maths changes).
