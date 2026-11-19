@@ -8,7 +8,11 @@
 # FAIL-CLOSED: without jq, on input that is not a JSON object, or without lib/hook-common.sh or lib/shell-parse.sh (or with
 # either empty or cut short) it denies or exits 1, which the `|| exit 2` wiring turns into a block. Runs on bash 3.2.
 #
-# Known gaps (a guard against mistakes, not a sandbox): a git name built at run time ($g push, an alias), a script or
+# THE NET: every `git` word in the raw text must have been read as a git command, else deny (see the end of this file).
+# So a shape the parser misreads or a wrapper it does not know is denied when git is named; the price is a deny for git
+# named as plain text (grep git, which git, a heredoc or message that says git).
+#
+# Known gaps (a guard against mistakes, not a sandbox; the net narrows these to shapes that do not name git as a word): a git name built at run time ($g push, an alias), a script or
 # interpreter that runs git (python -c, make), a shell that reads its script from stdin (bash <<EOF), a wrapper the
 # parser does not know (xcrun, arch, watch, ...), a shell function body, ssh, `env -S 'git ...'`, a string nested more
 # than 3 bash -c deep, a git binary called by its dashed name (git-push), and config that runs a program set through
@@ -58,7 +62,7 @@ on_command() {
   local verb
   verb=$(printf '%s' "${1##*/}" | tr '[:upper:]' '[:lower:]')  # a case-insensitive file system runs GIT and XARGS too
   case "$verb" in
-    git) ;;
+    git) GITS=$((GITS + 1)) ;;
     xargs) shift; sp_xargs "$@"; return 0 ;;
     find)  # the words after each -exec/-execdir/-ok/-okdir are a command of their own
       shift
@@ -91,5 +95,16 @@ on_command() {
 on_redirect() { :; }
 
 CWD=""
+GITS=0
 shell_parse "$COMMAND"
+
+# The net: the parser can lose its place (an escaped quote in $'...', << inside $(( )), a heredoc fed to a shell) or not
+# know a wrapper (SUDO, nohup -f, su --command), and then it reports no git command. So every `git` word in the raw
+# text (a whole token: .git, git-notes, /usr/bin/git, ~/git and gitk are not one) must have been read as a git command.
+# More words than commands means one was not: deny. It also denies a git word that is only text (grep git, which git,
+# echo "run git push", a heredoc naming git); the reason says what to use instead.
+SHOWN=$(printf '%s' "$COMMAND" | LC_ALL=C tr -cs '[:alnum:]_./-' '\n' | grep -ciE '^git$')
+if [ "$SHOWN" -gt "$GITS" ]; then
+  deny "a git word the parser did not read as a git command" "This command names git ($SHOWN times) but only $GITS of them were read as a git command, so it cannot be checked. Use the MCP git tools (mcp__git-mcp__git_*) for git; for a search use the Grep or Read tools; do not name git in other commands, heredocs or messages."
+fi
 exit 0

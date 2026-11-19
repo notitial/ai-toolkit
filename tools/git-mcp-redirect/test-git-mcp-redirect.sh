@@ -69,12 +69,20 @@ check deny "symbolic-ref retarget"         'git symbolic-ref HEAD refs/heads/oth
 check deny "symbolic-ref delete"           'git symbolic-ref -d HEAD'
 
 check pass "no git at all"                 'ls -la'
-check pass "git inside an echo string"     'echo "run git push later"'
-check pass "git as an echo argument"       'echo git push'
-check pass "git in a --reason value"       'tool --reason "why git push is blocked"'
-check pass "git as a grep argument"        'grep git README.md'
+# The net denies a git word that is only text: an accepted false deny, the reason points to the Grep and Read tools.
+check deny "accepted: git inside an echo string" 'echo "run git push later"'
+check deny "accepted: git as an echo argument" 'echo git push'
+check deny "accepted: git in a --reason value" 'tool --reason "why git push is blocked"'
+check deny "accepted: git as a grep argument" 'grep git README.md'
+check deny "accepted: which git"           'which git'
+check deny "accepted: command -v git"      'command -v git'
+reason_has "the net's reason names the Grep tool" 'grep git README.md' "Grep or Read"
 check pass "gitk is not git"               'gitk --all'
 check pass "a path containing git"         'ls docs/git-notes'
+check pass "a .git folder"                 'ls -a .git'
+check pass "a folder named git under a path" 'ls ~/git'
+check pass "a --git-dir option name"       'git rev-parse --git-dir'
+check pass "an absolute git path, plumbing" '/usr/bin/git rev-parse HEAD'
 check pass "empty command"                 ''
 
 check deny "after &&"                      'cd repo && git push'
@@ -126,7 +134,7 @@ check deny "option after timeout"          'timeout -s KILL 5 git push'
 check deny "nice wrapper"                  'nice -n 5 git push'
 check deny "find -exec"                    'find . -name x -exec git reset --hard \;'
 check deny "find -execdir after another -exec" 'find . -exec echo {} \; -execdir git clean -fd {} +'
-check pass "find -exec of a plain command" 'find . -name x -exec grep git {} +'
+check deny "accepted: find -exec grep git" 'find . -name x -exec grep git {} +'
 check pass "find -exec of plumbing"        'find . -maxdepth 2 -exec git -C {} rev-parse HEAD \;'
 check deny "doas wrapper"                  'doas -u x git push'
 check deny "caffeinate wrapper"            'caffeinate -i -t 60 git push'
@@ -149,9 +157,24 @@ check deny "git after a heredoc body"      $'cat <<EOF\ntext\nEOF\ngit push'
 check deny "git in a subshell, cd first"   '(cd x && git -C . push --force)'
 check deny "git in a quoted-arg command substitution" 'echo "$(git status)"'
 check deny "git in a variable assignment"  'D=$(git status)'
-check pass "git in a heredoc body"         $'cat <<EOF\ngit push\nEOF'
-check pass "git in a comment"              'ls # git push'
-check pass "git as xargs data"             'echo git | xargs echo'
+check deny "accepted: git in a heredoc body" $'cat <<EOF\ngit push\nEOF'
+check deny "accepted: git in a comment"    'ls # git push'
+check deny "accepted: git as xargs data"   'echo git | xargs echo'
+
+# The net: shapes the parser misreads or does not know, found because git is named (review findings, PR 109). Each of
+# these reaches no on_command with git; only the raw word count denies it.
+check deny "net: upper-case wrapper"       'SUDO git push --force origin main'
+check deny "net: upper-case env"           'ENV git reset --hard HEAD~1'
+check deny "net: upper-case shell -c"      "Bash -c 'git push --force'"
+check deny "net: nohup with --"            'nohup -- git push --force origin main'
+check deny "net: setsid -f"                'setsid -f git reset --hard'
+check deny "net: setsid -w"                'setsid -w git reset --hard'
+check deny "net: doas -a"                  'doas -a style git clean -fdx'
+check deny "net: su --command="            "su --command='git reset --hard' root"
+check deny "net: su --command word"        "su root --command 'git push --force origin main'"
+check deny "net: escaped quote in \$'...'" $'printf $\'it\\\'s\\n\'; git push --force origin main'
+check deny "net: << inside \$(( ))"        $'n=$((1<<3))\ngit reset --hard HEAD~3'
+check deny "net: git after an unknown wrapper" 'xcrun git push --force'
 check deny "-c is not skipped (it can run a command)" "git -c core.fsmonitor=x rev-parse HEAD"
 check deny "-c with ; in the value"        "git -c 'a=b;c' status"
 check deny "git alone"                     'git'
