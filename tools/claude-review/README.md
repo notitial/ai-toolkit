@@ -29,7 +29,7 @@ minimum is 9. v4.0 (2026-11-19; breaking): a fixed issue that comes back is an o
 thread. `publish` no longer unresolves anything: resolving a thread is the only write it makes with its
 `GITHUB_TOKEN`. `collect` leaves resolved threads out of the threads file, and the result schema loses the `reopens`
 key. When Claude finds the bug again, it is a new finding, so the review is REQUEST_CHANGES. A repo that moved to the
-reusable kit gets this by pinning the new SHA; a repo on the frozen v3.4 copy keeps the old behaviour. v3.4 (2026-11-17; as a reusable workflow, 2026-11-19, with no behaviour change): the review step runs with `--permission-mode default`. Since `claude-code-action` v1.0.273 a
+reusable kit got this by pinning the new SHA (callers now use `@main`); a repo on the frozen v3.4 copy keeps the old behaviour. v3.4 (2026-11-17; as a reusable workflow, 2026-11-19, with no behaviour change): the review step runs with `--permission-mode default`. Since `claude-code-action` v1.0.273 a
 session that has a prompt starts in auto mode, where a tool call no allow rule covers can be approved by a safety
 review; `default` refuses it, so `--allowedTools` stays a strict list. The deny list, review command, findings format and
 modes are unchanged. v3.3 (2026-11-10): the two jobs that hold the App key, `appcheck` and `publish`, may run on a dedicated
@@ -266,8 +266,9 @@ jobs:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 ```
 
-- **Call `@main`**: a kit change reaches every caller when it merges, and a kit PR is tested first by its own review
-  (below). To roll a bad kit change back, revert its PR. This repo calls its own copy by a local path
+- **Call `@main`**: a kit change reaches every caller when it merges. Before that, CI runs the kit's tests and the kit
+  PR's own review runs its edited copy (below); a break that shows only in another repo's call is not caught first.
+  Write access to the kit's `main` reaches every caller's keys. To roll a bad change back, merge a revert of its PR. This repo calls its own copy by a local path
   (`uses: ./.github/workflows/claude-review-kit.yml`, the caller's own commit), because a SHA of a file in the same PR
   cannot exist yet and a PR that edits the review has always been reviewed by its own edited copy.
 - **Inputs** (all optional, in a `with:` block): `runs-on`, a JSON array of labels for `preflight` and `review`

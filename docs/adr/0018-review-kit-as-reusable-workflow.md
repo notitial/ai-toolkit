@@ -55,14 +55,15 @@ whose clean-up would remove it. A step in `review` fails the run if the PR itsel
 aim the checkout's clean-up elsewhere), and an empty `job.workflow_sha` falls back to a ref that fails rather than to
 the kit's default branch.
 
-**A SHA pin is not needed for this.** A local `./` call takes the kit "from the same commit as the caller", so the
+**The scripts need no SHA pin of their own.** A local `./` call takes the kit "from the same commit as the caller", so the
 scripts come from the commit the inline code came from. On `pull_request` that is the PR's merge commit: a PR that
 edits a script runs its own edit, as it ran its own inline code, and as editing the caller already allows (the
 residual below). On `issue_comment`, the event a person other than the author can trigger, GitHub runs the default
 branch's caller, so the scripts are main's. A `uses:` SHA would not change who can edit the scripts a PR runs,
 since a same-repo PR can edit that line too, and fork and Dependabot runs get no secrets (and fork PRs never reach
-`publish`). For a caller in another repo, `job.workflow_sha` is the commit of the kit's main the run resolved when it
-started; the scripts use it rather than `main`, so a merge during a run cannot give it scripts from a later commit.
+`publish`). For a caller in another repo, `job.workflow_sha` is the commit of the kit's main the run resolved (a run records one
+SHA per referenced workflow, its `referenced_workflows`); the scripts use it rather than `main`, so a merge during a
+run should not give a later job scripts from a later commit.
 
 **Migration.** The vendored workflow, `tools/claude-review/claude-review.yml`, is frozen at v3.4, with its SHA row,
 for repos that have not moved; it is deleted once none uses it. This record covers the first step: the kit moves,
@@ -90,10 +91,13 @@ as orientation, and is not a rule source when the PR changes it). Claude's envir
 - A same-repo PR can still edit the caller and run any code with the keys. This is the residual ADR 0013 already
   accepts; the `uses:` line is now what such a PR would edit.
 - Amended 2026-11-20: callers use `@main`, not a commit SHA. Why: a SHA pin left one line to bump in every repo after
-  each kit change, and repos drifted onto different versions. Cost: a bad kit merge reaches every caller at once. The
-  guard is the kit PR itself: in this repo its `pull_request` run reviews it with its own edited copy, and CI runs the
-  kit's tests, before it merges. A comment run in this repo uses main's workflow, as before. Rollback: revert the kit
-  PR; every caller runs the reverted kit from its next run, with nothing to change in the repos.
+  each kit change, and repos drifted onto different versions. Cost: a bad kit merge reaches every caller at once, and
+  write access to the kit's `main` now reaches every caller's App key and Claude credential (a pin limited that to the
+  callers that chose to bump). Guard: the kit's tests, a required check, and the kit PR's own review, which runs its
+  edited copy through this repo's local call; that review is a signal, not a required check, and a break that shows
+  only in another repo's call (its inputs, secrets, `vars` or permissions) is not caught before the merge. A comment
+  run in this repo uses main's workflow, as before. Rollback: merge a revert of the kit PR; runs already started finish
+  on the old commit, every later run takes the revert, and nothing changes in the repos.
 - A repo's required-check names change: a called job reports as `<caller job id> / <job name>`.
 - ADR 0015's byte-identical-copies model still holds for the build kit; the review kit no longer follows it.
 - The verdict inputs are checked in `publish` (two accepted values each), since a called workflow has no choice type.
@@ -108,5 +112,5 @@ as orientation, and is not a rule source when the PR changes it). Claude's envir
   `job.workflow_sha` resolved to this repository and the commit of the called workflow file, which for the local call
   is the PR's merge commit; the sparse checkout of one script by commit SHA worked and the script ran from it. Not
   yet seen: a call from another repository, where the value is the kit's commit and a local call
-  cannot tell it from the caller's own; and Claude reading the command from the kit's file (a plain prompt that names it, instead of a slash command) under
+  cannot tell it from the caller's own, and where `review` and `publish` of one `@main` run should log the same SHA; and Claude reading the command from the kit's file (a plain prompt that names it, instead of a slash command) under
   `--permission-mode default`: the first live run of the third step, which is the PR's own review, is the test.

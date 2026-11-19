@@ -28,6 +28,8 @@ the ai-toolkit path.
 The caller calls the kit's default branch, `main`, so a kit change reaches the repo when it merges. Read the released
 kit, never work in progress:
 
+- Fetch, and check that local `main` equals `origin/main` (git MCP `git_log` of `main..origin/main` and
+  `origin/main..main` both empty): the caller runs the pushed `main`, so a stale or unpushed one would describe another kit.
 - Read `tools/claude-review/README.md` and `.github/workflows/claude-review-kit.yml` from the default branch
   (`git show main:<file>` via git MCP), not from the working tree, which may be on a feature branch.
 - Record the kit repo's `<owner>/<name>` from its git remote. The kit repo must be one the calling repo's
@@ -192,8 +194,9 @@ gh variable set CLAUDE_REVIEW_KEY_RUNS_ON -R <owner/repo> --body '["<label>","<l
    them to run `gh variable list` and `gh secret list`, names only, given in a code block) and CI is green.
 5. The first review is the live test. Check:
    - all four kit jobs start on the intended runners;
-   - in `publish`'s log, the step "Check out the kit's scripts" shows the kit repo as its repository and a commit
-     of its `main` as its ref;
+   - in the logs of `review` and `publish`, the step "Check out the kit's scripts" shows the kit repo as its
+     repository and the same full SHA as its ref, the one the run's `referenced_workflows` entry records for the kit
+     (github MCP `actions_get` on the run);
    - the review posts as the App, with the one credential mapped (the kit's other credential input is empty, which
      the README lists as unverified).
 
