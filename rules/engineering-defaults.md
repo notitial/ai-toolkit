@@ -3,7 +3,7 @@
 Default quality bar for all code changes: change discipline, sourcing values, and runtime robustness.
 
 ## Minimal Changes
-Make the smallest change that fully solves the task. Touch the fewest files needed. Avoid unrelated formatting, renames, or refactors. Reuse existing helpers and components. Keep interfaces stable unless breaking changes are explicitly required.
+Minimal means the least code left to maintain and a tight task scope, not the smallest diff. Prefer the change that removes lines over the one that adds them; for a fix, see `rules/workflow.md`, Fixing a Failure. This is not code golf: clarity, tests and input validation still count. Stay inside the task: no unrelated formatting, renames or refactors. Reuse existing helpers and components. Keep interfaces stable unless breaking changes are explicitly required.
 
 ## No Hardcoding
 Never hardcode values to match expected output. Trace the real source of truth (data sources, configuration, APIs, databases, environment variables, constants). Hardcoding is only acceptable when explicitly requested or as a temporary diagnostic step removed before final output.

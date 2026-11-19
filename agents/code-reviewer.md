@@ -16,6 +16,7 @@ You review staged or recent code changes for quality issues. Your scope is the w
 Focus areas:
 - Unclear or inconsistent naming
 - Duplicated logic that should be extracted
+- A fix that adds a special case (a branch, flag or guard for one symptom) where folding it into the general path, or deleting code, would do: read the general path it sits beside
 - Missing or incorrect error handling
 - Patterns inconsistent with the rest of the codebase
 - Logic bugs or edge cases

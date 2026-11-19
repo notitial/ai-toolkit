@@ -73,7 +73,7 @@ When a PR branch falls behind `main`, update it by merging `main` into the branc
 A review/fix loop needs a terminal state that is not "escalate." This is load-bearing, so it lives in this loaded rule; full rationale is in the toolkit's `docs/11-convergence.md` and `docs/10-reviews.md`, which nothing loads at session start.
 
 - **Re-review cap: 2 cycles per ticket, flat** — it never scales with waves or sub-tasks (a bigger ticket mints no extra budget). Plan and code reviews counted separately. This is the single canonical number; skills and project `CLAUDE.md` reference it, never restate a different one.
-- **A regression stops the loop** — more or worse findings after a fix than before it → stop; do not give the same class a third chance. By the 3rd round on one class, name the generator, don't patch the next instance.
+- **A regression stops the loop** — more or worse findings after a fix than before it → stop; do not give the same class a third chance (Fixing a Failure, below).
 - **A finding is filed, not necessarily fixed** — a real defect that no released version can reach yet is filed with an owner and tied to the release that makes it reachable; it does not block the current merge. Written the same caveat twice? You have already judged it non-blocking.
 - **At the cap / a 2nd consecutive NO-GO / a regression, decide — don't loop:** ship the reachable-and-verified part with the finding filed as a release-gated follow-up, revert the wave, or ask one scoped question with a named default. An escalation doc listing ways to keep fixing is not a terminal state.
 
@@ -90,3 +90,13 @@ For state changes:
 - Are there race conditions between sync and async updates?
 
 If you can't describe the full execution path from trigger to outcome using specific line numbers, you haven't verified the change.
+
+## Fixing a Failure
+A bug, a failed check or a review finding is evidence about the design, not a request for a patch where it showed. Aim for less code to write and maintain, not more.
+
+- **Analyse before proposing.** Trace the whole path from trigger to outcome (Verification by Tracing, above). Name the cause: the design choice that let the failure happen, not the line where it surfaced. Check where else that cause bites.
+- **Subtract first.** Fold the special case into the general path, delete a duplicate, or replace a branch with a correct default. A new branch, flag or guard for one symptom is the last resort: argue why nothing simpler works.
+- **The proposal shows** the cause, the options weighed (a subtractive one among them) and the net lines added and removed. A small fix says it in one sentence.
+- **A rejected proposal moves a level up**, to the design and then to the spec. Never answer it with a sibling patch at the same level. By the third round on one class of failure, name what generates the class and fix that, not the next instance.
+- **A design split by kind decides its default.** Say what a case that matches no kind gets, before building the kinds.
+- **Brief a root-cause or review subagent with the evidence and the spec, not your conclusion.** An agent handed your framing returns it confirmed.
