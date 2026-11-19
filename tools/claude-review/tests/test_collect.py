@@ -1,10 +1,10 @@
 """The `review` job's "Collect Claude's review threads" script: which threads it follows up, and when it skips Claude
 because this head is already covered. The App and the legacy authors (claude[bot], github-actions) both count."""
-import contextlib, io, json, os, pathlib, tempfile, unittest
+import contextlib, io, json, os, pathlib, runpy, tempfile, unittest
 from unittest import mock
 
 from github_fake import API, APP, GH_TOKEN, GRAPHQL, FakeGitHub, bot, user
-from workflow import script
+from workflow import COLLECT
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -30,7 +30,7 @@ class Collect(unittest.TestCase):
         log = io.StringIO()
         with mock.patch.dict(os.environ, env), mock.patch("urllib.request.urlopen", self.gh.urlopen), \
                 contextlib.redirect_stdout(log):
-            exec(compile(script("Collect Claude's review threads"), "collect.py", "exec"), {"__name__": "__main__"})
+            runpy.run_path(str(COLLECT), run_name="__main__")
         self.log = log.getvalue()
         outputs = dict(line.split("=", 1) for line in out.read_text().splitlines())
         return outputs, json.loads((self.dir / "threads.json").read_text())

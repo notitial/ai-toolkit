@@ -45,11 +45,30 @@ local path keeps what a PR that edits the review has always done: it is reviewed
 repo pins the kit by full commit SHA (`uses: <owner>/ai-toolkit/.github/workflows/claude-review-kit.yml@<sha>`),
 so upgrading is one line.
 
+**Scripts.** The kit's Python is `collect.py` and `publish.py` in `tools/claude-review/`. `review` (comment runs) and
+`publish` check the kit out into `.claude-review-kit/` (sparse, their own script only, no credentials kept) at
+`job.workflow_repository` and `job.workflow_sha`, and run the script from there with `python3 -I`. In GitHub's `job`
+context those name the repository and commit of the workflow file that defines the job, so inside a called workflow
+they name the kit, not the caller. The PR checkout step is never a script source. The checkout lives under the
+workspace because `actions/checkout` cannot place a repository outside it; `review` takes it after the PR checkout,
+whose clean-up would remove it. A step in `review` fails the run if the PR itself holds that folder (a symlink could
+aim the checkout's clean-up elsewhere), and an empty `job.workflow_sha` falls back to a ref that fails rather than to
+the kit's default branch.
+
+**A SHA pin is not needed for this.** A local `./` call takes the kit "from the same commit as the caller", so the
+scripts come from the commit the inline code came from. On `pull_request` that is the PR's merge commit: a PR that
+edits a script runs its own edit, as it ran its own inline code, and as editing the caller already allows (the
+residual below). On `issue_comment`, the event a person other than the author can trigger, GitHub runs the default
+branch's caller, so the scripts are main's. A `uses:` SHA would not change who can edit the scripts a PR runs,
+since a same-repo PR can edit that line too, and fork and Dependabot runs get no secrets (and fork PRs never reach
+`publish`). The pin matters for a caller in another repo, where `job.workflow_sha` is the pinned commit instead of
+the kit's default branch; that is why the scripts use it rather than `main`.
+
 **Migration.** The vendored workflow, `tools/claude-review/claude-review.yml`, is frozen at v3.4, with its SHA row,
 for repos that have not moved; it is deleted once none uses it. This record covers the first step: the kit moves,
-its behaviour does not change, and the scripts stay inline and the command stays installed in each repo. Later steps
-move the scripts into files run from a checkout of the kit at the pinned SHA, feed the command to the review from the
-kit, and simplify what `publish` posts. Each is its own PR and amends this record where it changes a rule.
+its behaviour does not change, and the command stays installed in each repo. The second step moved the scripts into
+files (above) with no change to them. Later steps feed the command to the review from the kit and simplify what
+`publish` posts. Each is its own PR and amends this record where it changes a rule.
 
 ## Consequences
 

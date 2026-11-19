@@ -1,10 +1,10 @@
-"""Static checks on the reusable kit workflow, this repo's caller of it and the command: YAML parses, inline Python
-compiles, the schema is in sync, and the security rules hold (no posting tool, no `${{ }}` in a `run:`, the App key only
+"""Static checks on the reusable kit workflow, this repo's caller of it and the command: YAML parses, the scripts
+compile and run from the kit's own checkout, the schema is in sync, and the security rules hold (no posting tool, no `${{ }}` in a `run:`, the App key only
 in `appcheck` and `publish`, whose runner is the optional key pool, every job's permissions declared and inside the
 caller's ceiling, the caller's credentials mapped by name, pinned actions)."""
 import json, re, unittest
 
-from workflow import CALLER, COMMAND, FROZEN, HERE, WORKFLOW, command_schema, heredocs, parse_yaml, triggers
+from workflow import CALLER, COLLECT, COMMAND, HERE, PUBLISH, WORKFLOW, command_schema, parse_yaml, triggers
 
 
 class Workflow(unittest.TestCase):
@@ -21,12 +21,35 @@ class Workflow(unittest.TestCase):
         self.need_yaml()
         self.assertEqual(list(self.wf["jobs"]), ["preflight", "appcheck", "review", "publish"])
 
-    def test_inline_python_compiles(self):
-        scripts = heredocs()
-        self.assertEqual([name for name, _ in scripts], ["Collect Claude's review threads", "Publish the review"])
-        for name, src in scripts:
-            with self.subTest(step=name):
-                compile(src, name, "exec")
+    def test_scripts_compile(self):
+        for path in (COLLECT, PUBLISH):
+            with self.subTest(script=path.name):
+                compile(path.read_text(encoding="utf-8"), path.name, "exec")
+
+    def test_scripts_run_from_the_kits_own_checkout(self):
+        # `review` (comment runs) and `publish` check the kit's scripts out at the commit of the workflow file that
+        # defines the job (a caller's pinned SHA, or its own commit for a local call), under the workspace, and run
+        # them from there, each job only its own script. `review` checks the PR out first: the PR checkout's clean-up would remove the kit's folder.
+        self.need_yaml()
+        self.assertEqual(re.findall(r"python3 -I (\S+)", self.text),
+                         [f".claude-review-kit/tools/claude-review/{n}" for n in ("collect.py", "publish.py")])
+        for job, script in (("review", "collect.py"), ("publish", "publish.py")):
+            steps = self.wf["jobs"][job]["steps"]
+            [checkout] = [s for s in steps if s.get("name") == "Check out the kit's scripts"]
+            self.assertEqual(checkout["with"]["repository"], "${{ job.workflow_repository }}")
+            # An empty sha must not fall back to the kit's default branch: the fallback is a ref that fails.
+            self.assertEqual(checkout["with"]["ref"], "${{ job.workflow_sha || 'job.workflow_sha-was-empty' }}")
+            self.assertEqual(checkout["with"]["path"], ".claude-review-kit")
+            self.assertIs(checkout["with"]["persist-credentials"], False)
+            [run] = [s for s in steps if script in s.get("run", "")]
+            self.assertLess(steps.index(checkout), steps.index(run))
+            self.assertEqual(checkout["if"], run["if"])   # review: comment runs only; publish: when it posts
+            self.assertIs(checkout["with"]["sparse-checkout-cone-mode"], False)   # cone mode takes folders, not files
+            self.assertEqual(checkout["with"]["sparse-checkout"], f"tools/claude-review/{script}")
+            if job == "review":   # the PR first, then a guard against the PR holding the kit's folder, then the kit
+                names = [s.get("name") for s in steps]
+                self.assertLess(names.index("Check out the PR"), names.index("Check the PR does not use the kit's folder"))
+                self.assertLess(names.index("Check the PR does not use the kit's folder"), steps.index(checkout))
 
     def test_schema_matches_the_command(self):
         self.need_yaml()
@@ -201,18 +224,6 @@ class Workflow(unittest.TestCase):
                 self.assertIn("permissions", spec)
                 for scope, level in spec["permissions"].items():
                     self.assertGreaterEqual(self.LEVEL[ceiling.get(scope, "none")], self.LEVEL[level], scope)
-
-    def test_the_kit_equals_the_frozen_v34_workflow_apart_from_the_reusable_edits(self):
-        # "No behaviour change", pinned: from `jobs:` on, the kit is the frozen vendored workflow except the runner
-        # input, the verdict-event inputs and the check on them. Delete this test with the frozen file.
-        kit = self.text[self.text.index("\njobs:\n"):]
-        frozen = FROZEN.read_text(encoding="utf-8")
-        frozen = frozen[frozen.index("\njobs:\n"):]
-        kit = kit.replace("${{ fromJSON(inputs.runs-on) }}", "ubuntu-latest")
-        kit = kit.replace("${{ inputs.changes-event }}", "REQUEST_CHANGES").replace("${{ inputs.approve-event }}", "APPROVE")
-        kit = "".join(ln for ln in kit.splitlines(True)
-                      if "self.changes_event not in" not in ln and "changes-event must be" not in ln)
-        self.assertEqual(kit, frozen)
 
     def test_the_kit_uses_only_the_three_declared_credentials(self):
         self.need_yaml()

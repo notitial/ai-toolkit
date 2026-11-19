@@ -39,7 +39,7 @@ format and modes, and an incomplete review now posts no verdict instead of appro
 `@claude review` reopens the thread of a fixed finding whose issue is back, instead of dropping it and approving.
 v2.4 (2026-10-23) made the review App-owned. v2.4 and v2.5 were tested end to end on a throwaway repo with
 `ubuntu-latest` runners. The v3.x command has run in live reviews since 2026-11-04 but has not been through the
-[Test protocol](#test-protocol) on a throwaway repo; run it before relying on a mode no live review has used. The [tests/](tests/) folder runs the workflow's inline scripts against a fake
+[Test protocol](#test-protocol) on a throwaway repo; run it before relying on a mode no live review has used. The [tests/](tests/) folder runs the kit's scripts (`collect.py`, `publish.py`) against a fake
 GitHub: `python3 -I -B -m unittest discover -s tools/claude-review/tests` from the repo root (`bash tools/test-all.sh
 claude-review` runs the same).
 
@@ -54,7 +54,7 @@ Four jobs:
   v2.5; a 👀 from claude[bot] means the Claude GitHub App is still installed on the repo, which nothing here needs).
 - **`review`** (`ubuntu-latest`, or your own runner): fetches the PR, runs Claude read-only (its `GITHUB_TOKEN` is
   read-only), uploads the result as an artifact. One at a time per PR, never cancelled.
-- **`publish`** (the key runner, no checkout, no Claude): posts as the App, in this order: thread replies, resolve,
+- **`publish`** (the key runner, no PR checkout, no Claude): posts as the App, in this order: thread replies, resolve,
   the overview comment, the review. On a push to a same-repo PR it also dismisses the App's approval of an older
   commit. Re-running it never posts a second review (every review body has a run marker).
 
@@ -246,6 +246,8 @@ jobs:
   vendored copy gave it (`appcheck` none, `preflight` and `review` read-only, `publish` `contents: write` and
   `pull-requests: write`); a caller that grants less makes the run fail at start-up.
 - **Check names** read `<caller job id> / <job name>`, for example `claude-review / Publish the review`.
+- **The scripts** (`collect.py`, `publish.py` in this folder) are checked out by the kit itself, at the commit of its own
+  workflow file (`job.workflow_sha`), so a caller pinned to a SHA runs that SHA's scripts. Nothing to install.
 - **The command** is still installed by copy at `.claude/commands/claude-pr-review.md`, from the canonical file here.
 - The prerequisites below apply to both ways of installing; "the workflow" means the kit.
 
@@ -264,7 +266,8 @@ jobs:
    at repository scope, never organisation scope (an org variable could reach a public repo). It must be a non-empty
    JSON array of strings: anything else fails those jobs when they are queued, and a pool that is offline leaves the
    review waiting with nothing on the PR. Unset (or deleted) means `ubuntu-latest`. The pool must meet this rule:
-   - It runs only `appcheck` and `publish`: no PR code, no checkout, no CI or deploy jobs.
+   - It runs only `appcheck` and `publish`: no PR code, no PR checkout, no CI or deploy jobs. (`publish` checks out
+     the kit's own script, with no credentials kept.)
    - It holds no deploy key and no other long-lived secret on the host. Its own runner-registration credential (for
      example a PAT or a registration App) is a different thing from the reviewer App's key, which arrives per job as
      the repo secret. The registration credential is read only by the runner's start-up and never reaches a job's
@@ -278,9 +281,10 @@ jobs:
      recommended. That is not a clean machine (the runner's install directory stays writable by the job's user), so
      the controls that matter are that only private repos reach the pool and that only `appcheck` and `publish` run
      there.
-   - What the jobs need: `bash`, `gh` and `python3` ≥ 3.8 on `PATH`; the runner's bundled Node runs the two JavaScript
-     actions (the token minter and the artifact download); outbound HTTPS to github.com, api.github.com and the
-     Actions and artifact service hosts; a little memory is enough. No `jq`, `git` or Claude is needed. These hosts
+   - What the jobs need: `bash`, `gh`, `git` and `python3` ≥ 3.8 on `PATH`; the runner's bundled Node runs the three
+     JavaScript actions (the token minter, the artifact download and the checkout of the kit's script); outbound HTTPS
+     to github.com, api.github.com and the Actions and artifact service hosts; a little memory is enough. No `jq` or
+     Claude is needed. The kit repository must be one the job's `GITHUB_TOKEN` can read (this one is public). These hosts
      are what the jobs need, not a control: self-hosted egress allow-lists are often not enforced.
 3. **(user) A reviewer GitHub App**, one per owner (a personal account, or an org), shared by its repos:
    - Create it in the owner's settings → Developer settings → GitHub Apps → New GitHub App. Name it (its slug becomes
@@ -483,8 +487,10 @@ from the PR's review list.
 
 Don't loosen any of this when adapting the files.
 
-- **Nothing from the PR checkout executes** in the review steps. Comment runs always use the default branch's
-  workflow. No PR, comment or Claude text reaches a `run:` through `${{ }}`; it goes through files and env vars. The
+- **Nothing from the PR checkout executes** in the review steps. The kit's scripts run from a checkout of the kit at
+  the commit of its own workflow file: a pinned caller's SHA, or, for a local `./` call, the caller's own commit
+  (on `pull_request` the PR's merge commit, so a PR that edits a script runs its edit, as it runs an edited caller).
+  Comment runs always use the default branch's workflow. No PR, comment or Claude text reaches a `run:` through `${{ }}`; it goes through files and env vars. The
   mode is a fixed `startsWith()` test, and the comment text never reaches Claude.
 - **Claude posts nothing.** `Bash`, `WebFetch`, `WebSearch`, `Write`, `Edit`, `NotebookEdit`, `PowerShell`, `Monitor`
   and every GitHub MCP tool are denied, and its `GITHUB_TOKEN` is read-only. Reads are limited to the checkout and
@@ -554,7 +560,7 @@ Don't loosen any of this when adapting the files.
 - Keep `RESULT_SCHEMA` in the workflow byte-identical with the schema in the command's "The result" section (a test
   checks).
 - Keep the cost record's `reviewer` string (`claude-pr-review@v3.4`) equal to the version above (a test checks).
-- Run `tests/` after any change to the inline scripts.
+- Run `tests/` after any change to `collect.py` or `publish.py`.
 - `REVIEW.md` (repo root) is the repo's own file, not part of the kit: edit it freely.
 - A change to the review goes in the reusable kit and, for the command, in the canonical command plus this repo's
   installed copy in the same PR (`tests/test_install.py` fails until they match). A repo on the reusable kit picks it up
