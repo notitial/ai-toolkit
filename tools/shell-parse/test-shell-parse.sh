@@ -204,20 +204,22 @@ t0=$SECONDS
 out=$("$SH" "$T/run.sh" "$big" 2>&1 | wc -l)
 check "a 75 KB heredoc and 150 commands parse in under 10 s ($((SECONDS - t0)) s)" "$([ "$((SECONDS - t0))" -lt 10 ] && [ "$out" -eq 152 ] && echo 1 || echo 0)"
 
-# many parses in one function: bash 3.2 leaks a file descriptor per `done < <(cmd)` and crashed after about 250 (exit 133, a hook that fails open)
+# many parses in one function: bash 3.2 leaks a file descriptor per `done < <(cmd)` and crashed after about 250 (exit 133, a hook that fails open).
+# Only bash 3.2 crashes; on another shell this still checks that every parse ran.
 cat >"$T/loop.sh" <<LOOP
 HOOK=runner
 HOME="$T/home"
 . "$T/hooks/lib/hook-common.sh" </dev/null
 . "$T/hooks/lib/shell-parse.sh"
-on_command() { :; }
+N=0
+on_command() { N=\$((N + 1)); }
 on_redirect() { :; }
 CWD=/s
-g() { local i; for ((i = 0; i < 400; i++)); do shell_parse "echo \$i"; done; echo done; }
+g() { local i; for ((i = 0; i < 400; i++)); do shell_parse "echo \$i"; done; echo "done \$N"; }
 g
 LOOP
 out=$("$SH" "$T/loop.sh" 2>&1)
-check "400 parses in one function do not crash bash 3.2 (got: $(printf '%s' "$out" | head -c 40))" "$([ "$out" = done ] && echo 1 || echo 0)"
+check "400 parses in one function do not crash bash 3.2 (got: $(printf '%s' "$out" | head -c 40))" "$([ "$out" = "done 400" ] && echo 1 || echo 0)"
 
 # refusals
 for c in $'a\001b' $'a\033b' $'a\177b'; do

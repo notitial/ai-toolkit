@@ -158,6 +158,12 @@ bash_ $d "cp \$(x) y; $(printf ' f%s' $(seq 1 90))" "$T/many"
 bash_ $p "cp \$(x) y; $(printf ' f%s' $(seq 1 40))" "$T/many"
 bash_ $d "chmod 600 $(printf ' /tmp/a%s' $(seq 1 85))" "$CLONE"
 bash_ $p "chmod 600 $(printf ' /tmp/a%s' $(seq 1 60))" "$CLONE"
+# the limit counts distinct words: a word judged twice (sub_guard and the parse) or a /dev/ target costs nothing extra
+bash_ $p "chmod 600 \$(x) $(printf ' /tmp/a%s' $(seq 1 45))" "$CLONE"
+bash_ $p "chmod 600 $(printf ' /tmp/a%s' $(seq 1 80))" "$CLONE"
+bash_ $d "chmod 600 $(printf ' /tmp/a%s' $(seq 1 81))" "$CLONE"
+bash_ $p "echo hi $(printf ' 2>/dev/null%.0s' $(seq 1 90))" "$CLONE"
+bash_ $p "echo \$(x) $(printf ' 2>&1%.0s' $(seq 1 900))" "$CLONE"
 # mkfifo and mknod are write verbs for a text with a substitution too
 bash_ $d "mkfifo \$(mktemp -u)" "$LIVE"
 bash_ $d "echo \$(date); mknod x p" "$LIVE"

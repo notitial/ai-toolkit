@@ -268,14 +268,20 @@ judge_into() {
 ANC=0
 # judge_target <path> <what the call does>: deny when the path lands in a protected place.
 # Each word judged costs about 40 ms (several forks) and the hook has a 10 s timeout, past which the call goes through unchecked
-# (bash 3.2 also crashed, with the same result, after about 250 forks of `< <(...)`). So the work is bounded here, for every caller:
-# the 81st word judged in one call is denied, never cut short.
+# (bash 3.2 also crashed, with the same result, after about 250 executions of `< <(...)`). So the work is bounded here, for every
+# caller: the 81st distinct word judged in one call is denied, never cut short. The same word in the same folder is judged once
+# (mv and cp judge their operands twice, sub_guard and the parse judge the same words), and /dev/ targets cost nothing.
 JUDGED=0
+JSEEN="|"
 judge_target() {
   local p="$1" verb="$2" c
   [ -n "$p" ] || return 0
+  case "$p" in /dev/*) return 0 ;; esac
+  case "$JSEEN" in *"|$CWD|1|$p|"*) return 0 ;; esac  # a judgement with the ancestor check (ANC=1) covers one without
+  [ "$ANC" = 1 ] || case "$JSEEN" in *"|$CWD|0|$p|"*) return 0 ;; esac
+  JSEEN="$JSEEN$CWD|$ANC|$p|"
   JUDGED=$((JUDGED + 1))
-  [ "$JUDGED" -le 80 ] || deny "this call names more than 80 paths to judge, which cannot be done within the hook's time limit (a call past it would go through unchecked). Split it into several calls."
+  [ "$JUDGED" -le 80 ] || deny "this call names more than 80 distinct paths to judge, which cannot be done within the hook's time limit (a call past it would go through unchecked). Split it into several calls."
   case "$p" in
     /dev/*) return 0 ;;
     '$HOME' | '${HOME}') p=$HOME_R ;;
@@ -714,20 +720,13 @@ sub_guard() {
   local t=$1 rd w c s r wr=0 inprot=0 pw=() bw=() seen="|" quoted=0 big=0
   case "$t" in *'('* | *'`'*) ;; *) return 0 ;; esac  # every opener has a ( or a backtick
   case "$t" in *[\"\'\\]*) quoted=1 ;; esac
-  t=${t//\\$'\n'/}
-  t=${t//\'\'/}
-  t=${t//\"\"/}
-  t=${t//\$\'/\'}
-  t=${t//\$\"/\"}
-  t=$(printf '%s' "$t" | tr -d "\"'\\\\")  # not ${t//[...]/}: bash 3.2 takes 35 s on a 9 KB text
+  # One awk pass drops line continuations and empty quote pairs and bares `$'` and `$"`, then tr drops the quotes and backslashes. Not
+  # ${t//...}: bash 3.2 is quadratic in the matches (35 s for the bracket class on 9 KB, 11 s for 900 `2>&1`).
+  t=$(printf '%s' "$t" | awk 'BEGIN { RS = "\001"; ORS = "" } { gsub(/\\\n/, ""); gsub(/\047\047/, ""); gsub(/""/, ""); gsub(/\$\047/, "\047"); gsub(/\$"/, "\""); print }' | tr -d "\"'\\\\")
   case "$t" in *'$('* | *'`'* | *'<('* | *'>('* | *'=('*) ;; *) return 0 ;; esac
-  rd=${t//>&[0-9-]/}
-  rd=${rd//>>[ ]\/dev\/null/}
-  rd=${rd//>>\/dev\/null/}
-  rd=${rd//>[ ]\/dev\/null/}
-  rd=${rd//>\/dev\/null/}
+  rd=$(printf '%s' "$t" | sed -E 's#>&[0-9-]##g; s#>{1,2} ?/dev/null##g')
   case "$rd" in *'>'*) wr=1 ;; esac
-  t=${t//'$('/ }  # `rm$(x)` and `$(x)rm` still show their verb
+  t=$(printf '%s' "$t" | sed 's#\$(# #g')  # `rm$(x)` and `$(x)rm` still show their verb
   if [ "$quoted" = 1 ]; then  # a quoted path may hold spaces: judge each quoted string that holds one and starts like a path
     while IFS= read -r s; do
       s=${s#?}
@@ -747,13 +746,13 @@ EOF
     case "$SP_LC" in
       rm | rmdir | unlink | shred | touch | mkdir | mkfifo | mknod | chmod | chown | chgrp | truncate | tee | mv | cp | install | ln | rsync | dd | patch | sed | perl | tar | unzip | curl | wget | find | xargs) wr=1 ;;
     esac
-    case "$seen" in *"|$w|"*) continue ;; esac
-    seen="$seen$w|"
     case "$w" in  # a word with a / or .., or in ~ or $HOME spelling, is judged; a bare word only when it is a name in the session folder (a cd target)
       / | '~') continue ;;
       */* | '~'* | '$HOME'* | '${HOME}'* | ..) ;;
       *) [ -e "$SESSION_CWD/$w" ] && bw[${#bw[@]}]=$w; continue ;;
     esac
+    case "$seen" in *"|$w|"*) continue ;; esac  # (only path-like words: bare ones in the string made the scan quadratic)
+    seen="$seen$w|"
     [ "${#pw[@]}" -lt 150 ] || { big=1; break; }  # the scan itself slows with the words it keeps (5000 paths: 11 s)
     pw[${#pw[@]}]=$w
   done <<EOF
