@@ -16,6 +16,7 @@ trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/hooks" "$T/work/sub/dir" "$T/other"
 echo '{}' > "$T/work/.build-kit.json"
 cp "$HOOK" "$T/hooks/build-redirect.sh"
+cp -R "${HOOK%/*}/lib" "$T/hooks/lib"
 HAVE_LOGGER=0
 [ -f "$LOGGER" ] && cp "$LOGGER" "$T/hooks/audit-logger.sh" && HAVE_LOGGER=1
 PASS=0

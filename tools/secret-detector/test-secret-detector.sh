@@ -15,6 +15,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/secret-detector-XXXXXX")
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/hooks" "$T/work"
 cp "$HOOK" "$T/hooks/secret-detector.sh"
+cp -R "${HOOK%/*}/lib" "$T/hooks/lib"
 cp "$LOGGER" "$T/hooks/audit-logger.sh"
 PASS=0
 FAIL=0
