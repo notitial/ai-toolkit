@@ -1,19 +1,15 @@
-import json, os, re, sys, time, urllib.error, urllib.request
+import json, os, re, sys, urllib.error, urllib.request
 from collections import Counter
 
 # This workflow's markers. Only text this script builds from validated fields (hex, enums, ints) ever sits inside one.
 FOLLOWUP_MARKER = re.compile(
     r"<!-- claude-review:followup verdict=(resolved|open) sha=([0-9a-f]{40})(?: mode=(rereview|followup))? -->")
 SUMMARY_PREFIX = "<!-- claude-review:summary "
-HISTORY_MARKER = re.compile(r"<!-- claude-review:history (\[[^\n]*\]) -->")
 SLOT_OPEN, SLOT_CLOSE = "<!-- claude-review:overview -->", "<!-- /claude-review:overview -->"
-OWN_PR = re.compile(r"own pull request", re.I)
 MODES = ("initial", "rereview", "followup")
-RESULTS = ("clean", "issues", "stopped", "followup")
 SIDES = ("LEFT", "RIGHT")
 RESULT_KEYS = {"no_issues", "stopped", "findings", "threads", "overview"}
 FINDING_KEYS = {"path", "line", "side", "start_line", "start_side", "body", "line_text"}
-FINDING_MARK = "<!-- claude-review:finding -->"   # one per body finding: Claude's text can't contain it
 # Fences GitHub renders as something richer than code (diagrams, maps, 3D, math): their content is treated as prose.
 RICH_FENCES = {"mermaid", "geojson", "topojson", "stl", "math"}
 FORBIDDEN = ("<!--", "-->", "claude-review:")
@@ -23,9 +19,9 @@ ERRORS = (OSError, ValueError, RuntimeError, KeyError, TypeError, IndexError)
 
 
 class ApiError(RuntimeError):
-    def __init__(self, status, message="", retry_after=None):
+    def __init__(self, status):
         super().__init__(f"HTTP {status}")
-        self.status, self.message, self.retry_after = status, message, retry_after
+        self.status = status
 
 
 def request(method, url, token, payload=None):
@@ -42,18 +38,7 @@ def request(method, url, token, payload=None):
             return res.status, res.headers, json.loads(raw) if raw else None
     except urllib.error.HTTPError as e:
         with e:
-            try:
-                body = json.loads(e.read() or b"{}") or {}
-                errors = body.get("errors") if isinstance(body.get("errors"), list) else []
-                message = " ".join([str(body.get("message", ""))] + [
-                    str(x.get("message", "")) if isinstance(x, dict) else str(x) for x in errors])
-            except (ValueError, AttributeError):
-                message = ""
-            raise ApiError(e.code, message[:300], e.headers.get("Retry-After") if e.headers else None) from None
-
-
-def pause(seconds):
-    time.sleep(seconds)
+            raise ApiError(e.code) from None
 
 
 class Ctx:
@@ -82,9 +67,6 @@ class Ctx:
         self.reasons = Counter()
         self.failed = 0
         self.verdict = "none"
-        self.stale = []          # lines for the overview: a review this run couldn't dismiss
-        self.overview_written = False
-        self.unchecked = ""      # a follow-up's note on review-body findings it couldn't judge
 
     def skip(self, reason, n=1):
         self.counts["skipped"] += n
@@ -612,7 +594,7 @@ def finding_items(findings, budget):
     """The findings as review-body sections, as many as fit in `budget` characters."""
     items, used = [], 0
     for f in findings:
-        item = f"{FINDING_MARK}\n**{code_path(f['path'])} line {f['line']}**\n\n{f['text']}"
+        item = f"**{code_path(f['path'])} line {f['line']}**\n\n{f['text']}"
         if used + len(item) > budget:
             break
         items.append(item)
@@ -642,24 +624,18 @@ def run_review(ctx, reviews):
     return next((r for r in reviews if pattern.search(r.get("body") or "")), None)
 
 
-def dismiss(ctx, review, message, stale_line):
+def dismiss(ctx, review, message):
+    """Dismisses the App's review. True when it is dismissed (an already dismissed one included), else the job fails."""
     try:
         rest(ctx, "PUT", f"/repos/{ctx.repo}/pulls/{ctx.number}/reviews/{review['id']}/dismissals",
              {"message": message, "event": "DISMISS"})
         ctx.counts["dismissed"] += 1
-    except ApiError as e:
-        if e.status == 422:
-            return   # already dismissed
-        print(f"::warning::Couldn't dismiss the App's {review.get('state')} review (HTTP {e.status}): dismiss it by hand")
-        ctx.stale.append(stale_line)
     except ERRORS as e:
-        print(f"::warning::Couldn't dismiss the App's review: {type(e).__name__}")
-        ctx.stale.append(stale_line)
-
-
-STALE_APPROVAL = "Approval is stale: dismiss it manually."
-STALE_CHANGES = "Change request is stale: dismiss it manually."
-UNCHECKED_APPROVAL = "The approval may be stale: the PR head couldn't be re-read after it was posted. Check it."
+        if isinstance(e, ApiError) and e.status == 422:
+            return True   # already dismissed
+        ctx.fail("Dismissing the App's review", e)
+        return False
+    return True
 
 
 def dismiss_stale_approval(ctx):
@@ -671,7 +647,7 @@ def dismiss_stale_approval(ctx):
         ctx.fail("Checking for a stale approval", e)
         return
     if latest and latest["state"] == "APPROVED" and latest.get("commit_id") != head:
-        dismiss(ctx, latest, "New commits since this approval.", STALE_APPROVAL)
+        dismiss(ctx, latest, "New commits since this approval.")
 
 
 def review_body(ctx, line, overview_url, body_findings):
@@ -683,46 +659,26 @@ def review_body(ctx, line, overview_url, body_findings):
 
 
 def submit(ctx, event, line, overview_url, inline, body_findings):
-    """Submits one review. Returns (review, inline findings it carries, body findings it carries); review is "own"
-    when GitHub refuses a review of the App's own PR, None after the final failure."""
-    for attempt in (1, 2):
+    """Submits one review; GitHub's 422 (it refuses an inline comment) is tried once more with every finding in the
+    body. Returns (review, inline findings it carries, body findings it carries); the review is None when the write
+    failed, which fails the job: the re-run finds no review of this run and tries again."""
+    for _ in range(2):
         payload = {"commit_id": ctx.head, "event": event,
                    "body": review_body(ctx, line, overview_url, body_findings)}
         if inline:
             payload["comments"] = [dict(f["comment"], body=f["text"]) for f in inline]
         try:
             return rest(ctx, "POST", f"/repos/{ctx.repo}/pulls/{ctx.number}/reviews", payload), inline, body_findings
-        except ApiError as e:
-            if e.status == 422 and OWN_PR.search(e.message):
-                print("::warning::GitHub doesn't let the App review its own PR")
-                return "own", inline, body_findings
-            print(f"Submitting the review failed: HTTP {e.status}")
-            if e.status == 422:
-                body_findings, inline = inline + body_findings, []   # retry with every finding in the body
-                continue
-            failure = e
         except ERRORS as e:
-            print(f"Submitting the review failed: {type(e).__name__}")
-            failure = e
-        # 403/429/5xx/timeout: it may have landed anyway.
-        try:
-            landed = run_review(ctx, app_reviews(ctx))
-        except ERRORS:
-            landed = None
-        if landed:
-            return landed, inline, body_findings
-        if attempt == 1:
-            wait = getattr(failure, "retry_after", None)
-            pause(min(int(wait), 60) if wait and str(wait).isdigit() else 5)
+            if not (isinstance(e, ApiError) and e.status == 422 and inline):
+                ctx.fail("Submitting the review", e)
+                break
+            print("Submitting the review failed: HTTP 422; trying again with every finding in the body")
+            body_findings, inline = inline + body_findings, []
     return None, inline, body_findings
 
 
-def review_comment_urls(ctx, review):
-    return [c["html_url"] for c in paginate(ctx, f"/repos/{ctx.repo}/pulls/{ctx.number}/reviews/{review['id']}/comments")
-            if isinstance(c, dict) and safe_url(c.get("html_url"))]
-
-
-# --- The sticky overview comment ---
+# --- The sticky overview comment: one render of the current state, edited in place ---
 
 def find_overview(ctx):
     found = [c for c in paginate(ctx, f"/repos/{ctx.repo}/issues/{ctx.number}/comments")
@@ -734,108 +690,43 @@ def find_overview(ctx):
 
 
 def old_slot(body):
+    """Claude's paragraph in an earlier overview: a follow-up judges threads only, so it carries the paragraph over."""
     i, j = body.find(SLOT_OPEN), body.find(SLOT_CLOSE)
     return body[i + len(SLOT_OPEN):j].strip("\n") if 0 <= i < j else ""
 
 
-def valid_entry(h):
-    return (isinstance(h, dict) and set(h) - {"b"} == {"sha", "mode", "result", "n", "run", "attempt"}
-            and isinstance(h["sha"], str) and re.fullmatch(r"[0-9a-f]{7}", h["sha"]) is not None
-            and h["mode"] in MODES and h["result"] in RESULTS
-            and all(is_int(h[k]) and h[k] >= 0 for k in ("n", "run", "attempt"))
-            and ("b" not in h or is_int(h["b"]) and 0 <= h["b"] <= h["n"]))
-
-
-def read_history(body):
-    m = HISTORY_MARKER.search(body or "")
-    if not m:
-        return []
-    try:
-        raw = json.loads(m.group(1))
-    except ValueError:
-        raw = None
-    if isinstance(raw, list):
-        return [h for h in raw if valid_entry(h)]
-    print("::warning::The overview's history couldn't be read: starting it again")
-    return []
-
-
-def merge_history(history, entry):
-    """Newest first, at most 10, one entry per run (a re-run replaces its own)."""
-    return ([entry] + [h for h in history if h["run"] != entry["run"]])[:10]
-
-
-def history_item(h):
-    n = f" · {h['n']} finding{'s' if h['n'] != 1 else ''}" if h["n"] else ""
-    run = f"{h['run']}/{h['attempt']}" if h["attempt"] > 1 else str(h["run"])
-    return f"- `{h['sha']}` · {h['mode']} · {h['result']}{n} · run {run}"
-
-
-def threads_line(st):
-    if st["open"] is None:
+def threads_line(threads):
+    if threads is None:
         return "**Threads:** couldn't be counted."
-    text = f"**Threads:** {st['resolved']} resolved · {len(st['open'])} still open"
-    if st["open"]:
+    resolved, open_links = threads
+    text = f"**Threads:** {resolved} resolved · {len(open_links)} still open"
+    if open_links:
         links = []
-        for path, line, url in st["open"][:10]:
+        for path, line, url in open_links[:10]:
             label = code_path(f"{path}:{line}" if line else path)
             links.append(f"[{label}]({url})" if safe_url(url) else label)
-        more = len(st["open"]) - 10
+        more = len(open_links) - 10
         text += ": " + ", ".join(links) + (f", and {more} more" if more > 0 else "")
     return text
 
 
-def overview_text(ctx, st):
-    history = st["history"]
-    runs = f"{len(history)} run{'s' if len(history) != 1 else ''}"
-    parts = [f"{SUMMARY_PREFIX}sha={ctx.head} result={st['result']} -->\n"
-             f"### Claude review · `{ctx.head[:7]}` · {ctx.mode}",
-             f"**Result:** {st['line']}"]
-    parts += ctx.stale
-    if st["fallback"]:
-        parts += finding_items(st["fallback"], BODY_BUDGET - 4000)
-    parts.append(SLOT_OPEN + ("\n" + st["slot"] if st["slot"] else "") + "\n" + SLOT_CLOSE)
-    parts.append(threads_line(st))
-    parts.append(f"<details><summary>History (last {runs})</summary>\n\n"
-                 + "\n".join(history_item(h) for h in history) + "\n</details>\n"
-                 f"<!-- claude-review:history {json.dumps(history, separators=(',', ':'))} -->")
-    return "\n\n".join(parts)
-
-
-def write_overview(ctx, st):
-    """PATCH the App's overview comment, or POST one. Returns its html_url, or None when the write failed."""
-    body = overview_text(ctx, st)
+def write_overview(ctx, comment, result, line, slot, threads):
+    """PATCH the App's overview comment, or POST one. Returns the comment, or None when the write failed (the job
+    fails)."""
+    body = "\n\n".join([
+        f"{SUMMARY_PREFIX}sha={ctx.head} result={result} -->\n### Claude review · `{ctx.head[:7]}` · {ctx.mode}",
+        f"**Result:** {line}",
+        SLOT_OPEN + ("\n" + slot if slot else "") + "\n" + SLOT_CLOSE,
+        threads_line(threads)])
     try:
-        target = st["comment"] or find_overview(ctx)   # looked up again right before a POST
-        if target:
-            if target.get("body") == body:
-                return target.get("html_url")
-            out = rest(ctx, "PATCH", f"/repos/{ctx.repo}/issues/comments/{target['id']}", {"body": body})
-        else:
-            out = rest(ctx, "POST", f"/repos/{ctx.repo}/issues/{ctx.number}/comments", {"body": body})
-        st["comment"] = out
-        ctx.overview_written = True
-        return out.get("html_url")
+        if comment and comment.get("body") == body:
+            return comment
+        if comment:
+            return rest(ctx, "PATCH", f"/repos/{ctx.repo}/issues/comments/{comment['id']}", {"body": body})
+        return rest(ctx, "POST", f"/repos/{ctx.repo}/issues/{ctx.number}/comments", {"body": body})
     except ERRORS as e:
-        print(f"::warning::Writing the overview comment failed: {type(e).__name__} {getattr(e, 'status', '')}".rstrip())
+        ctx.fail("Writing the overview comment", e)
         return None
-
-
-def note_stale_on_overview(ctx):
-    """A push run that couldn't dismiss: add the stale line under the existing overview's result."""
-    try:
-        comment = find_overview(ctx)
-        if not comment:
-            return
-        parts = comment["body"].split("\n\n")
-        at = next((i for i, p in enumerate(parts) if p.startswith("**Result:**")), None)
-        new = [s for s in ctx.stale if s not in parts]
-        if at is None or not new:
-            return
-        body = "\n\n".join(parts[:at + 1] + new + parts[at + 1:])
-        rest(ctx, "PATCH", f"/repos/{ctx.repo}/issues/comments/{comment['id']}", {"body": body})
-    except ERRORS as e:
-        print(f"::warning::Noting the stale review on the overview failed: {type(e).__name__}")
 
 
 # --- The run ---
@@ -848,6 +739,13 @@ def parse_ids(raw):
     if isinstance(ids, list) and len(ids) <= 100 and all(isinstance(i, str) and i for i in ids):
         return ids
     return None
+
+
+FAILED = "A write failed: re-run this job. No verdict."
+
+
+def plural(n, word):
+    return f"{n} {word}{'s' if n != 1 else ''}"
 
 
 def publish(ctx):
@@ -898,7 +796,6 @@ def publish(ctx):
         if not (event == "pull_request" and action == "synchronize"):   # a push run already checked
             dismiss_stale_approval(ctx)
         return
-
     full = data is not None and ctx.mode != "followup"
     findings = data["findings"] if full and not data["stopped"] else []
 
@@ -908,11 +805,27 @@ def publish(ctx):
         to_resolve += reply_in_threads(ctx, data["threads"])
     if to_resolve:
         resolve_threads(ctx, to_resolve)
+    # The run marker on a review is the only idempotency key: a run that finds its own review stops. The thread writes
+    # above are idempotent, so a re-run still finishes a reply or a resolve that failed.
     try:
-        resolved, open_links = scan_threads(ctx)
+        found = run_review(ctx, app_reviews(ctx))
+    except ERRORS as e:
+        ctx.fail("Reading the App's reviews", e)
+        return
+    if found:
+        print("This run's review was already submitted (a re-run): not submitting another")
+        ctx.verdict = "already submitted"
+        return
+    try:
+        threads = scan_threads(ctx)
     except ERRORS as e:
         ctx.fail("Counting the review threads", e)
-        resolved, open_links = 0, None
+        threads = None
+    try:
+        sticky = find_overview(ctx)
+    except ERRORS as e:
+        ctx.fail("Reading the overview comment", e)
+        return
 
     inline, in_body = [], []
     if findings:
@@ -937,7 +850,7 @@ def publish(ctx):
                 inline.append(item)
             else:
                 in_body.append(item)
-    n_open = None if open_links is None else len(open_links)
+    resolved, n_open = (threads[0], len(threads[1])) if threads is not None else (0, 0)   # a failed count fails the job
     n_found = len(inline) + len(in_body)
 
     if data is not None and data["stopped"]:
@@ -946,165 +859,93 @@ def publish(ctx):
         decision, result, line = "none", "issues", "Review incomplete: issues reported without findings. No verdict."
     elif full:
         if n_found:
-            decision, result, line = "changes+findings", "issues", f"{n_found} finding{'s' if n_found != 1 else ''}."
+            decision, result, line = "changes+findings", "issues", f"{plural(n_found, 'finding')}."
         elif n_open:
             decision, result, line = "changes", "issues", f"No new findings; {n_open} thread(s) still open."
-        elif n_open == 0 and data["no_issues"] and not data["findings"] and not ctx.failed:
+        elif ctx.failed:   # a failed write never approves; it never holds back a request for changes
+            decision, result, line = "none", "issues", FAILED
+        elif data["no_issues"] and not data["findings"]:
             decision, result, line = "approve", "clean", "No issues found."
-        elif ctx.counts["dropped"]:
-            decision, result, line = "none", "issues", "No finding named one of this PR's files. No verdict."
         else:
-            decision, result, line = "none", "issues", "No new findings, but this run couldn't finish its thread updates."
+            decision, result, line = "none", "issues", "No finding named one of this PR's files. No verdict."
+    elif threads is None:
+        decision, result, line = "none", "issues", FAILED
     else:
-        decision = "none" if n_open is None else "changes" if n_open else "clear"
-        result = "followup"
-        line = f"Follow-up: {ctx.counts['resolved']} resolved, {'?' if n_open is None else n_open} still open."
+        decision, result = "changes" if n_open else "clear", "followup"
+        line = f"Follow-up: {resolved} resolved, {n_open} still open."
 
-    try:
-        existing = find_overview(ctx)
-    except ERRORS as e:
-        print(f"::warning::Reading the overview comment failed: {type(e).__name__}")
-        existing = None
-    old = (existing or {}).get("body") or ""
-    history = read_history(old)
-    if decision == "none" and full and any(h["run"] == int(ctx.run_id) and h["sha"] == ctx.head[:7] for h in history):
-        # "Re-run all jobs" that ends without a verdict: its note would replace what an earlier attempt posted.
-        print("No verdict on a re-run: keeping this run's posted result")
-        return
-    st = {
-        "comment": existing, "result": result, "line": line, "resolved": resolved, "open": open_links,
-        "fallback": [],
-        "slot": overview_slot(data["overview"]) if full and not data["stopped"] else "" if full else old_slot(old),
-        "history": merge_history(history, {"sha": ctx.head[:7], "mode": ctx.mode, "result": result, "n": n_found,
-                                       "b": len(in_body), "run": int(ctx.run_id), "attempt": int(ctx.attempt)}),
-    }
     if not full:
-        # Only threads are judged here: findings the last full review left without a thread (in its body, or in the
-        # overview when it couldn't be posted) aren't. No `@claude` in the note: an App post could trigger other
-        # workflows that listen for it.
-        last_full = next((h for h in st["history"][1:] if h["result"] != "followup"), None)
-        unchecked = (last_full or {}).get("b", 0)
-        if unchecked:
-            ctx.unchecked = (f"{unchecked} finding{'s' if unchecked != 1 else ''} without a review thread "
-                             f"{'were' if unchecked != 1 else 'was'}n't re-checked: only a full review checks "
-                             f"{'them' if unchecked != 1 else 'it'}.")
-            st["line"] += " " + ctx.unchecked
-    overview_url = write_overview(ctx, st)
+        slot = old_slot((sticky or {}).get("body") or "")
+    else:
+        slot = "" if data["stopped"] else overview_slot(data["overview"])
+    # `clean` marks the head as covered (collect.py), so it is written only once the approval is posted.
+    sticky = write_overview(ctx, sticky, "issues" if decision == "approve" else result, line, slot, threads)
 
-    outcome, review, inline, in_body = verdict(ctx, decision, overview_url, inline, in_body, n_open)
-    if full:   # the findings left without a thread, as posted (a 422 retry puts every finding in the body)
-        st["history"][0]["b"] = n_found if outcome in ("own", "failed") else len(in_body)
-    if outcome == "failed":
-        ctx.failed += 1
-        if result == "clean":   # a clean overview would mark this head covered, so a new request couldn't retry
-            st["result"] = st["history"][0]["result"] = "issues"
-            st["line"] = "No issues found, but posting the approval failed."
-    if outcome in ("own", "failed") and n_found:
-        st["fallback"] = inline + in_body
-        st["line"] = ("GitHub doesn't let the App review its own PR; the findings are below." if outcome == "own"
-                      else "Posting the review failed; the findings are below.")
-    elif outcome == "landed" and full:
-        # "Re-run all jobs": report the review that was posted, not this attempt's result.
-        try:
-            urls, read = review_comment_urls(ctx, review), True
-        except ERRORS:
-            urls, read = [], False
-        body = review.get("body") or ""
-        n_body = body.count(FINDING_MARK)
-        n_found = len(urls) + n_body
-        st["history"][0].update(n=n_found, b=n_body)
-        st["slot"] = old_slot(old) or st["slot"]   # the paragraph the landed attempt wrote
-        if n_found:
-            st["result"] = st["history"][0]["result"] = "issues"
-            st["line"] = findings_line(n_found, urls, n_body, review)
-        elif n_open:   # it asked for changes on the open threads (a COMMENT when CHANGES_EVENT says so)
-            st["result"] = st["history"][0]["result"] = "issues"
-            st["line"] = f"No new findings; {n_open} thread(s) still open."
-        elif read and (review.get("state") == "APPROVED"
-                       or review.get("state") == "COMMENTED" and "No issues found at " in body):   # a fork's approval
-            st["result"] = st["history"][0]["result"] = "clean"
-            st["line"] = "No issues found."
-        else:   # a change request whose threads were resolved since, or its comments couldn't be read: never clean
-            st["result"] = st["history"][0]["result"] = "issues"
-            st["line"] = "This run's review was already posted: see it on the PR."
-    elif outcome == "submitted" and n_found:
-        try:
-            urls = review_comment_urls(ctx, review) if inline else []
-        except ERRORS:
-            urls = []
-        st["line"] = findings_line(n_found, urls, len(in_body), review)
+    review, inline, in_body = verdict(ctx, decision, (sticky or {}).get("html_url"), inline, in_body, n_open)
+    if sticky is None:
+        return   # the overview write failed (the job is red); there is nothing to update
+    if ctx.verdict == "failed":   # the verdict's own write failed
+        result, line = "issues", FAILED
+    elif review and n_found:
+        # The review is posted: say where, and count the threads its inline findings opened.
+        url = review.get("html_url")
+        line = f"{plural(n_found, 'finding')} in the " + (f"[review]({url})." if safe_url(url) else "review.")
         if inline:
-            try:   # this review's inline findings opened new threads
-                st["resolved"], st["open"] = scan_threads(ctx)
+            try:
+                threads = scan_threads(ctx)
             except ERRORS as e:
-                print(f"::warning::Counting the review threads again failed: {type(e).__name__}")
-    write_overview(ctx, st)
-
-
-def findings_line(n_found, urls, n_body, review):
-    """The overview's result line for a posted review with findings: numbered links, and how many are in its body."""
-    links = " ".join(f"[{i}]({u})" for i, u in enumerate(urls, 1))
-    body_note = ""
-    if n_body:
-        where = f"[review body]({review['html_url']})" if safe_url(review.get("html_url")) else "review body"
-        body_note = f" ({n_body} in the {where})"
-    line = f"{n_found} finding{'s' if n_found != 1 else ''}" + (f": {links}" if links else "") + body_note
-    return line if links or body_note else line + "."
+                ctx.fail("Counting the review threads again", e)
+                threads = None
+    write_overview(ctx, sticky, result, line, slot, threads)
 
 
 def verdict(ctx, decision, overview_url, inline, in_body, n_open):
-    """Applies the transition table. Returns (outcome, review, inline, body), the last two as submitted. outcome:
-    none (no verdict this run), kept (the App's review already says it), landed (a re-run: this run's review exists),
-    submitted, own (GitHub refuses a review of the App's own PR), failed."""
+    """Applies the transition table. Returns (review, inline, body) as submitted; the review is None when nothing was
+    posted: no verdict, the App's review already says it, or a failed write (which fails the job)."""
     if decision == "none":
-        return "none", None, inline, in_body
+        return None, inline, in_body
     try:
-        reviews = app_reviews(ctx)
+        latest = effective(app_reviews(ctx))   # read again: the replies and the overview took time
     except ERRORS as e:
-        print(f"::warning::Reading the App's reviews failed: {type(e).__name__} {getattr(e, 'status', '')}".rstrip())
+        ctx.fail("Reading the App's reviews", e)
         ctx.verdict = "failed"
-        return "failed", None, inline, in_body
-    landed = run_review(ctx, reviews)
-    if landed:
-        print("This run's review was already submitted (a re-run): not submitting another")
-        ctx.verdict = "already submitted"
-        return "landed", landed, inline, in_body
-    latest = effective(reviews)
+        return None, inline, in_body
     state = latest["state"] if latest else None
     short = f"`{ctx.head[:7]}`"
     n_found = len(inline) + len(in_body)
 
     if decision == "approve":
         if state == "APPROVED" and latest.get("commit_id") == ctx.head:
-            return "kept", None, inline, in_body
+            return None, inline, in_body
+        if ctx.failed:   # a write failed since the decision (the overview): no approval until a re-run does it all
+            ctx.verdict = "failed"
+            return None, inline, in_body
         # A push to a fork PR never reaches `publish`, so its approval could never be dismissed: COMMENT instead.
         event, line = "COMMENT" if ctx.cross_repo else ctx.approve_event, f"No issues found at {short}."
         if state == "CHANGES_REQUESTED" and event == "COMMENT":
-            dismiss(ctx, latest, "No issues found in a later review.", STALE_CHANGES)
+            if not dismiss(ctx, latest, "No issues found in a later review."):
+                ctx.verdict = "failed"
+                return None, inline, in_body
     elif decision in ("changes+findings", "changes"):
         if decision == "changes" and state == "CHANGES_REQUESTED":
-            return "kept", None, inline, in_body
+            return None, inline, in_body
         event = ctx.changes_event
-        line = (f"{n_found} finding{'s' if n_found != 1 else ''} at {short}." if decision == "changes+findings"
+        line = (f"{plural(n_found, 'finding')} at {short}." if decision == "changes+findings"
                 else f"{n_open} review thread(s) still open at {short}.")
         if state == "APPROVED" and event == "COMMENT":
-            dismiss(ctx, latest, "New findings since this approval.", STALE_APPROVAL)
+            dismiss(ctx, latest, "New findings since this approval.")   # the findings are posted even if this fails
     else:   # clear
         if state != "CHANGES_REQUESTED":
-            return "kept", None, inline, in_body
-        dismiss(ctx, latest, "Findings addressed.", STALE_CHANGES)
+            return None, inline, in_body
+        if not dismiss(ctx, latest, "Findings addressed."):
+            ctx.verdict = "failed"
+            return None, inline, in_body
         event, line = "COMMENT", "Findings addressed; new code was not re-reviewed."
-        if ctx.unchecked:
-            line += " " + ctx.unchecked
 
     review, inline, in_body = submit(ctx, event, line, overview_url, inline, in_body)
     if review is None:
-        print("::error::Submitting the review failed twice: the findings are in the overview comment")
         ctx.verdict = "failed"
-        return "failed", None, inline, in_body
-    if review == "own":
-        ctx.verdict = "own PR"
-        return "own", None, inline, in_body
+        return None, inline, in_body
     ctx.verdict = event
     ctx.counts["inline"], ctx.counts["body"] = len(inline), len(in_body)
     ctx.counts["moved"] = sum(1 for f in inline if f.get("moved"))
@@ -1114,13 +955,11 @@ def verdict(ctx, decision, overview_url, inline, in_body, n_open):
         try:
             moved = current_head(ctx) != ctx.head
         except ERRORS as e:
-            print(f"::warning::Re-reading the PR head after the approval failed: {type(e).__name__}")
-            ctx.stale.append(UNCHECKED_APPROVAL)
+            ctx.fail("Re-reading the PR head after the approval", e)
             moved = False
         if moved:
-            dismiss(ctx, dict(review, state="APPROVED"), "New commits arrived while this approval was posted.",
-                    STALE_APPROVAL)
-    return "submitted", review, inline, in_body
+            dismiss(ctx, dict(review, state="APPROVED"), "New commits arrived while this approval was posted.")
+    return review, inline, in_body
 
 
 def main(env=None):
@@ -1131,8 +970,6 @@ def main(env=None):
     try:
         publish(ctx)
     finally:
-        if ctx.stale and not ctx.overview_written:
-            note_stale_on_overview(ctx)
         c = ctx.counts
         summary = (f"Publish: {c['inline']} inline, {c['body']} in body, {c['dropped']} dropped, "
                    f"{c['moved']} moved, verdict {ctx.verdict}, "

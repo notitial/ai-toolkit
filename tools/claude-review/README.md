@@ -81,14 +81,13 @@ Three modes:
 - **A stopped run:** an `initial` review of a PR with nothing to review (an automated bump, a trivial change) stops
   early; the overview says "Review stopped (eligibility)" and there is no verdict.
 - **The overview comment:** one issue comment from the App, edited on every run. It shows the head, the mode, the
-  result (`clean`, `issues`, `stopped` or `followup`) with numbered links to the findings, Claude's 2–3 sentence
-  overview, the open threads with links, and the last 10 runs.
+  result (`clean`, `issues`, `stopped` or `followup`) with a link to the review, Claude's 2–3 sentence overview and
+  the open threads with links. It is rendered again from the current state on every run and keeps no history.
 - **The verdict is a signal.** `publish` decides it from Claude's result, never Claude: findings or an open thread →
   REQUEST_CHANGES; a full review with no findings and no open thread → APPROVE; a follow-up that leaves no thread
   open → COMMENT (after dismissing the App's REQUEST_CHANGES). It submits only when the verdict changes.
 - **Findings without a thread** (in the review body, because their line isn't in the diff) aren't judged by a
-  follow-up. The follow-up says so ("N findings without a review thread weren't re-checked"); a full
-  `@claude review` checks them.
+  follow-up; a full `@claude review` checks them.
 - **Requests are top-level PR comments.** `@claude review` typed as a reply inside a review thread triggers
   nothing.
 - **Reports:** code that won't build, parse or load, logic wrong for every input, bugs with a concrete reachable
@@ -96,10 +95,13 @@ Three modes:
 - **An incomplete review gives no verdict:** when a review pass or a verifier fails twice, the result carries the
   verified findings only, and with none `publish` rejects it, so a review that reports itself unfinished never approves. A
   review that cut the pipeline short without saying so still can (Known limitations).
-- **A re-run without a verdict keeps what was posted:** when a "Re-run all jobs" attempt of a full review ends with no
-  verdict (incomplete, stopped, every finding dropped) and an earlier attempt of that run already posted a result for
-  the same commit (findings, an approval, or a no-verdict note), the overview and that run's history entry stay as
-  they were.
+- **A re-run stops at its own review, and a failed write fails the job:** every review carries the run marker, the
+  only idempotency key. An attempt that finds its run's review (after finishing any thread reply or resolve that
+  failed) posts and writes nothing more. Any failed write (a reply, a resolve, the overview, a dismissal, the review
+  itself) fails the job; "Re-run failed jobs" is the retry. A failed write never approves, and never holds back a
+  request for changes.
+- **The overview shows the current state only:** the head, the mode, the result line, Claude's paragraph and the
+  threads. The Actions run list and the PR timeline hold the history.
 - **Doesn't report:** style, nitpicks, pre-existing issues, what the compiler or linter catches, test coverage, docs.
 - **Threads it touches:** only threads the review started. A thread is judged fixed when the code handles it, or a
   reply's "not a bug" argument holds up. A claimed fix the code doesn't show stays open.
@@ -427,10 +429,10 @@ Use a throwaway PR. Each run's job summary shows
 |---|---|---|
 | 1 | Open a clean PR (non-draft) | APPROVE from the App, overview `result=clean`; nothing from `claude[bot]` or `github-actions[bot]` |
 | 2 | Push a commit | `preflight` logs `Already reviewed: skipping`; `publish` dismisses the APPROVE ("New commits since this approval.") |
-| 3 | Open a PR with real bugs | Inline findings on the right lines, one REQUEST_CHANGES, the overview links each finding |
+| 3 | Open a PR with real bugs | Inline findings on the right lines, one REQUEST_CHANGES, the overview links the review and lists the open threads |
 | 4 | Push fixes, then comment `@claude review --comments` | App replies in each thread, threads resolved, the same overview comment edited (`result=followup`), REQUEST_CHANGES dismissed + COMMENT "Findings addressed…" |
-| 5 | Comment `@claude review` | `rereview`, APPROVE, overview history shows 3 runs |
-| 6 | Re-run `publish` of any run | "verdict already submitted"; no second review; the history entry is replaced (kept when this attempt ends without a verdict and an earlier one posted a result for the same commit) |
+| 5 | Comment `@claude review` | `rereview`, APPROVE, the same overview comment edited (`result=clean`) |
+| 6 | Re-run `publish` of any run | "already submitted"; no second review, no write |
 | 7 | Unset `CLAUDE_REVIEW_APP_CLIENT_ID`, comment `@claude review --comments`, set it back | `preflight` fails with "Missing: variable CLAUDE_REVIEW_APP_CLIENT_ID"; nothing else runs |
 | 8 | (if available) someone with read access comments `@claude review` | Fails at "Check the commenter can write to the repo" |
 | 9 | On a PR with a resolved finding, push a commit that brings the bug back, comment `@claude review` | A new inline finding on the bug, REQUEST_CHANGES, and the old thread stays resolved and untouched (no `unresolve` call) |
@@ -450,8 +452,8 @@ A thread a person starts must never get a reply or be resolved.
 - **Stale APPROVE after a push to a draft, by Dependabot, or to a fork:** those pushes don't reach `publish`, so the
   approval stays until the next review. Fork PRs get a COMMENT instead of an APPROVE for this reason.
 - **COMMENT doesn't clear REQUEST_CHANGES** in GitHub's review decision, so a follow-up dismisses the App's
-  REQUEST_CHANGES first. If a dismissal fails (403), the overview says "Change request is stale: dismiss it
-  manually": dismiss it from the PR's review list.
+  REQUEST_CHANGES first. If that dismissal fails (403), the job fails and no comment is posted: dismiss it from the PR's
+  review list and re-run the job.
 - **A PR that changes the workflow runs its own copy** (with the Claude key in `review` and the App key in `appcheck`
   and `publish`). Use `[skip ci]` on install and upgrade PRs. Exception: in a repo whose ruleset requires status
   checks from other workflows, `[skip ci]` skips those workflows too, so the required checks never report and the PR
@@ -470,7 +472,8 @@ A thread a person starts must never get a reply or be resolved.
   still dismissed, which can fail the job on a transient API error). Comment again.
 - **Two requests for the same head in quick succession** can both review it (posting happens in `publish`, outside
   the `review` queue).
-- **A failed review leaves no trace on the PR** except the red check; the overview still shows the previous run.
+- **A failed review leaves the overview saying what was decided,** with the red check: the overview is written before
+  the review, and says "A write failed: re-run this job" when the review itself failed.
 
 ## Troubleshooting
 
@@ -552,15 +555,14 @@ Don't loosen any of this when adapting the files.
 - **A follow-up reads no new code:** after `--comments` dismisses the REQUEST_CHANGES, code pushed since the last full
   review (a new bug, or a fixed one brought back) is unreviewed until the next `@claude review`.
 - **A follow-up keeps the last full review's overview paragraph,** which can describe findings that are now fixed.
-- **A no-verdict review hides the unchecked-findings note:** a full review that ends without a verdict is the newest
-  full entry in the history, so a `--comments` follow-up after it no longer says that body findings of the last
-  real review weren't re-checked.
-- **A re-run that keeps the posted result leaves its Threads line as it was,** though the re-run may have replied to
-  and resolved threads before it ended without a verdict.
-- **An incomplete review replaces findings that were only in the overview:** when an earlier run's findings could
-  only go in the overview (GitHub refused the App's review), a later run that ends incomplete replaces that overview
-  with its note. The findings stay in that run's job log.
-- **A failed run leaves no trace on the PR** (above).
+- **A follow-up doesn't re-check findings that sit in a review body:** it judges threads only, and a finding that
+  could not go inline has none.
+- **A failed dismissal of the App's approval is not retried by a re-run:** when a review with findings is posted as a
+  COMMENT (`changes-event: COMMENT`) and dismissing the earlier approval fails (403), the job fails and the findings
+  are posted, but the re-run stops at that review. Dismiss the approval from the PR's review list.
+- **A re-run that finds its review does not update the overview:** when a failure after the review (the link, the
+  thread recount) or a resolve that finished in the re-run changed the state, the overview and the review keep what
+  they said until the next request.
 - **A body finding's heading shows Claude's line number** even when its line text didn't match.
 - Legacy authors (`claude[bot]` threads, the `github-actions[bot]` summary) are still trusted by the gates, for PRs
   reviewed by v2.3: remove once no repo using the kit has an open PR reviewed by v2.3.
