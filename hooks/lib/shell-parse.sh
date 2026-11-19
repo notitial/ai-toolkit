@@ -27,9 +27,10 @@
 # a string nested more than 3 deep, `watch -x`, `su --session-command`, an attached `-c'cmd'`, `env -iS`, `$( )` and
 # backticks inside a heredoc body, and `\c` escapes in $'..'.
 # It refuses what it cannot read safely with `deny` (hook-common.sh, which must be sourced first): a control byte in
-# the text, a tokenizer failure, a `case` word anywhere inside a $( ), backtick, <( ) or >( ) (a case pattern's `)` ends
-# nothing, and the tokenizer cannot tell it from the end of the group) and a `)` right after an unclosed `${` inside one
-# (`$(echo ${x/)/})`). Nothing else lets a group end on a guess: a group ends exactly where its `)` or backtick is.
+# the text, a tokenizer failure, and the shapes where it could only guess where a group ends: a `case` word (also as an
+# argument) inside any ( ), $( ), backtick, <( ) or >( ) (the `)` of a case pattern ends nothing), a ( or ) inside ${ }
+# (`${x/)/}`), an escaped backtick inside backticks, and a heredoc ended by `EOF)` inside a substitution. With these refused a
+# group ends exactly at its `)` or backtick, and a stray `)` at the top level closes nothing.
 # HOME_R, the real path of $HOME, is set here; lexnorm is shared with the hook.
 # Names it defines: HOME_R NEST SP_LC SP_STDIN SP_SEG_* lexnorm tokenise set_cwd sp_lc sp_command sp_watch sp_xargs read_nested sp_pop shell_parse.
 
@@ -68,19 +69,21 @@ function sep() { print "S"; segsh = 0 }
 function subopen(k, q) {
   sw[sp] = w; ssh[sp] = segsh; sq[sp + 1] = q
   w = ""; inw = 0; wq = 0; segsh = 0
-  sp++; st[sp] = k; pd[sp] = 0; sb[sp] = 1
+  sp++; st[sp] = k; pd[sp] = 0; bd[sp] = 0; sb[sp] = 1
   print "O"
 }
 function subclose() {
   sb[sp + 1] = 0
   w = sw[sp] (sq[sp + 1] ? "$(...)" : "$(..)"); inw = 1; wq = 1; segsh = ssh[sp]
 }
-# A group ends where its ) is. The ) of a case pattern and a ) inside ${x/)/} are no group end, and the tokenizer cannot tell
-# them from one, so a `case` word or such a ) inside a substitution makes the text unreadable (exit 3: the hooks refuse it).
+# A group ends where its ) is. The ) of a case pattern, and a ( or ) inside ${ }, are no group paren, and the tokenizer cannot
+# tell them from one: a `case` word inside any group, and a ( or ) inside ${ }, make the text unreadable (exit 3: the hooks
+# refuse it). A stray ) at the top level closes nothing.
 function insub(   k) { for (k = 2; k <= sp; k++) if (sb[k]) return 1; return 0 }
+function ingroup() { return pd[1] > 0 || insub() }
 function flush(   b) {
   if (inw) {
-    if (w == "case" && insub()) exit 3
+    if (w == "case" && ingroup()) exit 3
     gsub(/\n/, ";", w); print "W" w
     b = tolower(w); sub(/.*\//, "", b)
     if (b ~ /^(sh|bash|zsh|dash|ksh|su)$/) segsh = 1
@@ -93,6 +96,7 @@ function hdscan(p, emit,   e, line, l2) {
     if (e == 0) { line = substr(s, p); p = n + 1 } else { line = substr(s, p, e - 1); p += e }
     l2 = line
     if (hdash) sub(/^\t+/, "", l2)
+    if (l2 != hd && substr(l2, 1, length(hd) + 1) == hd ")" && insub()) exit 3  # EOF) may end the body inside $( ): not followed
     if (l2 == hd) break
     if (emit) print "Z" line
   }
@@ -127,7 +131,7 @@ function ansic(   t, d, v, k, m, ch, cut) {
 }
 {
   s = $0; n = length(s); i = 1; w = ""; inw = 0; wq = 0
-  sp = 1; st[1] = "N"; pd[1] = 0; hd = ""; hdash = 0
+  sp = 1; st[1] = "N"; pd[1] = 0; bd[1] = 0; hd = ""; hdash = 0
   while (i <= n) {
     c = substr(s, i, 1); top = st[sp]
     if (top == "D") {
@@ -145,6 +149,7 @@ function ansic(   t, d, v, k, m, ch, cut) {
     if (c == "\\") {
       nx = substr(s, i + 1, 1)
       if (nx == "\n") { i += 2; continue }
+      if (top == "B" && nx == "`") exit 3  # an escaped backtick nests a group the tokenizer does not follow
       w = w nx; inw = 1; wq = 1; i += 2; continue
     }
     if (c == "\047") {
@@ -156,6 +161,7 @@ function ansic(   t, d, v, k, m, ch, cut) {
     if (c == "$") {
       nx = substr(s, i + 1, 1)
       if (nx == "(") { subopen((substr(s, i + 2, 1) == "(") ? "A" : "S", 0); i += 2; continue }
+      if (nx == "{") { bd[sp]++; w = w "${"; inw = 1; i += 2; continue }
       if (nx == "\047") { i += 2; w = w ansic(); inw = 1; wq = 1; continue }
       if (nx == "\"") { i++; continue }
       if (nx == "$") { w = w "$$"; inw = 1; i += 2; continue }
@@ -165,6 +171,7 @@ function ansic(   t, d, v, k, m, ch, cut) {
       if (top == "B") { flush(); sep(); sp--; print "C"; subclose() } else subopen("B", 0)
       i++; continue
     }
+    if (c == "}" && bd[sp] > 0) { bd[sp]--; w = w c; inw = 1; i++; continue }
     if (c == " " || c == "\t") { flush(); i++; continue }
     if (c == "\n") { flush(); sep(); i++; if (hd != "") { hdscan(i); i = hdend; hd = "" }; continue }
     if (c == "#" && !inw) {
@@ -179,15 +186,18 @@ function ansic(   t, d, v, k, m, ch, cut) {
       flush(); sep(); i++; if (substr(s, i, 1) == "&") i++; continue
     }
     if (c == "(") {
+      if (bd[sp] > 0) exit 3
       flush(); sep(); print "O"
-      if (top == "S" || top == "A") pd[sp]++
-      if (substr(s, i + 1, 1) == "(") { sep(); print "O"; sp++; st[sp] = "A"; pd[sp] = 0; i++ }  # (( )): << is a shift
+      if (top == "S" || top == "A" || top == "N") pd[sp]++
+      if (substr(s, i + 1, 1) == "(") { sep(); print "O"; sp++; st[sp] = "A"; pd[sp] = 0; bd[sp] = 0; i++ }  # (( )): << is a shift
       i++; continue
     }
     if (c == ")") {
-      if (w ~ /\$\{[^}]*$/ && insub()) exit 3
-      flush(); sep(); print "C"
-      if (top == "S" || top == "A") { if (pd[sp] > 0) pd[sp]--; else { sp--; if (sb[sp + 1]) subclose() } }
+      if (bd[sp] > 0) exit 3
+      flush(); sep()
+      if (top == "S" || top == "A") { print "C"; if (pd[sp] > 0) pd[sp]--; else { sp--; if (sb[sp + 1]) subclose() } }
+      else if (top == "N") { if (pd[1] > 0) { print "C"; pd[1]-- } }
+      else print "C"
       i++; continue
     }
     if (c == ">" && substr(s, i + 1, 1) == "(") { subopen("S", 1); i += 2; continue }
@@ -477,7 +487,12 @@ shell_parse() {
     tok=$(printf '%s' "$cmd" | LC_ALL=C tr -d '\011\012\040-\176\200-\377')
     [ -z "$tok" ] || deny "the command holds control characters the hook cannot read safely - blocked (fail-closed)."
   fi
-  tok=$(printf '%s' "$cmd" | tokenise) || deny "could not read the command text - blocked (fail-closed)."
+  tok=$(printf '%s' "$cmd" | tokenise)
+  case $? in
+    0) ;;
+    3) deny "a case word in a substitution, a paren inside \${ }, or a heredoc ended by EOF) cannot be read exactly - blocked (fail-closed)." ;;
+    *) deny "could not read the command text - blocked (fail-closed)." ;;
+  esac
   while IFS= read -r line; do
     case "$line" in
       S)

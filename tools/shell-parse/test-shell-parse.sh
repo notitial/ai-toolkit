@@ -44,7 +44,7 @@ check() {  # check <label> <0|1: did the condition hold>
 refuse() {  # refuse <label> <command>: the text is unreadable, so the parser refuses it (the hooks deny)
   local got
   got=$("$SH" "$T/run.sh" "$2" 2>&1)
-  case "$got" in *'"permissionDecision": "deny"'*) PASS=$((PASS + 1)) ;; *) FAIL=$((FAIL + 1)); printf 'FAIL: %s\n%s\n' "$1" "$got" ;; esac
+  case "$got" in *'cannot be read exactly'*) PASS=$((PASS + 1)) ;; *) FAIL=$((FAIL + 1)); printf 'FAIL: %s\n%s\n' "$1" "$got" ;; esac
 }
 
 # words and quotes
@@ -144,6 +144,18 @@ refuse "case behind time in a substitution" 'echo $(time case x in x) rm /p;; es
 refuse "case in a substitution inside a subshell" '(echo $(case x in x) rm /p;; esac); cd /n)'
 refuse "case as an argument in a substitution" 'echo $(echo case; a) b'
 refuse "a ) inside \${x/)/} in a substitution" 'echo $(echo ${x/)/} rm /p)'
+refuse "case in a plain subshell pops the folder" 'cd /t; (cd /x; case x in x) rm p;; esac)'
+refuse "case in a subshell inside a function body" 'f() { (case x in x) a;; esac); }'
+refuse "a space before the ) inside \${ }" 'cd /t; (cd /x; echo $(echo ${x:-a )}); rm p)'
+refuse "a ( inside \${ }" 'rm$(echo ${x#(}) -rf /p'
+refuse "a ( inside \${ } with no substitution" 'rm ${x#(} -rf /p'
+refuse "an escaped backtick inside backticks" 'echo `echo \`case x in x) rm /p;; esac\``'
+refuse "a heredoc ended by EOF) inside a substitution" $'echo $(cat <<EOF\nx\nEOF) ; rm /p'
+refuse "case behind bash -c in a substitution" 'bash -c '"'"'echo $(case x in x) rm /p;; esac)'"'"
+expect "case in a function body outside any group" 'f() { case x in x) a;; esac; }' 'C[/s] <f>' 'C[/s] <case> <x> <in> <x>' 'C[/s] <a>' 'C[/s] <esac>'
+expect "a plain subshell" '(cd /n; a); b' 'C[/n] <a>' 'C[/s] <b>'
+expect "parameter expansions keep their braces" 'echo ${x:-$(date)} ${y#a} ${#arr[@]} z' 'C[/s] <date>' 'C[/s] <echo> <${x:-$(..)}> <${y#a}> <${#arr[@]}> <z>'
+expect "a heredoc in a substitution reads normally" $'echo $(cat <<EOF\nx)\nEOF\n) a' 'C[/s] <cat>' 'C[/s] <echo> <$(..)> <a>'
 expect "case outside a substitution is plain words" 'case x in x) rm /p;; esac' 'C[/s] <case> <x> <in> <x>' 'C[/s] <rm> </p>' 'C[/s] <esac>'
 expect "case inside a bash -c string is read" 'bash -c "case x in x) rm /p;; esac"' 'C[/s] <case> <x> <in> <x>' 'C[/s] <rm> </p>' 'C[/s] <esac>' 'C[/s] <bash> <-c> <case x in x) rm /p;; esac>'
 expect "a plain substitution with parameter expansion reads normally" 'echo $(echo ${x:-a} b) c' 'C[/s] <echo> <${x:-a}> <b>' 'C[/s] <echo> <$(..)> <c>'
