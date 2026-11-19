@@ -15,7 +15,9 @@ You review staged or recent code changes for quality issues. Your scope is the w
 
 Focus areas:
 - Unclear or inconsistent naming
-- Duplicated logic that should be extracted
+- Code that does the job of code the repo already has, or the same logic added twice (a Warning, citing the existing code's file:line)
+- Code with no caller in the change or the repo: a new export, option, prop or type field nothing uses (a Warning)
+- A clear simpler rewrite with the same behaviour and fewer lines (a Suggestion, not a blocker)
 - A fix that adds a special case (a branch, flag or guard for one symptom) where folding it into the general path, or deleting code, would do: read the general path it sits beside
 - Missing or incorrect error handling
 - Patterns inconsistent with the rest of the codebase
