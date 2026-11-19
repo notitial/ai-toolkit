@@ -46,7 +46,9 @@ base install.
   read ones, by the call's `path`. Bash by one simple rule: segments, a tracked `cd`, redirects and a fixed list of
   write verbs. Bash git is not on that list: `hooks/git-mcp-redirect.sh` owns it (ADR 0010), denying every Bash git
   command but read-only plumbing, so this hook never reads a git subcommand in Bash (amended 2026-11-19: it used to
-  keep its own list of git writes, a second and third reader of the same text). Reads are never denied. The exact
+  keep its own list of git writes, a second and third reader of the same text). Reads are never denied (amended 2026-11-19: except in a text that holds a
+  substitution, `$( )` or backticks, whose parse is not trusted: it is denied when it names a protected place, even to read
+  it, and from a protected folder when it also holds a write verb or a redirect, whatever its target). The exact
   list and the limits are in the hook's header and tested in `tools/protected-paths-guard/`.
 - **A push is judged by its remote.** A push from a clone writes into whatever its remote points at, and a clone made
   from the live checkout's folder has that folder as `origin`. A git MCP `git_push` whose target
@@ -56,7 +58,8 @@ base install.
   `fastForwardOnly` is allowed in a root: it moves a checkout to a reviewed commit, which is how a protected checkout
   is updated.
 - **Targets are judged, not the session's folder.** A session that stands in a protected folder and works in a clone
-  under `/tmp` is not blocked. The folder only decides a relative operand with no `cd` before it.
+  under `/tmp` is not blocked. The folder only decides a relative operand with no `cd` before it (a text with a substitution
+  is the exception above).
 - **The setup.** `/setup-claude` links the hook (it is in the roster), wires it (a template entry, covered by the drift
   assertion; its command is `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`, so a guard that cannot
   start blocks the call instead of letting it through, and a stale bare command is reported as drift; the guards secret-detector, destructive-blocker, git-mcp-guard, git-mcp-redirect and gh-block are wired the same way) and tells the user to make the marker for this checkout. Because the hook now denies the agent's writes to

@@ -20,7 +20,7 @@
 # FAIL-CLOSED without jq (as git-mcp-guard): the input cannot be read, so the call is denied. Without lib/hook-common.sh
 # or lib/shell-parse.sh (or finds it empty or cut short) it exits 1, which the `|| exit 2` wiring turns into a block.
 #
-# WHAT COUNTS AS A WRITE (reads are never denied)
+# WHAT COUNTS AS A WRITE (reads are never denied, except in a text that holds a substitution: see the last rule below)
 #   - Edit, Write, MultiEdit, NotebookEdit: the target's real path (symlinks followed, case-insensitive compare).
 #   - git MCP tools: every tool except the read ones (status, log, diff, show, blame, reflog, fetch, working
 #     directory tools, git_push (judged by its remote, below), and the list/show modes of branch, tag, remote, stash). The folder is the
