@@ -456,7 +456,7 @@ jobs:
             CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 DISABLE_AUTOUPDATER=1 \
             ${ANTHROPIC_API_KEY:+"ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"} \
             ${CLAUDE_CODE_OAUTH_TOKEN:+"CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}"} \
-            bash run.sh "$prompt" "$GITHUB_WORKSPACE" "$REVIEW_DIR" > "$out/stream.jsonl" || status=$?
+            bash "${setup}/run.sh" "$prompt" "$GITHUB_WORKSPACE" "$REVIEW_DIR" > "$out/stream.jsonl" || status=$?
           echo "::${token}::"
           if [ "$status" -ne 0 ]; then
             echo "::error::Claude exited with status ${status} (result: $(jq -rs '[.[] | select(type == "object" and .type == "result")] | last | .subtype // "none"' "$out/stream.jsonl" 2>/dev/null || echo unreadable))"
