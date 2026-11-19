@@ -46,7 +46,11 @@
 #   hard links, the target of a find -exec, programs that write on their own (archive creators, compressors,
 #   formatters with an in-place flag), env -C, a < or > inside a standalone (( )) arithmetic command. A
 #   recursive delete or move of a folder that contains a protected root is caught only for the session's own root
-#   and for ~/.claude.
+#   and for ~/.claude. A `~user`, `~+` or `~-` spelling is read as no path. A glob in a settings file name (settings.js?n) is
+#   judged by its folder, not as the file. At most 80 words are judged in one call, and a text with a substitution and over
+#   150 distinct path-like words is denied: each word costs about 40 ms and a hook past its 10 s timeout lets the call through.
+#   On bash 3.2 a `< <(cmd)` leaks a descriptor, and the hook crashed (exit 133, the call goes through) after about 250 of them:
+#   none are left in the guard or in lib/shell-parse.sh; a here-document does not leak.
 #
 # Reads JSON from stdin. Returns a JSON deny decision or nothing; exit 0 always (but `exit 1` when a lib file is
 # missing: the `|| exit 2` wiring blocks the call). No `set -e`: it would break the exit-0-always contract. Runs on bash 3.2.
@@ -263,9 +267,15 @@ judge_into() {
 
 ANC=0
 # judge_target <path> <what the call does>: deny when the path lands in a protected place.
+# Each word judged costs about 40 ms (several forks) and the hook has a 10 s timeout, past which the call goes through unchecked
+# (bash 3.2 also crashed, with the same result, after about 250 forks of `< <(...)`). So the work is bounded here, for every caller:
+# the 81st word judged in one call is denied, never cut short.
+JUDGED=0
 judge_target() {
   local p="$1" verb="$2" c
   [ -n "$p" ] || return 0
+  JUDGED=$((JUDGED + 1))
+  [ "$JUDGED" -le 80 ] || deny "this call names more than 80 paths to judge, which cannot be done within the hook's time limit (a call past it would go through unchecked). Split it into several calls."
   case "$p" in
     /dev/*) return 0 ;;
     '$HOME' | '${HOME}') p=$HOME_R ;;
@@ -302,7 +312,9 @@ judge_target() {
     if [ "$ANC" = 1 ] && anc_check "$c"; then
       deny "$verb would remove or move $p, $PROT_WHAT. A person does that themselves."
     fi
-  done < <(candidates "$p")
+  done <<EOF
+$(candidates "$p")
+EOF
   return 0
 }
 
@@ -692,13 +704,14 @@ git_tool() {
 # something removed or moved (`rm -rf ~/.claude`, `cp f ~/.claude/` after a substitution). Cost: such a text that only
 # reads a protected file, a heredoc or string that only names one or a word that is a verb name ("find the cause"), a
 # redirect sign anywhere (`->`, `$((a>b))`), a write verb from a protected folder, and a write verb next to a bare `~` or `/`
-# are denied too, as is a text with more than 300 distinct path-like words (the hook has a 10 s timeout: split the call). A quoted
-# path with spaces is judged too (a quoted string that holds a space and starts like a path); a bare word is judged when a write verb is in the text
-# and it names something in the session folder (`cd live`). Not read: ${ cmd; }, a path assembled at run time, a bare relative
+# are denied too. A quoted path with spaces is judged too (a quoted string that holds a space and starts like a path); a bare
+# word is judged when a write verb is in the text and it names something in the session folder (`cd live`). A text with more
+# than 150 distinct path-like words is denied (the scan itself slows down with them), and every word judged counts toward the
+# limit in judge_target. Not read: ${ cmd; }, a path assembled at run time, a bare relative
 # word without a write verb, and a `cd` chain from an unprotected folder when the verb itself comes from a substitution
 # (`$(which rm) -rf hooks`).
 sub_guard() {
-  local t=$1 rd w c s r wr=0 inprot=0 pw=() bw=() seen="|" big=0 quoted=0
+  local t=$1 rd w c s r wr=0 inprot=0 pw=() bw=() seen="|" quoted=0 big=0
   case "$t" in *'('* | *'`'*) ;; *) return 0 ;; esac  # every opener has a ( or a backtick
   case "$t" in *[\"\'\\]*) quoted=1 ;; esac
   t=${t//\\$'\n'/}
@@ -706,7 +719,7 @@ sub_guard() {
   t=${t//\"\"/}
   t=${t//\$\'/\'}
   t=${t//\$\"/\"}
-  t=${t//[\"\'\\]/}
+  t=$(printf '%s' "$t" | tr -d "\"'\\\\")  # not ${t//[...]/}: bash 3.2 takes 35 s on a 9 KB text
   case "$t" in *'$('* | *'`'* | *'<('* | *'>('* | *'=('*) ;; *) return 0 ;; esac
   rd=${t//>&[0-9-]/}
   rd=${rd//>>[ ]\/dev\/null/}
@@ -719,10 +732,12 @@ sub_guard() {
     while IFS= read -r s; do
       s=${s#?}
       s=${s%?}
-      case "$s" in /* | '~'* | '$HOME'* | '${HOME}'*) [ "${#pw[@]}" -lt 50 ] && pw[${#pw[@]}]=$s ;; esac
-    done < <(printf '%s' "$1" | grep -oE "\"[/~\$][^\"]* [^\"]*\"|'[/~\$][^']* [^']*'")
+      case "$s" in /* | '~'* | '$HOME'* | '${HOME}'*) pw[${#pw[@]}]=$s ;; esac
+    done <<EOF
+$(printf '%s' "$1" | grep -oE "\"[/~\$][^\"]* [^\"]*\"|'[/~\$][^']* [^']*'")
+EOF
   fi
-  t=$(printf '%s' "$t" | tr ' \t;|&<>()`=:' '\n')  # not ${t//[...]/}: bash 3.2 takes 10 s on a 5 KB text
+  t=$(printf '%s' "$t" | tr ' \t;|&<>()`=:' '\n')
   while IFS= read -r w; do
     case "$w" in
       -[A-Za-z]/* | -[A-Za-z]'~'* | -[A-Za-z]'$HOME'* | -[A-Za-z]'${HOME}'*) w=${w#-?} ;;
@@ -730,16 +745,16 @@ sub_guard() {
     esac
     sp_lc "$w"
     case "$SP_LC" in
-      rm | rmdir | unlink | shred | touch | mkdir | chmod | chown | chgrp | truncate | tee | mv | cp | install | ln | rsync | dd | patch | sed | perl | tar | unzip | curl | wget | find | xargs) wr=1 ;;
+      rm | rmdir | unlink | shred | touch | mkdir | mkfifo | mknod | chmod | chown | chgrp | truncate | tee | mv | cp | install | ln | rsync | dd | patch | sed | perl | tar | unzip | curl | wget | find | xargs) wr=1 ;;
     esac
     case "$seen" in *"|$w|"*) continue ;; esac
     seen="$seen$w|"
     case "$w" in  # a word with a / or .., or in ~ or $HOME spelling, is judged; a bare word only when it is a name in the session folder (a cd target)
       / | '~') continue ;;
       */* | '~'* | '$HOME'* | '${HOME}'* | ..) ;;
-      *) [ -e "$SESSION_CWD/$w" ] && [ "${#bw[@]}" -lt 100 ] && bw[${#bw[@]}]=$w; continue ;;
+      *) [ -e "$SESSION_CWD/$w" ] && bw[${#bw[@]}]=$w; continue ;;
     esac
-    if [ "${#pw[@]}" -ge 300 ]; then big=1; break; fi
+    [ "${#pw[@]}" -lt 150 ] || { big=1; break; }  # the scan itself slows with the words it keeps (5000 paths: 11 s)
     pw[${#pw[@]}]=$w
   done <<EOF
 $t
@@ -749,10 +764,12 @@ EOF
     [ "$(lower "$c")" = "$LHOME_R/.claude" ] && deny "a command that holds a substitution and writes (or may) would run in ~/.claude, and the substitution is not read reliably. Run it from a clone under /tmp, or put the substitution in its own call and write with plain paths."
     while IFS= read -r c; do
       prot_check "$c" && inprot=1
-    done < <(candidates "$c")
+    done <<EOF
+$(candidates "$c")
+EOF
     [ "$inprot" = 1 ] && deny "a command that holds a substitution and writes (or may) would run in $PROT_WHAT, and the substitution is not read reliably. Run it from a clone under /tmp, or put the substitution in its own call and write with plain paths."
   fi
-  [ "$big" = 1 ] && deny "a command that holds a substitution and more than 300 path-like words is too long to read reliably. Split it, or keep the substitution out of the call that writes."
+  [ "$big" = 1 ] && deny "a command that holds a substitution and more than 150 path-like words is too long to read reliably. Split it, or keep the substitution out of the call that writes."
   for w in "${pw[@]}"; do
     case "$w" in
       //*[!/]*) ;;

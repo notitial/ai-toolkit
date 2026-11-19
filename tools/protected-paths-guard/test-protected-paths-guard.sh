@@ -23,6 +23,7 @@ STATE="$H/.claude/state"
 mkdir -p "$T/sp ace/r/tools"
 : >"$T/sp ace/r/.protected-checkout"
 mkdir -p "$LIVE/.git" "$CLONE/.git" "$LIVE/.archive/c1/.git" "$H/.claude/hooks" "$LIVE/tools" "$LIVE/hooks" "$LIVE/.archive/task" "$CLONE/tools" "$STATE/sub" "$T/other"
+mkdir -p "$T/many"; for k in $(seq 1 90); do : >"$T/many/f$k"; done
 : >"$LIVE/.protected-checkout"
 : >"$STATE/.protected-checkout"
 echo '{}' >"$H/.claude/settings.json"
@@ -146,8 +147,21 @@ bash_ $p "cat <<'EOF' > $CLONE/n.txt
 $(printf 'word%s /tmp/a/b ' $(seq 1 300))
 \$(date)
 EOF" "$CLONE"
+# the work is bounded by the words judged (80 a call, about 40 ms each; past the hook's 10 s timeout a call goes through): the 81st is denied
 bash_ $p "cp \$(x) y; $(printf ' /tmp/a%s' $(seq 1 60))" "$CLONE"
+bash_ $d "cp \$(x) y; $(printf ' /tmp/a%s' $(seq 1 85))" "$CLONE"
 bash_ $d "cp \$(x) y; $(printf ' /tmp/a%s' $(seq 1 320))" "$CLONE"
+bash_ $p "cp \$(x) y; $(printf ' "/tmp/a b/%s"' $(seq 1 30))" "$CLONE"
+bash_ $d "cp \$(x) y; $(printf ' "/tmp/a b/%s"' $(seq 1 100))" "$CLONE"
+bash_ $d "cp \$(x) y; $(printf ' "/tmp/a b/%s"' $(seq 1 45)) $(printf ' /tmp/c%s' $(seq 1 45))" "$CLONE"
+bash_ $d "cp \$(x) y; $(printf ' f%s' $(seq 1 90))" "$T/many"
+bash_ $p "cp \$(x) y; $(printf ' f%s' $(seq 1 40))" "$T/many"
+bash_ $d "chmod 600 $(printf ' /tmp/a%s' $(seq 1 85))" "$CLONE"
+bash_ $p "chmod 600 $(printf ' /tmp/a%s' $(seq 1 60))" "$CLONE"
+# mkfifo and mknod are write verbs for a text with a substitution too
+bash_ $d "mkfifo \$(mktemp -u)" "$LIVE"
+bash_ $d "echo \$(date); mknod x p" "$LIVE"
+bash_ $p "mkfifo \$(mktemp -u)" "$CLONE"
 bash_ $d "bash -c 'cd live; cp /tmp/x \`: '\"'\"'\` tools/a.ts \`: '\"'\"'\`'" "$T"
 bash_ $d "tar -xf a.tar \`: '\"'\"'\` -C live \`: '\"'\"'\`" "$T"
 bash_ $d "bash -c 'cp /tmp/x \`: '\"'\"'\` \"$T/sp ace/r/tools/a.ts\" \`: '\"'\"'\`'" "$T"

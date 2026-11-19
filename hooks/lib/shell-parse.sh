@@ -544,7 +544,9 @@ shell_parse() {
         fi
         ;;
     esac
-  done < <(printf '%s\n' "$tok")
+  done <<EOF
+$tok
+EOF
   while :; do  # a group the text leaves open still gives back the words parked in front of it
     SP_STDIN=$sin
     [ "${#SEG[@]}" -gt 0 ] && sp_command "${SEG[@]}"
