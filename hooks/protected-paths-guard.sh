@@ -748,11 +748,12 @@ EOF
       //*[!/]*) ;;
       //*) continue ;;
     esac
+    ANC=0
     case "$w" in
-      /* | '~'* | '$HOME'* | '${HOME}'* | .. | ../* | */.. | */../*) ;;
+      /* | '~'* | '$HOME'* | '${HOME}'*) ANC=$wr ;;  # with a write verb it may also be removed or moved (rm -rf ~/.claude)
+      .. | ../* | */.. | */../*) ;;
       *) [ "$wr" = 1 ] || continue ;;  # a relative word is judged only with a write verb in the text
     esac
-    ANC=$wr  # with a write verb a word may also be something removed or moved (rm -rf ~/.claude)
     judge_target "$w" "a command that holds a substitution (not read reliably)"
     ANC=0
   done
