@@ -203,7 +203,7 @@ def guard_cmd:
   (type == "string") and (
     . == "/usr/local/libexec/mcp-github/guard.sh" or . == $guard or . == ("/bin/bash -p '"'"'" + $guard + "'"'"' || exit 2"));
 # A hook command of the toolkit: the script path alone or with arguments, optionally under bash, never a chained command,
-# or the fail-closed wrapper of a hook (`/bin/bash -p "$HOME/.claude/hooks/<name>" || exit 2`, protected-paths-guard.sh):
+# or the fail-closed wrapper of a hook (`/bin/bash -p "$HOME/.claude/hooks/<name>" || exit 2`, the form of every guard):
 # it goes with the link, since a wrapper left behind would block every call once its script is gone.
 def toolkit_cmd:
   (type == "string") and (

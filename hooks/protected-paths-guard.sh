@@ -21,8 +21,8 @@
 # WHAT COUNTS AS A WRITE (reads are never denied)
 #   - Edit, Write, MultiEdit, NotebookEdit: the target's real path (symlinks followed, case-insensitive compare).
 #   - git MCP tools: every tool except the read ones (status, log, diff, show, blame, reflog, fetch, working
-#     directory tools, git_push (judged by its remote, below), and the list/show modes of branch, tag, remote, stash, worktree). The folder is the call's
-#     `path`; a missing or relative `path` is read against the session's folder.
+#     directory tools, git_push (judged by its remote, below), and the list/show modes of branch, tag, remote, stash). The folder is the
+#     call's `path` (git-mcp-guard denies a missing or relative one before this hook matters).
 #   - Bash and Monitor, one simple rule: the command is split into segments (; && || | & newline, and the insides of
 #     $( ), backticks and ( )), `cd <dir>` is tracked left to right, and a segment is denied when it is a write
 #     shape and a target resolves into a protected place. Write shapes: a > >> >| &> redirect; rm rmdir unlink shred
@@ -34,15 +34,13 @@
 #     Relative operands resolve against the tracked folder; a glob is judged by its directory prefix.
 #
 # KNOWN LIMITS (this is a guard against mistakes and the classifier is a second line, not a sandbox)
-#   Not read: for a push, a remote named by a variable or by git's environment (GIT_DIR, GIT_CONFIG_*) or by `git -c remote.<name>.url=...`, a remote changed or a clone made earlier in the same command, a git MCP
-#   `git_push` with no `path`, submodule pushes, `--git-dir`
+#   Not read: for a push, a remote named by a variable or by git's environment (GIT_DIR, GIT_CONFIG_*) or by `git -c remote.<name>.url=...`, a remote changed or a clone made earlier in the same command, submodule pushes, `--git-dir`
 #   with no work tree, a bare word that is no configured remote (read as a name, not a folder), a percent-encoded file:// URL, a repo with no readable config, an alias or a remote helper
 #   that maps to a local path; the program text of an interpreter (python -c, node -e, a script file), make/npm/other tools that
 #   write on their own, paths built at run time ($VAR, $(...) output), a `cd` to a variable or glob (the folder is
 #   then unknown and only absolute operands are judged), file names fed to xargs on stdin, $(...) inside a heredoc,
 #   hard links, the target of a find -exec, programs that write on their own (archive creators, compressors,
-#   formatters with an in-place flag), env -C and env -S, a < or > inside (( )) arithmetic, and a git MCP call with no `path` when
-#   the server's own folder differs from the session's. A
+#   formatters with an in-place flag), env -C and env -S, a < or > inside (( )) arithmetic. A
 #   recursive delete or move of a folder that contains a protected root is caught only for the session's own root
 #   and for ~/.claude.
 #
@@ -1233,14 +1231,12 @@ git_tool() {
     git_tag) case "${mode:-list}" in list | verify) return 0 ;; esac ;;
     git_remote) case "${mode:-list}" in list | get-url) return 0 ;; esac ;;
     git_stash) case "${mode:-push}" in list) return 0 ;; esac ;;
-    git_worktree) case "${mode:-list}" in list) return 0 ;; esac ;;
     git_clean) [ "$(ti .dryRun)" = "true" ] && return 0 ;;
     git_pull)
       [ "$(ti .fastForwardOnly)" = "true" ] && [ "$(ti .rebase)" != "true" ] && return 0
       ;;
   esac
   path=$(ti .path)
-  [ -n "$path" ] || path=$SESSION_CWD
   case "$path" in
     /*) ;;
     *) path="$SESSION_CWD/$path" ;;
@@ -1254,10 +1250,6 @@ git_tool() {
     *) path=$(git_top "$path") ;;
   esac
   judge_target "$path" "$name"
-  if [ "$name" = git_worktree ]; then
-    judge_target "$(ti .worktreePath)" "$name"
-    judge_target "$(ti .newPath)" "$name"
-  fi
   return 0
 }
 

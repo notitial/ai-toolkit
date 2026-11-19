@@ -354,19 +354,20 @@ check_exec() {
 
 # check_wired <repo path> <the hook commands in settings.json>: a linked, executable hook still does nothing unless
 # settings.json runs it, so links alone must not read as "all current". The command is the template's literal form: the
-# bare path, or for protected-paths-guard.sh only the fail-closed `/bin/bash -p "<path>" || exit 2` wrapper (the bare
-# form lets a call through when the guard cannot start).
+# bare path, or for a guard the fail-closed `/bin/bash -p "<path>" || exit 2` wrapper (the bare form lets a call
+# through when the guard cannot start). The guards are the hooks whose template command carries the wrapper.
 check_wired() {
   local wrapped="/bin/bash -p \"\$HOME/.claude/$1\" || exit 2"
   printf '%s\n' "$2" | grep -Fxq -e "$wrapped" && return 0
-  if [ "$1" = hooks/protected-paths-guard.sh ]; then
-    if printf '%s\n' "$2" | grep -Fxq -e "\$HOME/.claude/$1"; then
-      line STALE "$1 runs as the bare path, which lets a call through when the guard cannot start" "/setup-claude (command drift)"
-      return 0
-    fi
-  else
-    printf '%s\n' "$2" | grep -Fxq -e "\$HOME/.claude/$1" && return 0
-  fi
+  case $1 in
+    hooks/protected-paths-guard.sh|hooks/secret-detector.sh|hooks/destructive-blocker.sh|hooks/git-mcp-guard.sh|hooks/gh-block.sh)
+      if printf '%s\n' "$2" | grep -Fxq -e "\$HOME/.claude/$1"; then
+        line STALE "$1 runs as the bare path, which lets a call through when the guard cannot start" "/setup-claude (command drift)"
+        return 0
+      fi
+      ;;
+    *) printf '%s\n' "$2" | grep -Fxq -e "\$HOME/.claude/$1" && return 0 ;;
+  esac
   line MISSING "$1 is not wired in ~/.claude/settings.json, so it does not run" "/setup-claude"
 }
 

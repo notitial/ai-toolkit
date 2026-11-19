@@ -287,8 +287,8 @@ you don't need (fewer scopes on the `gh` login, a passphrase on SSH keys).
   `bypassPermissions` session. Don't use bypass mode for GitHub work: there, `update_pull_request` could run
   unprompted too (title, body and a draft-to-ready flip, which starts a paid review).
 - The launcher, the guard and the setting files they read are ordinary files of your user (the root-owned copies were
-  retired). The template asks on every Edit of `~/.claude/settings.json` and `settings.local.json`, denies Edit on
-  `~/.claude/install.conf`, and the template denies Edit on the `~/.claude` link paths. The live checkout itself is
+  retired). The template denies Edit on
+  `~/.claude/install.conf` and on the `~/.claude` link paths. The live checkout itself is
   protected by `hooks/protected-paths-guard.sh` and its `.protected-checkout` marker (ADR 0017), which denies file-tool,
   git MCP and simple Bash writes there. It reads no script or interpreter program, and a write to `install.conf` that
   does not name it literally gets past the Edit denies. A
