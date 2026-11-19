@@ -723,7 +723,7 @@ git_tool() {
 # a write verb or a redirect. With a write verb in the text every word is judged, as a path from the session folder and as
 # something removed or moved (`rm -rf ~/.claude`, `cp f ~/.claude/` after a substitution). Cost: such a text that only
 # reads a protected file, a heredoc or string that only names one or a word that is a verb name ("find the cause"), a
-# redirect sign anywhere (`->`, `$((a>b))`), a write verb from a protected folder, and a write verb next to a bare `~` or `/`
+# redirect sign anywhere (`->`, `$((a>b))`), a write verb from a protected folder, and an rm or mv next to a bare `~` or `/`
 # are denied too. A quoted path with spaces is judged too (a quoted string that holds a space and starts like a path); a bare
 # word is judged when a write verb is in the text and it names something in the session folder (`cd live`). A text with more
 # than 150 distinct path-like words is denied (the scan itself slows down with them), and every word judged counts toward the
