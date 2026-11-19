@@ -264,7 +264,7 @@ sp_lc() {
 # sp_command <command words...>: one simple command, from its first word (a wrapper, an assignment or the verb). A shell
 # with no -c string reads its script from SP_STDIN, the heredoc or here-string shell_parse found for this command.
 sp_command() {
-  local verb vl a w wb wv sv script takenext stdin=${SP_STDIN:-}
+  local verb vl a w wb wv sv script takenext skipval stdin=${SP_STDIN:-}
   # Skip assignments, wrappers and shell keywords in front of the command.
   while [ "$#" -gt 0 ]; do
     w=$1
@@ -402,9 +402,14 @@ sp_command() {
   case "$vl" in
     watch) sp_watch "$@" ;;
     sh | bash | zsh | dash | ksh | su)
-      script="" takenext=0
+      script="" takenext=0 skipval=0
       for a in "$@"; do
-        if [ "$takenext" = 1 ]; then script=$a; break; fi
+        if [ "$skipval" = 1 ]; then skipval=0; continue; fi  # the value of -o / -O
+        case "$a" in -o | +o | -O | +O) skipval=1; continue ;; esac
+        if [ "$takenext" = 1 ]; then
+          case "$a" in -* | +*) continue ;; esac  # bash -c -- 'cmd', bash -c -x 'cmd': options come before the string
+          script=$a; break
+        fi
         case "$a" in
           -c | -[a-zA-Z]*c | -[a-zA-Z]*c[a-zA-Z]*) takenext=1 ;;
           --c*=*) script=${a#*=}; break ;;
