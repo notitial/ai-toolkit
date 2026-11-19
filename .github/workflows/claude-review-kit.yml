@@ -456,7 +456,7 @@ jobs:
           setup="${RUNNER_TEMP}/claude-review-setup"
           out=$(mktemp -d "${RUNNER_TEMP}/claude-review-stream.XXXXXXXX")
           echo "stream_file=$out/stream.jsonl" >> "$GITHUB_OUTPUT"
-          prompt="Follow the instructions in claude-pr-review.md. In that file, \$ARGUMENTS is: ${GITHUB_REPOSITORY}/pull/${PR_NUMBER} --mode ${REVIEW_MODE} --checkout ${GITHUB_WORKSPACE} --context ${REVIEW_DIR}"
+          prompt="Follow the instructions in ${setup}/claude-pr-review.md. In that file, \$ARGUMENTS is: ${GITHUB_REPOSITORY}/pull/${PR_NUMBER} --mode ${REVIEW_MODE} --checkout ${GITHUB_WORKSPACE} --context ${REVIEW_DIR}"
           [ "$GITHUB_EVENT_NAME" != issue_comment ] || prompt="$prompt --threads ${REVIEW_DIR}/threads.json"
           cd "$setup"
           # env -i: only these variables reach Claude. CLAUDE_CODE_DISABLE_BACKGROUND_TASKS keeps subagents in the
@@ -569,6 +569,11 @@ jobs:
           jq -r --argjson min "$min" 'select(.num_turns != null and .agent_calls != null and .stopped != true and .agent_calls < $min)
             | "::warning::Claude launched \(.agent_calls) agents; a full review (\(.mode)) launches at least \($min), so it may have skipped steps"' \
             "$COST_FILE"
+          # What it was refused, to see why a step was skipped: the tool and one path or pattern, cut to safe characters
+          # (the transcript itself stays out of the log).
+          jq -rs '[.[] | select(type == "object" and .type == "result")] | last | limit(10; .permission_denials[]?)
+            | "::notice::Claude was denied \(.tool_name | tostring | gsub("[^A-Za-z0-9_]"; "?")) on \(.tool_input | (.file_path // .path // .pattern // "") | tostring | gsub("[^A-Za-z0-9._/ *-]"; "?") | .[0:120])"' \
+            "$STREAM_FILE"
 
       - name: Upload the cost record
         if: always() && steps.cost.outcome == 'success'

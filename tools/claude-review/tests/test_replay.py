@@ -133,7 +133,8 @@ class Command(unittest.TestCase):
 
     def test_prompt_is_the_workflows(self):
         text = WORKFLOW.read_text()
-        self.assertIn('prompt="' + replay.PROMPT_HEAD.replace("$", "\\$") + "${GITHUB_REPOSITORY}/pull/", text)
+        head = replay.PROMPT_HEAD.format(command="${setup}/claude-pr-review.md")
+        self.assertIn('prompt="' + head.replace("$ARGUMENTS", "\\$ARGUMENTS") + "${GITHUB_REPOSITORY}/pull/", text)
 
 
 class Summarize(unittest.TestCase):

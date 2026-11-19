@@ -12,7 +12,7 @@ KIT = pathlib.Path(__file__).resolve().parent.parent
 # 7.4's model line: "- Model: `opus` for <kinds> candidate; `sonnet` for <kinds> candidate." The first model is the one patched,
 # whichever kinds the command gives it (the line was reworded when the defect verifier moved to sonnet).
 # The start of the prompt the workflow gives Claude (a test pins it to the workflow).
-PROMPT_HEAD = "Follow the instructions in claude-pr-review.md. In that file, $ARGUMENTS is: "
+PROMPT_HEAD = "Follow the instructions in {command}. In that file, $ARGUMENTS is: "
 VERIFIER_LINE = re.compile(r"^(- Model: )`opus`( for [^`\n]*candidate; `[a-z0-9.-]+` for )", re.M)
 
 
@@ -219,7 +219,7 @@ def main(argv=None):
     files = build_context(clone, ctx, args, merge_base)
     if not files:
         raise SystemExit("the PR changes no files between the merge base and the head: nothing to review")
-    prompt = f"{PROMPT_HEAD}{args.repo}/pull/{args.pr} --mode initial --checkout {clone} --context {ctx}"
+    prompt = f"{PROMPT_HEAD.format(command=setup / 'claude-pr-review.md')}{args.repo}/pull/{args.pr} --mode initial --checkout {clone} --context {ctx}"
     cmd = run_command(setup, clone, ctx, prompt, args.model)
     print(f"prepared {args.repo}#{args.pr}: {len(files)} files, clone {clone}, context {ctx}", file=sys.stderr)
     if args.prepare_only:

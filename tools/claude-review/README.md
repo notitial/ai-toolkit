@@ -522,7 +522,7 @@ A thread a person starts must never get a reply or be resolved.
   may still be right; note the run id.
 - **`N moved` in the publish line:** Claude gave a wrong line number, and the finding's line text put it on the right
   line. A finding whose text matches no single diff line goes to the review body.
-- **Permission denials:** `permission_denials_count` in the cost artifact. Never add bare `Read`/`Grep`/`Glob` or a
+- **Permission denials:** `permission_denials_count` in the cost artifact, and a `::notice::` line per denied tool and path (at most 10) in the cost step's log. Never add bare `Read`/`Grep`/`Glob` or a
   shell tool to the allow rules in `reviewer/run.sh`, and never `--add-dir` (an added folder's `.claude/agents` and skills load).
 - **"GitHub wouldn't give the diff":** the PR is too large for the diff API; Claude reviews from the per-file patches.
 

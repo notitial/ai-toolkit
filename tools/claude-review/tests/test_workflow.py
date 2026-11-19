@@ -97,9 +97,9 @@ class Workflow(unittest.TestCase):
         # The prompt is the one instruction channel the PR cannot write to: only fixed variables, never PR or comment text.
         run = self.review_step("Run the Claude code review")["run"]
         prompt = re.search(r'^\s*prompt="(.*)"$', run, re.M).group(1)
-        self.assertTrue(prompt.startswith("Follow the instructions in claude-pr-review.md. In that file, \\$ARGUMENTS is: "))
+        self.assertTrue(prompt.startswith("Follow the instructions in ${setup}/claude-pr-review.md. In that file, \\$ARGUMENTS is: "))
         self.assertEqual(re.findall(r"\$\{(\w+)\}", prompt),
-                         ["GITHUB_REPOSITORY", "PR_NUMBER", "REVIEW_MODE", "GITHUB_WORKSPACE", "REVIEW_DIR"])
+                         ["setup", "GITHUB_REPOSITORY", "PR_NUMBER", "REVIEW_MODE", "GITHUB_WORKSPACE", "REVIEW_DIR"])
         self.assertIn("\nArguments: $ARGUMENTS\n", COMMAND.read_text(encoding="utf-8"))
 
     def test_the_cli_is_pinned_by_a_lockfile_dependabot_watches(self):
@@ -202,8 +202,8 @@ class Workflow(unittest.TestCase):
         self.assertEqual(stream, '{"type":"result","subtype":"success"}\n')   # the transcript is in the file, not the log
         self.assertNotIn("result", out.stdout)
         self.assertEqual(mode, 0o700)
-        self.assertEqual(args[1], "Follow the instructions in claude-pr-review.md. In that file, $ARGUMENTS is: "
-                                  "o/r/pull/7 --mode initial --checkout /work/pr --context /tmp/ctx")
+        self.assertRegex(args[1], r"^Follow the instructions in /\S+/claude-review-setup/claude-pr-review\.md\. In that file, "
+                                  r"\$ARGUMENTS is: o/r/pull/7 --mode initial --checkout /work/pr --context /tmp/ctx$")
 
     def test_run_step_passes_one_credential_when_both_are_set(self):
         self.need_yaml()
@@ -255,7 +255,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("--strict-mcp-config", args)
         self.assertNotIn("--add-dir", args)
         self.assertEqual(flag("--allowedTools").split(","), [   # no bare Read: it would allow every path
-            "Agent", "Task", "Read(//work/pr/**)", "Grep(//work/pr/**)", "Glob(//work/pr/**)",
+            "Agent", "Task", f"Read(/{REVIEWER.resolve()}/claude-pr-review.md)", "Read(//work/pr/**)", "Grep(//work/pr/**)", "Glob(//work/pr/**)",
             "Read(//tmp/ctx/**)", "Grep(//tmp/ctx/**)", "Glob(//tmp/ctx/**)"])
         self.assertEqual(flag("--disallowedTools").split(","),
                          ["Bash", "WebFetch", "WebSearch", "Write", "Edit", "NotebookEdit",   # also for subagents
@@ -343,7 +343,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("`line_text`", command)
         self.assertIn("never get one by counting rows of `pr.diff`", command)
 
-    def cost_step(self, mode, agents, stopped=False):
+    def cost_step(self, mode, agents, stopped=False, denials=()):
         """Runs the "Log the review's cost" step on a fake stream file (one JSON message a line, as `claude -p` writes
         it); returns its output."""
         self.need_yaml()
@@ -353,6 +353,7 @@ class Workflow(unittest.TestCase):
             stream = [{"type": "system", "subtype": "init", "claude_code_version": "2.1.0"},
                       {"type": "assistant", "message": {"content": calls}},
                       {"type": "result", "total_cost_usd": 0.1, "duration_ms": 1000, "num_turns": 3,
+                       "permission_denials": list(denials),
                        "structured_output": {"stopped": stopped, "findings": [], "threads": []}}]
             path = os.path.join(tmp, "stream.jsonl")
             with open(path, "w") as f:
@@ -381,6 +382,16 @@ class Workflow(unittest.TestCase):
             with self.subTest(mode=mode, agents=agents, stopped=stopped):
                 self.assertNotIn("::warning::", self.cost_step(mode, agents, stopped))
                 self.assertIs(self.record["stopped"], stopped)   # review C4: false stays false
+
+    def test_cost_step_lists_what_claude_was_denied_in_safe_characters(self):
+        denials = [{"tool_name": "Read", "tool_input": {"file_path": "/a/claude-pr-review.md"}},
+                   {"tool_name": "Glob", "tool_input": {"pattern": "**/x\n::error::forged"}},
+                   {"tool_name": "Agent", "tool_input": {}}]
+        out = self.cost_step("initial", 9, denials=denials)
+        self.assertIn("::notice::Claude was denied Read on /a/claude-pr-review.md\n", out)
+        self.assertIn("::notice::Claude was denied Glob on **/x???error??forged\n", out)   # no workflow command from a path
+        self.assertIn("::notice::Claude was denied Agent on \n", out)
+        self.assertNotIn("\n::error::", out)
 
     def test_cost_record_names_the_kit_version(self):
         readme = (HERE.parent / "README.md").read_text(encoding="utf-8")
