@@ -50,37 +50,14 @@ check deny "delete, then a db argument" 'psql -c "DELETE FROM users" app_db'
 check deny "delete, then a chain"      'sqlite3 a.db "DELETE FROM users" && echo done'
 check pass "delete with where"         'psql -c "DELETE FROM users WHERE id = 3" app_db'
 check pass "delete with where, quoted value" "psql -c \"DELETE FROM users WHERE name = 'x'\""
-check pass "commit message naming a reset" 'git commit -m "docs: explain why git reset --hard is blocked"'
-check pass "search for a force push"   'grep -rn "git push --force" docs/'
-check pass "untrack a folder"          'git rm -rf --cached build/'
-check deny "git rm -rf of a folder"    'git rm -rf build/'
 check pass "delete with a quoted table" "psql -c 'DELETE FROM \"User\" WHERE id = 1'"
 check deny "delete from a quoted table" "psql -c 'DELETE FROM \"User\"'"
 check deny "delete after another statement" "mysql -e 'SELECT 1; DELETE FROM users' app"
 check deny "delete on a heredoc line"  $'psql app <<SQL\nDELETE FROM users;\nSQL'
 check pass "prose naming a delete"     'echo "rows delete from the cache"'
 check pass "PR body naming a delete"   'gh pr create --title "fix: retries" --body "Failed jobs delete from the queue after 3 tries"'
-check pass "commit message naming branch -D" 'git commit -m "explain why git branch -D is blocked"'
-check pass "search for branch -D"      'grep -rn "git branch -D" docs/'
-check deny "commit, then a hard reset" 'git commit -m "wip" && git reset --hard HEAD~1'
 check deny "commit, then rm -rf"       "git commit -m 'x' && rm -rf build "
 check deny "truncate table"            'psql -c "TRUNCATE TABLE users"'
-check deny "force push"                'git push origin feature --force'
-check deny "short force push"          'git push origin feature -f'
-check deny "hard reset"                'git reset --hard HEAD~1'
-check deny "force clean"               'git clean -fd'
-check deny "discard all changes"       'git checkout -- .'
-check deny "discard all, no --"        'git checkout .'
-check deny "restore all"               'git restore .'
-check deny "discard all in a chain"    'git checkout . && echo done'
-check pass "restore one dotfile"       'git checkout -- .gitignore'
-check pass "restore a dot path"        'git checkout -- ./src/app.ts'
-check pass "restore a dot folder"      'git restore .github/workflows/ci.yml'
-check deny "force delete branch"       'git branch -D old'
-check pass "branch -d, a merged-only delete" 'git branch -d x'
-check pass "branch -d in a chain"      'git fetch && git branch -d topic'
-check deny "branch -D in a chain"      'git fetch && git branch -D topic'
-check deny "branch -d with -f"         'git branch -d -f topic'
 check deny "disk overwrite zero"       'dd if=/dev/zero of=/dev/disk2'
 check deny "disk overwrite urandom"    'dd if=/dev/urandom of=/dev/disk2'
 check deny "image onto a disk"         'dd if=image.iso of=/dev/sda bs=4M'
@@ -90,67 +67,14 @@ check pass "dd to /dev/null"           'dd if=big.bin of=/dev/null bs=1M'
 check deny "mkfs"                      'mkfs.ext4 /dev/sdb1'
 check deny "recursive 777"             'chmod -R 777 /srv'
 
-# Force and delete pushes the literal patterns miss: global options, prefixes, refspecs, sh -c
-check deny "path-prefixed git force"   '/usr/bin/git push --force-with-lease origin x'
-check deny "quoted git force"          "'git' push --force origin x"
-check deny "git -C force push"         'git -C /repo push --force origin x'
-check deny "-c, -C then --no-pager"    'git -c a=b -C /r --no-pager push --force origin x'
-check deny "plus refspec"              'git push origin +feature'
-check deny "mirror push"               'git push --mirror origin'
-check deny "delete push"               'git push --delete origin feature'
-check deny "prune push"                'git push --prune origin'
-check deny "colon-refspec delete"      'git -C . push origin :main'
-check deny "bundled short force"       'git -C . push -fv origin x'
-check deny "force push after chain"    'cd /repo && git -C . push -f origin x'
-check deny "sh -c git -C force push"   "sh -c 'git -C /r push --force'"
-check deny "sh -c plus refspec"        "sh -c 'git push origin +main'"
-check deny "env git, delete push"      'env git --bare -C /r -c a=b push --delete origin x'
-check deny "backslash git, force"      '\git push --force'
-check deny "force in a subshell"       '(cd x && git -C . push --force)'
-check pass "plain push"                'git push origin feature'
-check pass "git -C plain push"         'git -C /r push origin feature'
-check pass "sh -c plain push"          "sh -c 'git -C /r push origin feature'"
-check pass "a source:destination refspec" 'git push origin HEAD:refs/heads/x'
-check pass "--dry-run is not --delete" 'git -C . push --dry-run origin x'
-check pass "--follow-tags is not --force" 'git -C . push --follow-tags origin main'
-check pass "push then unrelated delete" 'git push origin x && rsync --delete a/ b/'
-check pass "force flag after a separator" 'git status; echo push --force'
-check pass "push, then a later --force"  'git push origin main && docker compose up -d --force-recreate'
-check pass "push, then a later -f"       'git push -u origin feat; ls -f'
-check deny "force after a redirect"     'git push origin main 2>&1 --force'
-check deny "-f after a redirect"        'git push origin main 2>&1 -f'
-check deny "force after a substitution" 'git push $(git remote | head -1) --force'
-check pass "commit message with push"  'git commit -m "+1 add push support"'
-
-# reset --hard, clean -f and branch -D behind global options, sh -c, or flags in any order
-check deny "sh -c git -C reset --hard"  "sh -c 'git -C /r reset --hard'"
-check deny "reset, --hard after the ref" 'git reset HEAD~3 --hard'
-check deny "reset --hard behind -c"     'git -c core.x=y reset --hard'
-check deny "reset --hard, prefixed -C"  '/usr/bin/git -C /x reset --hard'
-check deny "clean -d -f"                'git clean -d -f'
-check deny "clean --force"              'git clean --force'
-check deny "git -C clean -fd"           'git -C /x clean -fd'
-check deny "bash -lc git clean -fdx"    'bash -lc "git -C /r clean -fdx"'
-check deny "git -C branch -D"           'git -C /x branch -D topic'
-check deny "branch --delete --force"    'git branch --delete --force topic'
-check deny "if git reset --hard"        'if git -C /r reset --hard; then :; fi'
-check deny "timeout git reset --hard"   'timeout 5 git -C /r reset --hard'
+# Wrappers with options in front of rm
 check deny "sudo -u USER rm -r -f"       'sudo -u www-data rm -r -f /var/www/cache'
 check deny "sudo -g GROUP rm -r -f"      'sudo -g staff rm -r -f build'
 check deny "timeout -s KILL 30 rm -r -f" 'timeout -s KILL 30 rm -r -f dir'
-check deny "timeout -k 5 10 git reset"   'timeout -k 5 10 git -C /r reset --hard'
+check deny "timeout -k 5 10 rm -r -f"  'timeout -k 5 10 rm -r -f dir'
 check deny "sudo -u, then timeout -s"    'sudo -u x timeout -s TERM 5 rm -r -f dir'
 check pass "sudo -u USER rm one file"    'sudo -u www-data rm cache.tmp'
 check pass "timeout -s KILL 30 ls"       'timeout -s KILL 30 ls -la'
-check pass "sudo -u USER git status"     'sudo -u x git -C /r status'
-check pass "reset --soft"               'git reset --soft HEAD~1'
-check pass "git -C reset --mixed"       'git -C /x reset --mixed HEAD~1'
-check pass "clean -n"                   'git clean -n'
-check pass "git -C clean -n -d"         'git -C /x clean -n -d'
-check pass "git -C branch -d"           'git -C /x branch -d topic'
-check pass "branch -f moves, no delete" 'git branch -f topic HEAD'
-check pass "commit message naming reset --hard" "git commit -m 'reset --hard docs'"
-check pass "log grep naming clean -f"   "git log --grep 'clean -f'"
 
 # Recursive forced rm in any flag order, and through a wrapper
 check deny "rm -f -r"                  'rm -f -r build'
@@ -219,7 +143,7 @@ check deny "rm -f /abs, entrypoint unset"      'rm -f /tmp/x'
 check deny "rm -f /abs, unknown entrypoint"    'rm -f /tmp/x'        CLAUDE_CODE_ENTRYPOINT=mystery
 check deny "truncate /abs, entrypoint unset"   ': > /etc/hosts'
 check deny "soft plus hard in one command"     'rm -f /tmp/x; rm -rf y'  CLAUDE_CODE_ENTRYPOINT=cli
-check deny "hard first, soft later"            'git reset --hard && rm -f /tmp/x'  CLAUDE_CODE_ENTRYPOINT=cli
+check deny "hard first, soft later"            'rm -rf y && rm -f /tmp/x'  CLAUDE_CODE_ENTRYPOINT=cli
 
 # Bulk deletes: find -delete, find -exec rm, xargs rm
 check ask  "find -delete, cli"         'find . -name "*.tmp" -delete'            CLAUDE_CODE_ENTRYPOINT=cli
@@ -248,7 +172,6 @@ check pass "rg for xargs rm"           'rg "xargs rm" hooks/'                   
 
 # Ordinary commands and odd input
 check pass "ls"                        'ls -la'
-check pass "git status"                'git status'
 check pass "delete with where"         'psql -c "DELETE FROM users WHERE id = 1;"'
 check pass "select"                    'psql -c "SELECT * FROM users"'
 check pass "chmod without -R"          'chmod 777 file'
@@ -263,9 +186,9 @@ raw pass "empty input"                 ''
 raw pass "whitespace-only input"       ' '
 
 # Deny output shape: JSON, deny decision, the reason names the problem.
-out=$(bash_in 'git reset --hard' | env -i PATH="$PATH" HOME="$T" "$SH" "$T/hooks/destructive-blocker.sh" 2>/dev/null)
+out=$(bash_in 'rm -rf /some/dir' | env -i PATH="$PATH" HOME="$T" "$SH" "$T/hooks/destructive-blocker.sh" 2>/dev/null)
 rc=$?
-if [ "$rc" = 0 ] && printf '%s' "$out" | jq -e '.hookSpecificOutput | .hookEventName == "PreToolUse" and .permissionDecision == "deny" and (.permissionDecisionReason | contains("Git hard reset"))' >/dev/null 2>&1; then
+if [ "$rc" = 0 ] && printf '%s' "$out" | jq -e '.hookSpecificOutput | .hookEventName == "PreToolUse" and .permissionDecision == "deny" and (.permissionDecisionReason | contains("Recursive forced deletion"))' >/dev/null 2>&1; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1)); echo "FAIL: deny output shape (rc=$rc): $out"
@@ -293,7 +216,7 @@ audit_case() {  # audit_case <label> <command> <jq test on the log> [VAR=value .
   log=$(ls "$T"/work/.archive/audit/audit-*.log 2>/dev/null | head -1)
   if [ -n "$log" ] && jq -e "$test" "$log" >/dev/null 2>&1; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: $label"; fi
 }
-audit_case "a deny is logged" 'git clean -fd' 'select(.event == "deny" and .hook == "destructive-blocker" and .reason == "Git force clean")'
+audit_case "a deny is logged" 'rm -rf x' 'select(.event == "deny" and .hook == "destructive-blocker" and .reason == "Recursive forced deletion")'
 audit_case "an ask is logged" 'rm -f /tmp/x' 'select(.event == "ask" and .hook == "destructive-blocker")' CLAUDE_CODE_ENTRYPOINT=cli
 rm -rf "$T/work/.archive"
 jq -nc --arg d "$T/work" '{tool_name: "Bash", cwd: $d, tool_input: {command: "ls"}}' \

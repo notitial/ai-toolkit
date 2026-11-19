@@ -18,7 +18,7 @@
 # This is an advisory redirect: without jq, or on input that is not a JSON object, it lets the call through.
 # Exit 0 always, also when lib/hook-common.sh is missing.
 #
-# Known gaps, kept on purpose so the hook stays simple (same family as git-mcp-redirect.sh). These shapes pass:
+# Known gaps, kept on purpose so the hook stays simple (it has its own small reader of the command text, not the shared parser). These shapes pass:
 #   - wrappers other than the ones above (time, nohup, exec, nice, xargs), options after a wrapper (sudo -u x),
 #     and a tool inside a shell -c string;
 #   - a variable as the task or an argument (./gradlew $TASK), Gradle's camel-case task abbreviations (./gradlew aD),

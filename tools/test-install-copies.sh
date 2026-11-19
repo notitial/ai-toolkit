@@ -415,7 +415,7 @@ expect_has "links summary" "$OUT" "links     6 linked, 1 unlinked, 1 conflicting
 case_start "status 6b: each guard is wired only by its fail-closed command"
 new_case
 setup_current
-for g in protected-paths-guard secret-detector destructive-blocker git-mcp-guard gh-block; do
+for g in protected-paths-guard secret-detector destructive-blocker git-mcp-guard git-mcp-redirect gh-block; do
   commit_main "hooks/$g.sh" '#!/bin/sh'
   chmod 755 "$R/hooks/$g.sh"
   ln -s "$R/hooks/$g.sh" "$H/.claude/hooks/$g.sh"
@@ -616,7 +616,7 @@ expect_not "none of them is committed without the executable bit" "$MODES" "1006
 # A guard that cannot start must block the call: Claude Code blocks only on exit 2, so every guard's template command is
 # the wrapper that turns any other failure into exit 2. A bare command would let the call through.
 case_start "this repository: every guard's template command ends in || exit 2"
-for g in protected-paths-guard secret-detector destructive-blocker git-mcp-guard gh-block; do
+for g in protected-paths-guard secret-detector destructive-blocker git-mcp-guard git-mcp-redirect gh-block; do
   CMDS=$(jq -r --arg g "$g.sh" '[.hooks.PreToolUse[]? | .hooks[]?.command | strings | select(contains($g))] | .[]' "$TPL")
   expect_true "the template wires $g" test -n "$CMDS"
   BAD=$(printf '%s\n' "$CMDS" | grep -v -x -F -e "/bin/bash -p \"\$HOME/.claude/hooks/$g.sh\" || exit 2")
@@ -624,7 +624,7 @@ for g in protected-paths-guard secret-detector destructive-blocker git-mcp-guard
 done
 # No other hook script is wrapped, so the list above (and check_wired's) names every wrapped one.
 WRAPPED=$(jq -r '[.hooks.PreToolUse[]? | .hooks[]?.command | strings | select(startswith("/bin/bash -p \"$HOME/.claude/hooks/"))] | .[]' "$TPL" | sed -e 's|^/bin/bash -p "$HOME/.claude/hooks/||' -e 's|[.]sh" [|][|] exit 2$||' | sort | tr '\n' ' ')
-expect_true "the wrapped hooks are the five guards" test "$WRAPPED" = "destructive-blocker gh-block git-mcp-guard protected-paths-guard secret-detector "
+expect_true "the wrapped hooks are the six guards" test "$WRAPPED" = "destructive-blocker gh-block git-mcp-guard git-mcp-redirect protected-paths-guard secret-detector "
 GUARD=$(jq -r '[.hooks.PreToolUse[]? | .hooks[]?.command | strings | select(contains("github-mcp/guard.sh"))] | .[]' "$TPL")
 expect_true "the github guard entry is /bin/bash -p ... || exit 2" test "${GUARD%%<checkout>*}" = "/bin/bash -p '" -a "${GUARD##*guard.sh}" = "' || exit 2"
 

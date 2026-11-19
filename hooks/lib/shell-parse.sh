@@ -14,11 +14,11 @@
 #                             is dropped, a heredoc body is skipped.
 #   CWD (global) is the tracked folder: the start folder, moved by cd/pushd/popd left to right, restored when a ( ),
 #   $( ) or backtick group ends and after a nested string. It is empty when the folder is unknown (cd to a variable).
-#   A hook that reads the words behind a command (xargs) hands them to `sp_command`, which treats them like a command
-#   of their own, cd included: it moves CWD for the commands after it.
+#   A hook that reads the words behind xargs hands them to `sp_xargs`, which skips xargs's own options and treats the
+#   rest like a command of their own (`sp_command`, cd included: it moves CWD for the commands after it).
 # It refuses what it cannot read safely with `deny` (hook-common.sh, which must be sourced first): a control byte in
 # the text, or a tokenizer failure. HOME_R, the real path of $HOME, is set here; lexnorm is shared with the hook.
-# Names it defines: HOME_R NEST lexnorm tokenise set_cwd sp_command read_nested shell_parse.
+# Names it defines: HOME_R NEST lexnorm tokenise set_cwd sp_command sp_xargs read_nested shell_parse.
 
 command -v deny >/dev/null 2>&1 || return 1
 
@@ -196,7 +196,7 @@ sp_command() {
       [A-Za-z_]*=*) shift ;;
       *)
         case "$wb" in
-          if | then | else | elif | do | while | until | '{' | '}' | '!' | builtin | nohup | setsid | caffeinate)
+          if | then | else | elif | do | while | until | '{' | '}' | '!' | builtin | nohup | setsid)
             shift
             ;;
           time)
@@ -223,11 +223,13 @@ sp_command() {
               esac
             done
             ;;
-          env | sudo | nice | stdbuf | ionice | timeout)
+          env | sudo | doas | nice | stdbuf | ionice | caffeinate | timeout)
             shift
             case "$wb" in
               env) wv=" -u -C -S --unset --chdir --split-string " ;;
               sudo) wv=" -u -g -h -p -C -r -t -U -D --user --group --host --prompt --chdir --role --type --other-user --close-from " ;;
+              doas) wv=" -u -C " ;;
+              caffeinate) wv=" -t -w " ;;
               nice) wv=" -n --adjustment " ;;
               timeout) wv=" -s -k --signal --kill-after " ;;
               stdbuf) wv=" -i -o -e " ;;
@@ -264,7 +266,7 @@ sp_command() {
       CWD=""
       return 0
       ;;
-    sh | bash | zsh | dash | ksh)
+    sh | bash | zsh | dash | ksh | su)
       script="" takenext=0
       for a in "$@"; do
         if [ "$takenext" = 1 ]; then script=$a; break; fi
@@ -277,6 +279,20 @@ sp_command() {
       ;;
   esac
   on_command "$w" "$@"
+}
+
+# sp_xargs <words after xargs>: skip xargs's options (and the values of the ones that take a separate one), then the
+# rest is a command of its own.
+sp_xargs() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -I | -J | -n | -P | -L | -d | -E | -s | -a | -R | -S | --arg-file | --delimiter | --max-args | --max-procs | --max-lines | --max-chars | --process-slot-var) shift; shift ;;
+      -*) shift ;;
+      *) break ;;
+    esac
+  done
+  [ "$#" -gt 0 ] && sp_command "$@"
+  return 0
 }
 
 # read_nested <string>: a bash -c or eval string, as a command of its own (3 deep; CWD is restored after).

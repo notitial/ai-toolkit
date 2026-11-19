@@ -44,20 +44,22 @@ base install.
   `~/.claude/hooks` and `~/.claude/rules` hold links into the checkout, so resolving real paths covers them.
 - **What counts as a write.** File tools by real path (links followed, case-insensitive). Git MCP tools other than the
   read ones, by the call's `path`. Bash by one simple rule: segments, a tracked `cd`, redirects and a fixed list of
-  write verbs and git subcommands, with the folder git runs in judged for the git ones. Reads are never denied. The
-  exact list and the limits are in the hook's header and tested in `tools/protected-paths-guard/`.
+  write verbs. Bash git is not on that list: `hooks/git-mcp-redirect.sh` owns it (ADR 0010), denying every Bash git
+  command but read-only plumbing, so this hook never reads a git subcommand in Bash (amended 2026-11-19: it used to
+  keep its own list of git writes, a second and third reader of the same text). Reads are never denied. The exact
+  list and the limits are in the hook's header and tested in `tools/protected-paths-guard/`.
 - **A push is judged by its remote.** A push from a clone writes into whatever its remote points at, and a clone made
-  from the live checkout's folder has that folder as `origin`. A `git push` (Bash or git MCP `git_push`) whose target
+  from the live checkout's folder has that folder as `origin`. A git MCP `git_push` whose target
   resolves to a local path inside a protected place is denied; a network URL is not judged. A remote that cannot be
   resolved passes (the hook header lists the gaps), so the rule in CLAUDE.md, clone from the GitHub URL, stays the first line.
-- **Exceptions.** `<root>/.archive/**` stays writable (the gitignored working area). `git pull --ff-only`, `git merge
-  --ff-only` and the git MCP `git_pull` with `fastForwardOnly` are allowed in a root: they move a checkout to a
-  reviewed commit, which is how a protected checkout is updated.
+- **Exceptions.** `<root>/.archive/**` stays writable (the gitignored working area). The git MCP `git_pull` with
+  `fastForwardOnly` is allowed in a root: it moves a checkout to a reviewed commit, which is how a protected checkout
+  is updated.
 - **Targets are judged, not the session's folder.** A session that stands in a protected folder and works in a clone
   under `/tmp` is not blocked. The folder only decides a relative operand with no `cd` before it.
 - **The setup.** `/setup-claude` links the hook (it is in the roster), wires it (a template entry, covered by the drift
   assertion; its command is `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`, so a guard that cannot
-  start blocks the call instead of letting it through, and a stale bare command is reported as drift; the guards secret-detector, destructive-blocker, git-mcp-guard and gh-block are wired the same way) and tells the user to make the marker for this checkout. Because the hook now denies the agent's writes to
+  start blocks the call instead of letting it through, and a stale bare command is reported as drift; the guards secret-detector, destructive-blocker, git-mcp-guard, git-mcp-redirect and gh-block are wired the same way) and tells the user to make the marker for this checkout. Because the hook now denies the agent's writes to
   the settings files, Step 10 stages the merged settings in a file beside the live one and gives the user a copy
   command; the agent never writes the live file.
 

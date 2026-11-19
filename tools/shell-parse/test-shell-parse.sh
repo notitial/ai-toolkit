@@ -21,7 +21,7 @@ HOOK=runner
 HOME="$T/home"
 . "$T/hooks/lib/hook-common.sh" </dev/null
 . "$T/hooks/lib/shell-parse.sh"
-on_command() { local o="C[\$CWD]" w; for w in "\$@"; do o="\$o <\$w>"; done; echo "\$o"; if [ "\$1" = xargs ]; then shift; sp_command "\$@"; fi; }
+on_command() { local o="C[\$CWD]" w; for w in "\$@"; do o="\$o <\$w>"; done; echo "\$o"; if [ "\$1" = xargs ]; then shift; sp_xargs "\$@"; fi; }
 on_redirect() { echo "R[\$CWD] <\$1>"; }
 CWD=/s
 shell_parse "\$1"
@@ -93,6 +93,10 @@ expect "eval restores the folder" 'eval "cd /n"; a' 'C[/s] <eval> <cd /n>' 'C[/s
 expect "xargs: wrappers skipped" 'xargs env FOO=1 rm x' 'C[/s] <xargs> <env> <FOO=1> <rm> <x>' 'C[/s] <rm> <x>'
 expect "xargs cd moves the folder" 'xargs cd /x; a' 'C[/s] <xargs> <cd> </x>' 'C[/x] <a>'
 expect "xargs bash -c is read" 'xargs bash -c "a > f"' 'C[/s] <xargs> <bash> <-c> <a > f>' 'R[/s] <f>' 'C[/s] <a>' 'C[/s] <bash> <-c> <a > f>'
+expect "xargs options skipped" 'xargs -0 -r -n 1 rm x' 'C[/s] <xargs> <-0> <-r> <-n> <1> <rm> <x>' 'C[/s] <rm> <x>'
+expect "xargs option values skipped (BSD -J, GNU long)" 'xargs -J % --max-args 2 rm %' 'C[/s] <xargs> <-J> <%> <--max-args> <2> <rm> <%>' 'C[/s] <rm> <%>'
+expect "doas, caffeinate and their option values skipped" 'doas -u me caffeinate -i -t 5 rm x' 'C[/s] <rm> <x>'
+expect "su -c is a nested string" "su -c 'a > f' me" 'R[/s] <f>' 'C[/s] <a>' 'C[/s] <su> <-c> <a > f> <me>'
 
 # refusals
 for c in $'a\001b' $'a\033b' $'a\177b'; do

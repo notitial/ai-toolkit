@@ -12,7 +12,7 @@
 # call instead. git_push also needs its `remote` to be a remote configured in the repo, so a URL cannot be pushed to
 # without a prompt.
 #
-# FAIL-CLOSED: unlike the convenience hooks (git-mcp-redirect, audit-logger),
+# FAIL-CLOSED: unlike the advisory hooks (audit-logger, build-redirect),
 # this hook blocks when its dependencies
 # are missing. Fail-open cost is irreversible history mutation; fail-closed cost
 # is one blocked call.
@@ -26,7 +26,7 @@
 # only via a force-push (blocked here); git_checkout (which can discard uncommitted
 # changes), git_branch deletion, git_tag deletion and git_stash drop are allowed
 # unprompted in the settings template and checked here only for the path; their
-# Bash forms remain covered by destructive-blocker.sh.
+# Bash forms are denied outright by git-mcp-redirect.sh.
 #
 # Reads JSON from stdin. Returns JSON deny decision; exit 0 always.
 # No `set -e` — it would break the exit-0-always contract.
