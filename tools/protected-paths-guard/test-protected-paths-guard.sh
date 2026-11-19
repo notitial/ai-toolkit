@@ -58,10 +58,12 @@ gitmcp() { expect "$1" "git: $2 $3" "$(call "mcp__git-mcp__$2" "$3" "${4:-$CLONE
 d=deny
 p=pass
 
-# ---- substitutions: the text is denied when it could touch a protected place, whatever the parse says ----
+# ---- case-folded verbs ----
 bash_ $d "RM -f $LIVE/tools/a.ts"
 bash_ $d "Cp /tmp/x $LIVE/tools/a.ts"
 bash_ $d "find $LIVE/tools -exec RM {} +"
+# ---- substitutions: the text is denied when it could touch a protected place, whatever the parse says ----
+# (the simple shapes below are also denied by the parser; the case-pattern, backtick, quoted and cwd ones need sub_guard)
 bash_ $d "cp \"\$(mktemp)\" $LIVE/tools/a.ts"
 bash_ $d "cp \$(mktemp) $LIVE/tools/a.ts"
 bash_ $d "cp \`mktemp\` $LIVE/tools/a.ts"
@@ -93,6 +95,24 @@ bash_ $d "echo \`date\` > out.txt" "$LIVE"
 bash_ $d "rm\$(x) a.ts" "$LIVE/tools"
 bash_ $d "\$(x)rm a.ts" "$LIVE/tools"
 bash_ $d "Rm \$(x) a.ts" "$LIVE/tools"
+bash_ $d "echo \$(date); /bin/rm hooks/guard.sh" "$LIVE"
+bash_ $d "echo \$(date); /bin/RM hooks/guard.sh" "$LIVE"
+bash_ $d "echo \$(case x in x) :;; esac); tar -xf a.tar -C$LIVE/tools"
+bash_ $d "echo \$(case x in x) :;; esac); unzip a.zip -d$STATE/sub"
+bash_ $d "echo \$(case x in x) :;; esac); cp /tmp/x settings.json" "$H/.claude"
+bash_ $d "echo \$(case x in x) :;; esac); cd $LIVE/../live; rm hooks/x.sh"
+bash_ $d "echo \$(case x in x) :;; esac); cd ../live; rm hooks/x.sh" "$T/other"
+bash_ $d "echo \$(date) >>/dev/null; rm -f a.ts" "$LIVE/tools"
+bash_ $d "echo =(date) > x" "$LIVE"
+bash_ $d "git commit -m \"\$(cat <<'EOF'
+fix: say rm tools/a.ts and echo x > b
+EOF
+)\" --allow-empty" "$LIVE"
+bash_ $p "echo \$(date) >>/dev/null" "$LIVE"
+bash_ $p "echo \$(date) > /dev/null" "$LIVE"
+bash_ $p "echo \$(date) 2>> /dev/null" "$LIVE"
+bash_ $p "echo \$(date); cat settings.json" "$H/.claude"
+bash_ $p "echo \$(date); cp /tmp/x ../clone/a.ts" "$CLONE/tools"
 bash_ $p "echo \$(date)"
 bash_ $p "ls \$(pwd) | head"
 bash_ $p "cp \"\$(mktemp)\" $CLONE/tools/b.ts"
