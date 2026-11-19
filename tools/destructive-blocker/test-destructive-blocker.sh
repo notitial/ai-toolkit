@@ -54,6 +54,21 @@ check pass "delete with a quoted table" "psql -c 'DELETE FROM \"User\" WHERE id 
 check deny "delete from a quoted table" "psql -c 'DELETE FROM \"User\"'"
 check deny "delete after another statement" "mysql -e 'SELECT 1; DELETE FROM users' app"
 check deny "delete on a heredoc line"  $'psql app <<SQL\nDELETE FROM users;\nSQL'
+# a heredoc body may reach a shell the parser cannot see, so every body is read as a script
+check deny "rm in a heredoc to ssh"    $'ssh host <<EOF\nrm -r -f /x\nEOF'
+check deny "rm in a heredoc to sudo -s" $'sudo -s <<EOF\nrm -r -f /x\nEOF'
+check deny "rm in a heredoc, shell named after" $'bash <<EOF\nrm -r -f /x\nEOF'
+check deny "rm in a heredoc, <<EOF bash" $'<<EOF bash\nrm -r -f /x\nEOF'
+check pass "plain heredoc text"        $'cat <<EOF\nhello\nEOF'
+# a body the parser refuses is prose or code no known shell runs: skipped, not denied
+check deny "a refused line next to rm -r -f in a heredoc" $'ssh host <<\'EOF\'\necho done (in that case)\nrm -r -f /srv/app\nEOF'
+body() { awk -v n="$1" 'BEGIN { print "cat > README.md <<EOF"; print "skip it (in that case)."; for (k = 0; k < n; k++) print "line " k " some prose"; print "EOF" }'; }
+check pass "a refused heredoc body of 50 lines is read line by line" "$(body 50)"
+check deny "a refused heredoc body of 150 lines is denied (bash 3.2 cannot loop that far)" "$(body 150)"
+check pass "a README heredoc with a fenced block" $'cat > README.md <<\'EOF\'\n```bash\n# install\nmake\n```\nEOF'
+check pass "a heredoc with a parenthesized case" $'cat <<EOF\nskip it (in that case).\nEOF'
+check pass "a here-string with a parenthesized case" 'cat <<< "(in that case)"'
+check deny "control byte in the text (fail-closed)" $'echo a\001b'
 check pass "prose naming a delete"     'echo "rows delete from the cache"'
 check pass "PR body naming a delete"   'gh pr create --title "fix: retries" --body "Failed jobs delete from the queue after 3 tries"'
 check deny "commit, then rm -rf"       "git commit -m 'x' && rm -rf build "
@@ -193,6 +208,19 @@ if [ "$rc" = 0 ] && printf '%s' "$out" | jq -e '.hookSpecificOutput | .hookEvent
 else
   FAIL=$((FAIL + 1)); echo "FAIL: deny output shape (rc=$rc): $out"
 fi
+
+# A missing or cut lib makes the hook exit 1 (the wiring's `|| exit 2` then blocks).
+mkdir -p "$T/nolib/hooks/lib"
+cp "$T/hooks/destructive-blocker.sh" "$T/nolib/hooks/"
+cp "$T/hooks/lib/hook-common.sh" "$T/nolib/hooks/lib/"
+bash_in 'ls' | env -i PATH="$PATH" HOME="$T" "$SH" "$T/nolib/hooks/destructive-blocker.sh" >/dev/null 2>&1
+result 1 "$?" "missing lib exits 1"
+mkdir -p "$T/cutlib/hooks"
+cp -R "$T/hooks/lib" "$T/cutlib/hooks/lib"
+cp "$T/hooks/destructive-blocker.sh" "$T/cutlib/hooks/"
+head -n 20 "$HERE/../../hooks/lib/shell-parse.sh" >"$T/cutlib/hooks/lib/shell-parse.sh"
+bash_in 'ls' | env -i PATH="$PATH" HOME="$T" "$SH" "$T/cutlib/hooks/destructive-blocker.sh" >/dev/null 2>&1
+result 1 "$?" "cut lib exits 1"
 
 # Fail closed without jq: static deny JSON, exit 0.
 out=$(printf '%s' "$(bash_in 'ls')" | env -i PATH=/nonexistent HOME="$T" "$SH" "$T/hooks/destructive-blocker.sh" 2>/dev/null)

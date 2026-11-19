@@ -14,7 +14,10 @@
 #                             and `popd` are not passed on: the parser applies them to CWD. `bash -c STRING` and
 #                             `eval STRING` (also su --command, env -S, trap) are read first (3 deep; a deeper string is
 #                             not read), so their inner commands arrive before the command itself, which is passed on
-#                             like any. A shell with no -c string reads its heredoc or here-string as a script.
+#                             like any. A shell with no -c string reads its heredoc or here-string as a script. A hook that
+#                             must also see a script behind a shell the parser cannot name (ssh host <<EOF, sudo -s,
+#                             source /dev/stdin) sets SP_ALL_HEREDOCS=1 before the call: every heredoc body is then read as a script. A body the parser
+#                             refuses is read line by line, and a line it refuses is skipped (prose is no script).
 #     on_redirect <target>    the target of an output redirect (> >> >| &> and N>). An input redirect or a here-string
 #                             is dropped, a heredoc body is skipped.
 #   CWD (global) is the tracked folder: the start folder, moved by cd/pushd/popd left to right, restored when a ( ),
@@ -22,8 +25,8 @@
 #   A hook that reads the words behind xargs hands them to `sp_xargs`, which skips xargs's own options and treats the
 #   rest like a command of their own (`sp_command`, cd included: it moves CWD for the commands after it).
 # Not read (a guard against mistakes, not a sandbox): a command name built from a substitution (`$(which rm) -rf p`), a
-# substitution spliced into the middle of a path (`settings$(:).json`), a ( or ) inside ${ } outside any group (`rm ${x#(} -rf p`), escaped nested backticks, a shell fed by a pipe (echo cmd | sh), a heredoc named before its
-# shell (<<EOF bash) or opened after a quote that spans a newline, a here-string or body for a group ({ bash; } <<EOF),
+# substitution spliced into the middle of a path (`settings$(:).json`), a ( or ) inside ${ } outside any group (`rm ${x#(} -rf p`), a shell fed by a pipe from anything but a heredoc on the
+# same line (echo cmd | sh; `cat <<EOF | sh` and `<<EOF bash` are read), a heredoc opened after a quote that spans a newline, a here-string or body for a group ({ bash; } <<EOF),
 # a string nested more than 3 deep, `watch -x`, `su --session-command`, an attached `-c'cmd'`, `env -iS`, `$( )` and
 # backticks inside a heredoc body, and `\c` escapes in $'..'.
 # It refuses what it cannot read safely with `deny` (hook-common.sh, which must be sourced first): a control byte in
@@ -37,11 +40,11 @@
 # fooled by that does not rely on the parse around a substitution: protected-paths-guard denies a text that holds one and
 # could touch a protected place (sub_guard in that hook), whatever this parser made of its words.
 # HOME_R, the real path of $HOME, is set here; lexnorm is shared with the hook.
-# Names it defines: HOME_R NEST SP_LC SP_STDIN SP_SEG_* lexnorm tokenise set_cwd sp_lc sp_command sp_watch sp_xargs read_nested sp_pop shell_parse.
+# Names it defines: HOME_R NEST SP_LC SP_STDIN SP_SEG_* lexnorm tokenise set_cwd sp_lc sp_command sp_watch sp_xargs read_nested sp_body sp_pop shell_parse.
 
 command -v deny >/dev/null 2>&1 || return 1
 
-HOME_R=$(cd -P -- "$HOME" 2>/dev/null && pwd -P) || HOME_R=$HOME
+HOME_R=$(cd -P -- "${HOME:-}" 2>/dev/null && pwd -P) || HOME_R=${HOME:-}
 
 # lexnorm <abs path>: drop ., empty and .. components without touching the file system.
 lexnorm() {
@@ -63,11 +66,11 @@ lexnorm() {
 # tokenise: the command on stdin as lines: Wword, S (a segment ends),
 # O and C (a ( $( ` <( or >( group opens and closes; O parks the words of the command around a substitution, and the word
 # it sits in goes on with a placeholder), R (the next word is a redirect target), I (the next word is an input and is dropped), H (the next word is a here-string),
-# Y then Zline... (the body of the heredoc that opens here, only when a shell name is in the segment). Quotes are removed, $'..' escapes decoded (\xHH
+# Y then Zline... (the body of the heredoc that opens here, when a shell name is in the segment, or for every heredoc when SP_ALL_HEREDOCS is set). Quotes are removed, $'..' escapes decoded (\xHH
 # and octal, printable ASCII only), heredoc bodies are skipped, `<<` and `>` inside $(( )) are plain characters.
 tokenise() {
-  awk 'BEGIN { RS = "\001" }
-function sep() { print "S"; segsh = 0 }
+  awk -v allhd="${SP_ALL_HEREDOCS:-}" 'BEGIN { RS = "\001" }
+function sep(keep) { print "S"; segsh = 0; if (!keep) hdn = 0 }  # a heredoc body waits across a pipe (cat <<EOF | bash), not past ; && ||
 # A substitution ($( ), backticks, <( ), >( )) opens: the word being built waits, the words of the command around it wait
 # (the shell side keeps them), and the group starts clean. When it closes, the word goes on with a placeholder in it:
 # $(...) when the substitution was quoted (one word), $(..) when it was not (the shell may split it into several words).
@@ -92,10 +95,11 @@ function flush(   b) {
     if (w == "case" && ingroup()) exit 3
     gsub(/\n/, ";", w); print "W" w
     b = tolower(w); sub(/.*\//, "", b)
-    if (b ~ /^(sh|bash|zsh|dash|ksh|su)$/) segsh = 1
+    if (b ~ /^(sh|bash|zsh|dash|ksh|su)$/) { segsh = 1; if (hdn > 0) hdbody() }  # `cat <<EOF | bash`: the body reaches the shell
   }
   w = ""; inw = 0; wq = 0
 }
+function hdbody(   k) { print "Y"; for (k = 1; k <= hdn; k++) print "Z" hl[k] }
 function hdscan(p, emit,   e, line, l2) {
   while (p <= n) {
     e = index(substr(s, p), "\n")
@@ -104,7 +108,7 @@ function hdscan(p, emit,   e, line, l2) {
     if (hdash) sub(/^\t+/, "", l2)
     if (l2 != hd && substr(l2, 1, length(hd) + 1) == hd ")" && insub()) exit 3  # EOF) may end the body inside $( ): not followed
     if (l2 == hd) break
-    if (emit) print "Z" line
+    if (emit) hl[++hdn] = line
   }
   hdend = p
 }
@@ -182,7 +186,7 @@ function ansic(   t, d, v, k, m, ch, cut) {
     }
     if (c == "}" && bd[sp] > 0) { bd[sp]--; w = w c; inw = 1; i++; continue }
     if (c == " " || c == "\t") { flush(); i++; continue }
-    if (c == "\n") { flush(); sep(); i++; if (hd != "") { hdscan(i); i = hdend; hd = "" }; continue }
+    if (c == "\n") { flush(); sep(); i++; if (hd != "") { hdscan(i); i = hdend; hd = ""; hdn = 0 }; continue }
     if (c == "#" && !inw) {
       if (inb()) exit 3  # a comment inside backticks would end at the closing backtick: the tokenizer would not
       j = index(substr(s, i), "\n")
@@ -190,7 +194,7 @@ function ansic(   t, d, v, k, m, ch, cut) {
       continue
     }
     if (c == ";") { flush(); sep(); i++; continue }
-    if (c == "|") { flush(); sep(); i++; if (substr(s, i, 1) == "|" || substr(s, i, 1) == "&") i++; continue }
+    if (c == "|") { flush(); sep(substr(s, i + 1, 1) != "|"); i++; if (substr(s, i, 1) == "|" || substr(s, i, 1) == "&") i++; continue }
     if (c == "&") {
       if (substr(s, i + 1, 1) == ">") { flush(); print "R"; i += 2; if (substr(s, i, 1) == ">") i++; continue }
       flush(); sep(); i++; if (substr(s, i, 1) == "&") i++; continue
@@ -240,7 +244,8 @@ function ansic(   t, d, v, k, m, ch, cut) {
         }
         hd = dl
         if (hd != "" && inb()) exit 3  # a heredoc inside backticks ends with them
-        if (hd != "" && segsh && (j = index(substr(s, i), "\n")) > 0) { print "Y"; hdscan(i + j, 1) }
+        hdn = 0
+        if (hd != "" && (j = index(substr(s, i), "\n")) > 0) { hdscan(i + j, 1); if (segsh || allhd != "") hdbody() }
         continue
       }
       if (nx == "(") { subopen("S", 1); i += 2; continue }
@@ -306,7 +311,7 @@ sp_lc() {
 # with no -c string reads its script from SP_STDIN, the heredoc or here-string shell_parse found for this command.
 sp_command() {
   sp_budget
-  local verb vl a w wb wv sv script takenext stdin=${SP_STDIN:-}
+  local verb vl a w wb wv sv script takenext skipval stdin=${SP_STDIN:-}
   # Skip assignments, wrappers and shell keywords in front of the command.
   while [ "$#" -gt 0 ]; do
     w=$1
@@ -344,7 +349,7 @@ sp_command() {
             shift
             while :; do
               case "${1:-}" in
-                -p | -v | -l | --portability | --verbose) shift ;;
+                -p | -v | -l | --portability | --verbose | --) shift ;;
                 -o | -f | --output | --format) shift; shift ;;
                 *) break ;;
               esac
@@ -368,7 +373,7 @@ sp_command() {
             shift
             case "$wb" in
               env) wv=" -u -C --unset --chdir " ;;
-              sudo) wv=" -u -g -h -p -C -r -t -U -D --user --group --host --prompt --chdir --role --type --other-user --close-from " ;;
+              sudo) wv=" -u -g -h -p -C -r -t -T -U -D --user --group --host --prompt --chdir --role --type --other-user --close-from " ;;
               doas) wv=" -u -C -a " ;;
               caffeinate) wv=" -t -w " ;;
               xcrun) wv=" -sdk --sdk -toolchain --toolchain " ;;
@@ -439,7 +444,8 @@ sp_command() {
       return 0
       ;;
     eval)
-      [ "$#" -gt 0 ] && read_nested "$*" keep
+      if [ "${1:-}" = -- ]; then [ "$#" -gt 1 ] && read_nested "${*:2}" keep
+      else [ "$#" -gt 0 ] && read_nested "$*" keep; fi
       ;;
     trap)  # trap 'commands' SIGNAL: the first word that is not an option is the command string
       for a in "$@"; do
@@ -450,9 +456,14 @@ sp_command() {
   case "$vl" in
     watch) sp_watch "$@" ;;
     sh | bash | zsh | dash | ksh | su)
-      script="" takenext=0
+      script="" takenext=0 skipval=0
       for a in "$@"; do
-        if [ "$takenext" = 1 ]; then script=$a; break; fi
+        if [ "$skipval" = 1 ]; then skipval=0; continue; fi  # the value of -o / -O
+        case "$a" in -o | +o | -O | +O) skipval=1; continue ;; esac
+        if [ "$takenext" = 1 ]; then
+          case "$a" in -* | +*) continue ;; esac  # bash -c -- 'cmd', bash -c -x 'cmd': options come before the string
+          script=$a; break
+        fi
         case "$a" in
           -c | -[a-zA-Z]*c | -[a-zA-Z]*c[a-zA-Z]*) takenext=1 ;;
           --c*=*) script=${a#*=}; break ;;
@@ -506,6 +517,23 @@ read_nested() {
   [ -n "${2:-}" ] || CWD=$saved
 }
 
+# sp_body <text>: a heredoc body read as a script (the SP_ALL_HEREDOCS opt-in). A body the parser refuses (a README fence,
+# `(in that case)` prose) is read again line by line, so a refused line drops only itself, not the lines around it.
+sp_body() {
+  local l rest n=0 SP_REFUSED=""
+  SP_LENIENT=1 read_nested "$1"
+  [ -n "$SP_REFUSED" ] || return 0
+  rest=$1
+  while :; do
+    # bash 3.2 crashes (and the hook fails open) after about 250 parser calls in one function: a long refused body is denied
+    n=$((n + 1)); [ "$n" -le 100 ] || deny "a heredoc body of over 100 lines that cannot be read as one script - blocked (fail-closed); split the call."
+    l=${rest%%$'\n'*}
+    case "$rest" in *$'\n'*) rest=${rest#*$'\n'} ;; *) rest="" ;; esac
+    SP_LENIENT=1 read_nested "$l"
+    [ -n "$rest" ] || break
+  done
+}
+
 # sp_pop: shell_parse's helper (it uses that function's locals): a group closes, so what the O record parked comes back.
 sp_pop() {
   local n=$((${#STK[@]} - 1))
@@ -527,14 +555,15 @@ shell_parse() {
   tok=$(printf '%s' "$cmd" | tokenise)
   case $? in
     0) ;;
-    3) deny "a case word in a substitution, a paren inside \${ }, or a heredoc ended by EOF) cannot be read exactly - blocked (fail-closed)." ;;
-    *) deny "could not read the command text - blocked (fail-closed)." ;;
+    3) [ -z "${SP_LENIENT:-}" ] || { SP_REFUSED=1; return 0; }; deny "a case word in a substitution, a paren inside \${ }, or a heredoc ended by EOF) cannot be read exactly - blocked (fail-closed)." ;;
+    *) [ -z "${SP_LENIENT:-}" ] || { SP_REFUSED=1; return 0; }; deny "could not read the command text - blocked (fail-closed)." ;;
   esac
   while IFS= read -r line; do
     case "$line" in
       S)
         SP_STDIN=$sin
         [ "${#SEG[@]}" -gt 0 ] && sp_command "${SEG[@]}"
+        [ -n "$sin" ] && [ -n "${SP_ALL_HEREDOCS:-}" ] && sp_body "$sin"
         SEG=() sin=""
         redir=0
         ;;

@@ -28,7 +28,7 @@
 #   - Bash and Monitor, one simple rule (lib/shell-parse.sh reads the text, this file judges what it finds): the command is split into segments (; && || | & newline, and the insides of
 #     $( ), backticks and ( )), `cd <dir>` is tracked left to right, and a segment is denied when it is a write
 #     shape and a target resolves into a protected place. Write shapes: a > >> >| &> redirect; rm rmdir unlink shred
-#     touch mkdir chmod chown chgrp truncate tee mv cp install ln rsync dd patch; sed -i and perl -i; tar x, unzip,
+#     touch mkdir mkfifo mknod chmod chown chgrp truncate tee mv cp install ln rsync dd patch; sed -i and perl -i; tar x, unzip,
 #     curl -o/-O, wget; find with -delete, -fprint or -exec of a write verb; xargs of those.
 #     `bash -c STRING` and `eval STRING` are read recursively.
 #     Relative operands resolve against the tracked folder; a glob is judged by its directory prefix.
@@ -44,7 +44,8 @@
 #   write on their own, paths built at run time ($VAR, $(...) output), a `cd` to a variable or glob (the folder is
 #   then unknown and only absolute operands are judged), file names fed to xargs on stdin, $(...) inside a heredoc,
 #   hard links, the target of a find -exec, programs that write on their own (archive creators, compressors,
-#   formatters with an in-place flag), env -C, a < or > inside a standalone (( )) arithmetic command. A
+#   formatters with an in-place flag), env -C, a < or > inside a standalone (( )) arithmetic command, a tilde form other than
+#   ~ and ~/ (~+, ~-, ~user), g-prefixed coreutils names (gmkfifo, grm), CDPATH, and FIFOs made by cpio, pax or bsdtar. A
 #   recursive delete or move of a folder that contains a protected root is caught only for the session's own root
 #   and for ~/.claude. A `~user`, `~+` or `~-` spelling is read as no path. A glob in a settings file name (settings.js?n) is
 #   judged by its folder, not as the file. At most 80 words are judged in one call, and a text with a substitution and over
@@ -409,6 +410,23 @@ on_command() {
       parse_args "-t -d -r" "$@"
       for a in "${NONOPT[@]}"; do judge_target "$a" "$verb"; done
       ;;
+    mkfifo | mknod)  # a FIFO or device node at a protected path counts as the file being there
+      # Options come before the first operand (BSD getopt stops there, so an option word after it is another operand):
+      # from the first operand on, every word is judged as a target. An option's value (-m 600) and mknod's type and
+      # numbers are judged too: they are plain words, and skipping them is how a target gets skipped (-m=u, --mo).
+      local seen=0
+      for a in "$@"; do
+        if [ "$seen" = 0 ]; then
+          case "$a" in
+            --) seen=1; continue ;;
+            -) ;;  # a lone - is an operand
+            -*) continue ;;
+          esac
+          seen=1
+        fi
+        judge_target "$a" "$verb"
+      done
+      ;;
     mkdir)
       parse_args "-m" "$@"
       for a in "${NONOPT[@]}"; do judge_target "$a" "$verb"; done
@@ -597,7 +615,7 @@ on_command() {
         if [ "$inx" = 1 ]; then
           sp_lc "$a"
           case "$SP_LC" in
-            rm | rmdir | unlink | shred | touch | mkdir | chmod | chown | chgrp | truncate | tee | mv | cp | install | ln | rsync | dd | patch) writes=1 ;;
+            rm | rmdir | unlink | shred | touch | mkdir | mkfifo | mknod | chmod | chown | chgrp | truncate | tee | mv | cp | install | ln | rsync | dd | patch) writes=1 ;;
             sed | perl) xsed=1 ;;
           esac
           inx=0
