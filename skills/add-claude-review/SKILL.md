@@ -45,7 +45,8 @@ back.
 - **What is installed.** Read `.github/workflows/claude-review.yml` and `.claude/commands/claude-pr-review.md`:
   - neither file: an **install**;
   - a workflow whose only job has a `uses:` line naming `claude-review-kit.yml`: a **caller**. This run
-    reconfigures it (a SHA in its `uses:` becomes `@main`), and Step 3 prefills from its `with:` and `secrets:`;
+    reconfigures it (a SHA in its `uses:` becomes `@main`; note the version in that line's comment, or `unknown`),
+    and Step 3 prefills from its `with:` and `secrets:`;
   - a full workflow with `preflight`, `appcheck`, `review` and `publish` jobs: a **vendored copy**. This run moves
     the repo to the caller (an upgrade). Note its `runs-on` labels, its credential lines, and any `CHANGES_EVENT`
     or `APPROVE_EVENT` set to `COMMENT`, as the prefill. The command copy goes;
@@ -107,8 +108,9 @@ Restate the plan and wait for the user's go. The plan names:
 - the repo, and whether this is an install, a reconfiguration or an upgrade from a vendored copy;
 - the `runs-on` labels, the key-job variable, the auth mode, the secret name and the App;
 - the branch, and the workflow file, which needs the user's live go where the repo requires one;
-- on an upgrade, that the review's behaviour changes to the kit's current one (the README's **Version** line, for
-  example how a fixed issue that comes back is reported);
+- on an upgrade, or a SHA-pinned caller moved to `@main`: the old version (from the vendored copy or the pin's
+  comment, or `unknown`) and the new one (the README's **Version** line), and that the review's behaviour changes to
+  the new one (for example how a fixed issue that comes back is reported);
 - the README prerequisites that apply: GitHub-hosted runners allowed for any job left on them; on a private repo with
   the key jobs hosted, about two billed Actions minutes per review; the recommended CLAUDE.md "Review" section if it
   is missing.
@@ -186,8 +188,8 @@ gh variable set CLAUDE_REVIEW_KEY_RUNS_ON -R <owner/repo> --body '["<label>","<l
 
 1. Commit the caller (and, on an upgrade, the command's deletion) in one commit. Title per the repo's conventions.
    Don't add `[skip ci]`: the PR's own run of its caller is the first test of the install.
-2. The PR description says whether it installs, reconfigures or upgrades the review. It lists the values from Step 3,
-   and lists the Step 5 setup as the user's steps, each a command they run.
+2. The PR description says whether it installs, reconfigures or upgrades the review, and names the old and new
+   versions when the plan does. It lists the values from Step 3, and lists the Step 5 setup as the user's steps, each a command they run.
 3. Review it locally first: `code-reviewer` and `security-auditor`, given the README's caller section, its
    Permissions bullet and the written caller.
 4. Open it as a draft and follow `/claude-review-loop`. Mark it ready only once the user has confirmed Step 5 (ask
