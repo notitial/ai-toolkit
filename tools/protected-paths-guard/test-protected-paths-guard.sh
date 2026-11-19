@@ -172,6 +172,10 @@ bash_ $p "find $LIVE/tools -name '*.ts' -exec grep -l x {} +"
 bash_ $p "find $CLONE -name '*.ts' -delete" "$LIVE"
 bash_ $d "find $LIVE -name x -fprint $LIVE/list"
 bash_ $d "xargs rm $LIVE/tools/a.ts"
+bash_ $d "env -S 'rm -f' $LIVE/tools/a.ts"
+bash_ $d "env -S'rm -f' $LIVE/tools/a.ts"
+bash_ $d "env --split-string='rm -f' $LIVE/tools/a.ts"
+bash_ $p "env -S 'rm -f' $CLONE/tools/a.ts"
 bash_ $p "xargs grep x $LIVE/tools/a.ts"
 
 # ---- segments, cd tracking, wrappers, nesting ----

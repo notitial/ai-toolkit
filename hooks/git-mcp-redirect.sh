@@ -83,8 +83,8 @@ on_command() {
       return 0 ;;
     *) ;;
   esac
-  # xargs and find hand their words on, and eval's are read as a string, so their own are not counted again
-  [ "${1##*/}" = eval ] || for w in "$@"; do gitword "$w" && WORDS=$((WORDS + 1)); done
+  # xargs and find hand their words on, and eval's and watch's are read as a string, so their own are not counted again
+  case "${1##*/}" in eval | watch) ;; *) for w in "$@"; do gitword "$w" && WORDS=$((WORDS + 1)); done ;; esac
   [ "$verb" = git ] || return 0
   GITS=$((GITS + 1))
   shift

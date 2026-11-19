@@ -104,6 +104,12 @@ check deny "shell reading a heredoc, split word" $'bash <<EOF\ng\'\'it push --fo
 check deny "shell reading a here-string, split word" "sh <<< \"g''it push --force\""
 check deny "env -S, split word"            "env -S \"g''it push --force\""
 check deny "su --command, split word"      "su --command=\"g''it push --force\" root"
+check deny "env -S, words after the string" "env -S 'git symbolic-ref HEAD' refs/heads/other"
+check deny "env -S, words after (attached)" "env -S'git symbolic-ref HEAD' refs/heads/other"
+check deny "env --split-string=, words after" "env --split-string='git symbolic-ref HEAD' refs/heads/other"
+check pass "env -S with plumbing"           "env -S 'git rev-parse' HEAD"
+check pass "watch with plumbing"            'watch -n 5 git rev-parse HEAD'
+check deny "watch with a write"             'watch -n 5 git symbolic-ref HEAD refs/heads/other'
 check deny "net: \${VAR:-git} default"     'GIT_BIN= ${GIT_BIN:-git} push --force'
 check pass "a pip git+https requirement"   'pip install git+https://example.invalid/r.git'
 check deny "net: one git read twice does not cover a hidden one" 'find . -exec find . -exec git rev-parse HEAD \; \; ; SUDO git push --force'

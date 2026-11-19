@@ -264,7 +264,7 @@ sp_lc() {
 # sp_command <command words...>: one simple command, from its first word (a wrapper, an assignment or the verb). A shell
 # with no -c string reads its script from SP_STDIN, the heredoc or here-string shell_parse found for this command.
 sp_command() {
-  local verb vl a w wb wv script takenext stdin=${SP_STDIN:-}
+  local verb vl a w wb wv sv script takenext stdin=${SP_STDIN:-}
   # Skip assignments, wrappers and shell keywords in front of the command.
   while [ "$#" -gt 0 ]; do
     w=$1
@@ -325,7 +325,7 @@ sp_command() {
           env | sudo | doas | nice | stdbuf | ionice | caffeinate | timeout | xcrun | arch)
             shift
             case "$wb" in
-              env) wv=" -u -C -S --unset --chdir --split-string " ;;
+              env) wv=" -u -C --unset --chdir " ;;
               sudo) wv=" -u -g -h -p -C -r -t -U -D --user --group --host --prompt --chdir --role --type --other-user --close-from " ;;
               doas) wv=" -u -C -a " ;;
               caffeinate) wv=" -t -w " ;;
@@ -339,11 +339,19 @@ sp_command() {
             while [ "$#" -gt 0 ]; do
               case "$1" in
                 -*)
-                  if [ "$wb" = env ]; then  # env -S STRING is a command line of its own
+                  if [ "$wb" = env ]; then  # env -S STRING splits it and appends the rest: they are one command line
                     case "$1" in
-                      -S | --split-string) read_nested "${2:-}" ;;
-                      -S?*) read_nested "${1#-S}" ;;
-                      --split-string=*) read_nested "${1#--split-string=}" ;;
+                      -S | --split-string | -S?* | --split-string=*)
+                        case "$1" in
+                          -S | --split-string) sv=${2-}; [ "$#" -gt 1 ] && shift ;;
+                          -S*) sv=${1#-S} ;;
+                          *) sv=${1#--split-string=} ;;
+                        esac
+                        shift
+                        read_nested "$sv $*"
+                        set --
+                        break
+                        ;;
                     esac
                   fi
                   case "$wv" in *" $1 "*) shift ;; esac
