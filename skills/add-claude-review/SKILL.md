@@ -97,8 +97,10 @@ upgrading.
    - The caller maps it to the kit's name, so the kit needs no change.
 5. **Reviewer App:** the owner's existing one (ask for its slug and Client ID; neither is secret), or a new one the
    user creates (README prerequisite 3). One App per owner serves all its repos.
-6. **Only if Step 2 found required reviews:** set the inputs `changes-event` and `approve-event` to `COMMENT`, or
-   scope the required reviews to people. Default: `COMMENT`.
+6. **Verdict events**, the inputs `changes-event` and `approve-event`. A `COMMENT` value found in Step 2 (a
+   caller's `with:` or a vendored copy's env) is kept, and this question only asks whether to change it. With no
+   prefill, ask only if Step 2 found required reviews: set both to `COMMENT`, or scope the required reviews to
+   people. Default: `COMMENT`.
 
 Restate the plan and wait for the user's go. The plan names:
 
@@ -123,7 +125,8 @@ Restate the plan and wait for the user's go. The plan names:
    - `permissions: {}` at the top, and the job's ceiling exactly as the README's;
    - `uses: <kit owner/name>/.github/workflows/claude-review-kit.yml@<PIN>  # <VERSION>`;
    - a `with:` block only for an input that differs from the kit's default: `runs-on` as a JSON string such as
-     `'["self-hosted","<label>"]'`, and `changes-event` and `approve-event` only from Step 3, item 6;
+     `'["self-hosted","<label>"]'`, and `changes-event` and `approve-event` whenever Step 3, item 6 holds a value,
+     prefilled or chosen;
    - `secrets:` with `CLAUDE_REVIEW_APP_KEY: ${{ secrets.CLAUDE_REVIEW_APP_KEY }}` and the one credential for the chosen
      mode: `ANTHROPIC_API_KEY: ${{ secrets.<NAME> }}` or `CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.<NAME> }}`. Never
      `secrets: inherit`, and never a secret the kit does not declare (the call fails).
@@ -136,6 +139,8 @@ Restate the plan and wait for the user's go. The plan names:
    - the top level is `permissions: {}`, and the job's permissions equal the README's ceiling;
    - `uses:` ends in a 40-hex SHA that is on the kit repo's default branch;
    - `grep -n 'secrets\.'` shows `CLAUDE_REVIEW_APP_KEY` and `<NAME>` once each, and nothing else;
+   - every value Step 2 prefilled is in the caller, unless the user changed it in Step 3: the `runs-on` labels and
+     any `COMMENT` event;
    - on a repo that forbids hosted runners, no `runs-on` value and no default left in place is a hosted label: the
      `with: runs-on` input is set, and Step 5 sets the key-job variable;
    - if `actionlint` is on `PATH`, lint the file with a scratch config that declares any custom self-hosted labels
