@@ -326,8 +326,8 @@ check deny "symbolic-ref bundled delete"   'git symbolic-ref -qd refs/remotes/or
 check pass "config --list with more flags" 'git config --list --show-origin'
 check deny "config --get-regexp is not on the list" 'git config --get-regexp x'
 check pass "plumbing behind a -C whose value is a substitution" 'git -C "$(pwd)" rev-parse HEAD'
-check deny "a write after a substitution in the same command" 'echo "$(pwd)" x; git push'
-check deny "the words after a substitution are still read" 'cp "$(mktemp)" f; git "$(echo x)" push'
+check deny "regression guard: a write after a substitution" 'echo "$(pwd)" x; git push'
+check deny "regression guard: a git word after a substitution" 'cp "$(mktemp)" f; git "$(echo x)" push'
 
 # Fail-closed: input that is not a JSON object is denied, like a missing lib or no jq.
 want() {  # want <deny|pass> <label> <stdin json>

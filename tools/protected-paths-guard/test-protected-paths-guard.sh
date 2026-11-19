@@ -192,6 +192,7 @@ bash_ $d "echo \`rm $LIVE/tools/a.ts\`"
 bash_ $d "cp \"\$(mktemp)\" $H/.claude/settings.json"
 bash_ $d "cp \`mktemp\` $H/.claude/settings.json"
 bash_ $d "cp -a /tmp/x \"\$(mktemp -d)/sub\" $LIVE/tools/a.ts"
+# regression guards: a redirect after a substitution was already judged
 bash_ $d "echo \"\$(date)\" >> $LIVE/tools/a.ts"
 bash_ $d "rm -f \"\$(mktemp)\" $LIVE/tools/a.ts"
 bash_ $d "mv \"\$(pwd)/x\" $LIVE/tools/a.ts"
