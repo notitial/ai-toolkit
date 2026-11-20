@@ -1,6 +1,6 @@
 """Static checks on the reusable kit workflow, this repo's caller of it and the command: YAML parses, the scripts
 compile and run from the kit's own checkout, Claude runs from a copy of the kit's reviewer folder, and the security rules hold (no posting tool, no GitHub token in Claude's environment, no `${{ }}` in a `run:`, the App key only
-in `appcheck` and `publish`, whose runner is the optional key pool, every job's permissions declared and inside the
+in `appcheck` and `publish`, all four jobs on SELF_HOSTED_REVIEW's runners when it is set, every job's permissions declared and inside the
 caller's ceiling, the caller's credentials mapped by name, pinned actions)."""
 import json, os, pathlib, re, shutil, subprocess, tempfile, unittest
 
@@ -52,6 +52,11 @@ class Workflow(unittest.TestCase):
             self.assertEqual(checkout["with"]["sparse-checkout"].split(), [f"tools/claude-review/{f}" for f in files[job]])
             if job == "publish":
                 self.assertEqual(checkout["if"], run["if"])   # when it posts
+                # v4.4: a runner shared with `review` or CI may keep a PR tree that links the kit's folder elsewhere.
+                [guard] = [s for s in steps if s.get("name") == "Check the workspace does not link the kit's folder"]
+                self.assertLess(steps.index(guard), steps.index(checkout))
+                self.assertEqual(guard["if"], checkout["if"])
+                self.assertIn("[ -L .claude-review-kit ]", guard["run"])
             else:   # every review run: the PR first, then a guard against the PR holding the kit's folder, then the kit
                 names = [s.get("name") for s in steps]
                 guard = steps[names.index("Check the PR does not use the kit's folder")]
@@ -325,23 +330,22 @@ class Workflow(unittest.TestCase):
         self.assertIn("Set apart the confirmed simplifications and no-caller candidates", text)
         self.assertIn("a piece something outside the repo's own code reaches or reads by name", text)   # no false positive on a public API
 
-    def test_app_key_only_in_the_key_jobs(self):
-        # v3.3: appcheck and publish run on ubuntu-latest unless the repo variable holds a label array (a dedicated
-        # pool); no other job may use that variable or the key.
+    def test_runners_and_the_app_key(self):
+        # v4.4: the variable SELF_HOSTED_REVIEW, when set on a private repo, runs all four jobs (a public repo ignores
+        # it); unset, `preflight` and `review` take the runs-on input and the key jobs run hosted. Only the key jobs
+        # name the key: a job that names it in any expression gets it on its runner.
         self.need_yaml()
-        key_runs_on = ("${{ vars.CLAUDE_REVIEW_KEY_RUNS_ON != '' && fromJSON(vars.CLAUDE_REVIEW_KEY_RUNS_ON)"
-                       " || 'ubuntu-latest' }}")
+        var = "vars.SELF_HOSTED_REVIEW != '' && github.event.repository.private && fromJSON(vars.SELF_HOSTED_REVIEW)"
+        self.assertNotIn("CLAUDE_REVIEW_KEY_RUNS_ON", self.text)   # replaced in v4.4
         for job, spec in self.wf["jobs"].items():
-            dumped = json.dumps(spec)
-            uses_key = "secrets.CLAUDE_REVIEW_APP_KEY" in dumped
+            uses_key = "secrets.CLAUDE_REVIEW_APP_KEY" in json.dumps(spec)
             with self.subTest(job=job):
                 if job in ("appcheck", "publish"):
-                    self.assertEqual(spec["runs-on"], key_runs_on)
+                    self.assertEqual(spec["runs-on"], "${{ " + var + " || 'ubuntu-latest' }}")
                     self.assertTrue(uses_key)
-                else:   # a self-hosted job: the runner would receive the key just to evaluate an expression
-                    self.assertEqual(spec["runs-on"], "${{ fromJSON(inputs.runs-on) }}")
+                else:
+                    self.assertEqual(spec["runs-on"], "${{ " + var + " || fromJSON(inputs.runs-on) }}")
                     self.assertFalse(uses_key)
-                    self.assertNotIn("CLAUDE_REVIEW_KEY_RUNS_ON", dumped)
         steps = self.wf["jobs"]["appcheck"]["steps"]
         self.assertEqual(steps[0]["env"], {"HAS_KEY": "${{ secrets.CLAUDE_REVIEW_APP_KEY != '' }}"})
 

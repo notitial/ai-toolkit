@@ -1,5 +1,5 @@
 ---
-description: "Add the automatic Claude PR review to the current repo: writes the thin caller `.github/workflows/claude-review.yml` that calls ai-toolkit's reusable review kit at `@main`. Asks for the runner labels, the key-job runner, the auth mode, the secret name and the reviewer App; checks the caller against the kit README's shape and opens the PR. Also moves a repo off a vendored copy or a SHA-pinned caller, and reconfigures an existing caller. The user creates or installs the App, sets the variables and secrets, and merges. Run from the target repo."
+description: "Add the automatic Claude PR review to the current repo: writes the thin caller `.github/workflows/claude-review.yml` that calls ai-toolkit's reusable review kit at `@main`. Asks for the runner labels or the SELF_HOSTED_REVIEW variable, the auth mode, the secret name and the reviewer App; checks the caller against the kit README's shape and opens the PR. Also moves a repo off a vendored copy or a SHA-pinned caller, and reconfigures an existing caller. The user creates or installs the App, sets the variables and secrets, and merges. Run from the target repo."
 disable-model-invocation: true
 ---
 
@@ -58,11 +58,13 @@ back.
     `admin:org`, ask the user which org secrets and variables the repo can see.
   - `CLAUDE_REVIEW_APP_CLIENT_ID`, `CLAUDE_REVIEW_APP_LOGIN` and `CLAUDE_REVIEW_APP_KEY` mean the reviewer App is
     already configured.
-  - A `CLAUDE_REVIEW_KEY_RUNS_ON` visible from org scope is a finding: report it, because the variable belongs at
-    repository scope.
+  - `SELF_HOSTED_REVIEW`, at repo or org scope, sets the runners of all four jobs. On a public repo, any
+    `SELF_HOSTED_REVIEW` it can see (its own, or an org one whose visibility is not private repositories only) is a
+    finding: report it. A `CLAUDE_REVIEW_KEY_RUNS_ON` is
+    no longer read by the kit: report it, and that only a frozen vendored copy still uses it.
   - Grep the repo's other workflows and config for `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN`.
 - **The runner rule.** Does the repo or its owner's docs require self-hosted runners for private repos? Read the
-  repo's CLAUDE.md and any runner doc it points to. If they do, the key jobs need the variable (Step 3, item 2).
+  repo's CLAUDE.md and any runner doc it points to. If they do, the repo needs the variable (Step 3, item 2).
 - **The repo's `.claude/settings.json`.** The review loads it (`--setting-sources project`, hooks off), so its
   `permissions.allow` rules, `additionalDirectories` and `defaultMode` widen what Claude reads in the review. And
   `enableAllProjectMcpServers` or `enabledMcpjsonServers` would let a `.mcp.json` from the PR start a server. Report
@@ -79,15 +81,18 @@ back.
 Ask in AskUserQuestion. Use no defaults that name a particular deployment. Prefill from Step 2 when reconfiguring or
 upgrading.
 
-1. **Runner labels** for `preflight` and `review`, the kit's `runs-on` input. Either the kit's default
-   (`ubuntu-latest`, and the only choice for a public repo), or the repo's self-hosted label set. Self-hosted runners
-   must meet the README's runner prerequisites and must never hold a deploy key.
-2. **Runner for `appcheck` and `publish`**, the two jobs that hold the App key. They read the repo variable
-   `CLAUDE_REVIEW_KEY_RUNS_ON`, never a caller input. Unset, they run on `ubuntu-latest`. Offer a self-hosted label
-   set only for a private repo, and only a pool that meets the README's prerequisite 2.
-   - If Step 2 found that private repos may not use hosted runners, the variable is **required**: unset, those jobs
+1. **Runner labels** for `preflight` and `review`, the kit's `runs-on` input, used only while the variable of item 2
+   is unset. Either the kit's default (`ubuntu-latest`, and the only choice for a public repo), or the repo's
+   self-hosted label set. Self-hosted runners must meet the README's runner prerequisites and must never hold a
+   deploy key. Ask it in a second question, and only if the user does not choose the variable in item 2.
+2. **The variable `SELF_HOSTED_REVIEW`**, which runs all four jobs, the two that hold the App key included, on its
+   labels, whatever the caller passes as `runs-on`. Unset, `appcheck` and `publish` run on `ubuntu-latest`. Offer it only for a private
+   repo, and say its cost (the README's prerequisite 2): the App key then shares runners with Claude, and with CI
+   where the pool runs it. A public repo ignores the variable.
+   - If Step 2 found that private repos may not use hosted runners, the variable is **required**: unset, the jobs
      queue on a hosted runner that never starts, and no review is posted.
-   - Reconfiguring: prefill from the repo's variables. Offer deleting the variable to go back to hosted runners.
+   - If Step 2 found it at org scope with private visibility, it already applies: nothing to set.
+   - Reconfiguring: prefill from the variables. Offer deleting the variable to go back to hosted runners.
 3. **Auth mode:** a Claude Console API key, or a subscription OAuth token from `claude setup-token`. Both are tested;
    the README says what each means for cost and limits.
 4. **Secret name**, in a second question once the mode is known.
@@ -106,13 +111,13 @@ upgrading.
 Restate the plan and wait for the user's go. The plan names:
 
 - the repo, and whether this is an install, a reconfiguration or an upgrade from a vendored copy;
-- the `runs-on` labels, the key-job variable, the auth mode, the secret name and the App;
+- the `runs-on` labels or the `SELF_HOSTED_REVIEW` labels (and, for the variable, its cost), the auth mode, the secret name and the App;
 - the branch, and the workflow file, which needs the user's live go where the repo requires one;
 - on an upgrade, or a SHA-pinned caller moved to `@main`: the old version (from the vendored copy or the pin's
   comment, or `unknown`) and the new one (the README's **Version** line), and that the review's behaviour changes to
   the new one (for example how a fixed issue that comes back is reported);
-- the README prerequisites that apply: GitHub-hosted runners allowed for any job left on them; on a private repo with
-  the key jobs hosted, about two billed Actions minutes per review; the recommended CLAUDE.md "Review" section if it
+- the README prerequisites that apply: GitHub-hosted runners allowed for any job left on them; on a private repo
+  without `SELF_HOSTED_REVIEW`, about two billed Actions minutes per review; the recommended CLAUDE.md "Review" section if it
   is missing.
 
 ## Step 4: Write the caller
@@ -121,21 +126,21 @@ Restate the plan and wait for the user's go. The plan names:
    tools with `path` on every call.
 2. Write `.github/workflows/claude-review.yml` in the README's caller shape, with these values:
    - a header comment: it calls the toolkit's reusable review kit at `@main`, so a kit change reaches it when it
-     merges; it owns the triggers, the permission ceiling and the secrets; secrets are mapped by name and no other is added. Where the key jobs need
-     the variable, say so;
+     merges; it owns the triggers, the permission ceiling and the secrets; secrets are mapped by name and no other is added. Where the jobs need
+     `SELF_HOSTED_REVIEW`, say so;
    - the README's triggers, unchanged;
    - `permissions: {}` at the top, and the job's ceiling exactly as the README's;
    - `uses: <kit owner/name>/.github/workflows/claude-review-kit.yml@main`;
    - a `with:` block only for an input that differs from the kit's default: `runs-on` as a JSON string such as
-     `'["self-hosted","<label>"]'`, and `changes-event` and `approve-event` whenever Step 3, item 6 holds a value,
+     `'["self-hosted","<label>"]'` (only without `SELF_HOSTED_REVIEW`, which overrides it), and `changes-event` and `approve-event` whenever Step 3, item 6 holds a value,
      prefilled or chosen;
    - `secrets:` with `CLAUDE_REVIEW_APP_KEY: ${{ secrets.CLAUDE_REVIEW_APP_KEY }}` and the one credential for the chosen
      mode: `ANTHROPIC_API_KEY: ${{ secrets.<NAME> }}` or `CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.<NAME> }}`. Never
      `secrets: inherit`, and never a secret the kit does not declare (the call fails).
 3. Upgrade from a vendored copy: the caller replaces the workflow, and `.claude/commands/claude-pr-review.md` is
    deleted in the same commit, because the kit reads the command from its own checkout. Self-hosted labels that the
-   copy had written into `appcheck` and `publish` become the `CLAUDE_REVIEW_KEY_RUNS_ON` variable (Step 5), never a
-   file edit.
+   copy used (its `runs-on` lines, or its `CLAUDE_REVIEW_KEY_RUNS_ON` variable) become the `SELF_HOSTED_REVIEW`
+   variable (Step 5) when the user chose it in Step 3, never a file edit.
 4. Verify:
    - the file has one job and no `steps:`;
    - the top level is `permissions: {}`, and the job's permissions equal the README's ceiling;
@@ -143,8 +148,8 @@ Restate the plan and wait for the user's go. The plan names:
    - `grep -n 'secrets\.'` shows `CLAUDE_REVIEW_APP_KEY` and `<NAME>` once each, and nothing else;
    - every value Step 2 prefilled is in the caller, unless the user changed it in Step 3: the `runs-on` labels and
      any `COMMENT` event;
-   - on a repo that forbids hosted runners, no `runs-on` value and no default left in place is a hosted label: the
-     `with: runs-on` input is set, and Step 5 sets the key-job variable;
+   - on a repo that forbids hosted runners, `SELF_HOSTED_REVIEW` is set or Step 5 sets it, so no job is left on a
+     hosted label;
    - if `actionlint` is on `PATH`, lint the file with a scratch config that declares any custom self-hosted labels
      (`self-hosted-runner: labels: [...]`, passed with `-config-file`). Don't add the config to the repo.
 
@@ -173,11 +178,12 @@ gh secret set CLAUDE_REVIEW_APP_KEY -R <owner/repo> < <path to the .pem>
 gh secret set <NAME> -R <owner/repo>
 ```
 
-- Only if Step 3, item 2 chose a self-hosted runner for the key jobs: set the variable, with the labels as a JSON
-  array (a pool of the user's own, not a label from an example). Deleting it later goes back to hosted runners.
+- Only if Step 3, item 2 chose `SELF_HOSTED_REVIEW` and Step 2 did not find it already set: set it, with the labels
+  as a JSON array (a pool of the user's own, not a label from an example), on the repo, or on the org with private
+  visibility. Deleting it later goes back to hosted runners.
 
 ```bash
-gh variable set CLAUDE_REVIEW_KEY_RUNS_ON -R <owner/repo> --body '["<label>","<label>"]'
+gh variable set SELF_HOSTED_REVIEW -R <owner/repo> --body '["<label>","<label>"]'
 ```
 
 - Then delete the downloaded `.pem`, or keep it only in a password manager.
