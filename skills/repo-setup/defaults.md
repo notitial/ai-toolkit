@@ -16,7 +16,7 @@ decision changes.
 | PR title types | `docs`, `feat`, `fix`, `chore`, `test`, `ci`, `refactor`; the repo's `pr-title.yml` binds, this is its starting value |
 | PR title length limit | 45; `dependabot[bot]` is exempt from the length check only, not the format |
 | Check names | `<Area> Checks` for a job the repo defines (CI jobs; `PR Title Checks` for a self-contained title check); `Secret Scan / gitleaks` and `PR Title / check` for the shared reusable workflows, whose names GitHub builds as `<caller job> / <called job>` |
-| Runners | `ubuntu-latest`; where the reference deployment says private repos use the org's own runners, every job uses its labels and none has a hosted fallback, except the review kit's `appcheck` and `publish`, whose runner is the kit's `CLAUDE_REVIEW_KEY_RUNS_ON` variable: a dedicated key pool where own runners are required, never a hosted label |
+| Runners | `ubuntu-latest`; where the reference deployment says private repos use the org's own runners, every job uses its labels and none has a hosted fallback, except the review kit, whose four jobs take their runners from the kit's `SELF_HOSTED_REVIEW` variable: the org's labels where own runners are required, never a hosted label |
 | Claude review jobs as required checks | never |
 | Secret scan | gitleaks: `.pre-commit-config.yaml` plus a `secret-scan.yml` caller of the org's reusable workflow (`tools/gitleaks/`) |
 | Pre-commit hooks | `pre-commit-config.yaml` beside this file: `gitleaks`, `check-merge-conflict`, `check-added-large-files`, `check-yaml`, `actionlint` |

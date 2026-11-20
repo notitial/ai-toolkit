@@ -22,7 +22,7 @@ command below is v4.1's and expects the v4.1 `collect.py`, so a v3.4 repo does n
 | [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` (frozen v3.4) | `302603c31c1dff049046af03ce06ba2e96314c63561d2dbd29f2be65dbb5a760` |
 | [claude-pr-review.md](claude-pr-review.md) | the kit's own checkout (v4.3); a frozen v3.4 repo keeps its existing copy, SHA `9537f11b...` | `7f03613da9438815093bbc6d7591e0fc8bfb4a1c53783e6d8f9da80cd3c2b1c9` |
 
-**Version:** v4.3 (2026-11-19): a third least-code kind, "no caller" (see [Least code](#least-code)): a new export, option, parameter, prop or type field nothing uses is a non-blocking suggestion, checked by a `sonnet` verifier like a simplification. v4.2 (2026-11-19): the kit's `review` job runs a pinned Claude Code CLI directly instead of through `claude-code-action`. What the review posts is unchanged; the root `CLAUDE.md` it reads is now the PR's copy, not the default branch's, and is not a rule source when the PR changes it. The CLI is pinned by `reviewer/package.json` and its lockfile, the session starts in a copy of the kit's `reviewer/` folder with no GitHub token in its environment, and nothing the PR holds can configure it (see the trust rules below). The cost record's `action` field is now `claude_code`. v4.1 (2026-11-19): a seventh review pass, "least code" (see [Least code](#least-code)). Duplication of
+**Version:** v4.4 (2026-11-20; breaking for a repo that set the old variable): one variable, `SELF_HOSTED_REVIEW`, sets the runners of all four jobs and replaces `CLAUDE_REVIEW_KEY_RUNS_ON`, which the kit no longer reads. Unset, `preflight` and `review` take the `runs-on` input as before (still accepted) and `appcheck` and `publish` run on `ubuntu-latest`. Set, the App key shares runners with Claude (see [Prerequisites](#prerequisites), item 2). A repo that set the old variable sets the new one before this reaches it; the frozen v3.4 copy still reads the old one. The review command, findings and modes are unchanged. v4.3 (2026-11-19): a third least-code kind, "no caller" (see [Least code](#least-code)): a new export, option, parameter, prop or type field nothing uses is a non-blocking suggestion, checked by a `sonnet` verifier like a simplification. v4.2 (2026-11-19): the kit's `review` job runs a pinned Claude Code CLI directly instead of through `claude-code-action`. What the review posts is unchanged; the root `CLAUDE.md` it reads is now the PR's copy, not the default branch's, and is not a rule source when the PR changes it. The CLI is pinned by `reviewer/package.json` and its lockfile, the session starts in a copy of the kit's `reviewer/` folder with no GitHub token in its environment, and nothing the PR holds can configure it (see the trust rules below). The cost record's `action` field is now `claude_code`. v4.1 (2026-11-19): a seventh review pass, "least code" (see [Least code](#least-code)). Duplication of
 code the repo already has is a blocking finding; a clear simpler rewrite is a non-blocking suggestion, posted inline
 from a new `suggestions` list in the result (at most 3). The pass adds one agent to a full review, so the cost step's
 minimum is 9. v4.0 (2026-11-19; breaking): a fixed issue that comes back is an ordinary new finding, not a reopened
@@ -52,22 +52,24 @@ claude-review` runs the same).
 
 ## What it does
 
-Four jobs:
-- **`preflight`** (`ubuntu-latest`, or your own runner): skips fork PRs with a notice, checks the App variables are
+Four jobs. Where they run: one optional variable, `SELF_HOSTED_REVIEW`, puts all four on your own runners; unset,
+`preflight` and `review` take the `runs-on` input and `appcheck` and `publish` run on `ubuntu-latest`
+([Prerequisites](#prerequisites)).
+- **`preflight`**: skips fork PRs with a notice, checks the App variables are
   set, checks the commenter has write access, applies the once-per-PR gate. Its `GITHUB_TOKEN` is read-only. Only if
   it passes does the rest run.
-- **`appcheck`** (the key runner: `ubuntu-latest`, or a dedicated pool, see [Prerequisites](#prerequisites)): mints an App token and throws it away, so a bad key, a missing install or a wrong
+- **`appcheck`**: mints an App token and throws it away, so a bad key, a missing install or a wrong
   `CLAUDE_REVIEW_APP_LOGIN` fails before Claude costs anything. On a comment request it reacts 🚀 as the App (since
   v2.5; a 👀 from claude[bot] means the Claude GitHub App is still installed on the repo, which nothing here needs).
-- **`review`** (`ubuntu-latest`, or your own runner): fetches the PR, installs the pinned Claude Code, runs it read-only
+- **`review`**: fetches the PR, installs the pinned Claude Code, runs it read-only
   with no GitHub token in its environment, uploads the result as an artifact. One at a time per PR, never cancelled.
-- **`publish`** (the key runner, no PR checkout, no Claude): posts as the App, in this order: thread replies, resolve,
+- **`publish`** (no PR checkout, no Claude): posts as the App, in this order: thread replies, resolve,
   the overview comment, the review. On a push to a same-repo PR it also dismisses the App's approval of an older
   commit. Re-running it never posts a second review (every review body has a run marker).
 
 On a private repo, with `appcheck` and `publish` on GitHub-hosted runners, they are about two billed Actions minutes
 per review (more when `preflight` and `review` run on GitHub-hosted runners too), and `publish` runs (one minute) on
-every push to a reviewed PR for the dismissal check. A key pool removes those two jobs' minutes. Public repos don't
+every push to a reviewed PR for the dismissal check. `SELF_HOSTED_REVIEW` removes those minutes. Public repos don't
 pay for GitHub-hosted minutes.
 
 Three modes:
@@ -279,9 +281,9 @@ jobs:
   (`uses: ./.github/workflows/claude-review-kit.yml`, the caller's own commit), because a SHA of a file in the same PR
   cannot exist yet and a PR that edits the review has always been reviewed by its own edited copy.
 - **Inputs** (all optional, in a `with:` block): `runs-on`, a JSON array of labels for `preflight` and `review`
-  (default `["ubuntu-latest"]`); `changes-event` (`REQUEST_CHANGES` or `COMMENT`) and `approve-event` (`APPROVE` or
-  `COMMENT`). They replace the lines a vendored copy edits by hand. The key jobs still read the variable
-  `CLAUDE_REVIEW_KEY_RUNS_ON`; all `CLAUDE_REVIEW_*` variables are the calling repo's.
+  (default `["ubuntu-latest"]`, ignored when `SELF_HOSTED_REVIEW` is set); `changes-event` (`REQUEST_CHANGES` or
+  `COMMENT`) and `approve-event` (`APPROVE` or `COMMENT`). They replace the lines a vendored copy edits by hand. The
+  variables are the ones the calling repo sees: its own, or an org's it can see.
 - **Credentials:** pass the three names above, or drop the one you do not use. Never `secrets: inherit`, and never a
   secret the kit does not declare (a caller that passes one fails). All three are optional in the kit, so a missing App
   key reaches `appcheck`'s own message.
@@ -304,42 +306,49 @@ jobs:
 
 ### Prerequisites
 
-1. **Runner** for `preflight` and `review`: `ubuntu-latest` (the canonical value), or a self-hosted label set.
-   - Tested on self-hosted Linux runners (v2.3) and `ubuntu-latest` (v2.4).
-   - A self-hosted runner needs at least 2G of memory; `gh`, `jq`, `git` and `python3` ≥ 3.8 on `PATH`; and outbound
-     HTTPS to github.com, registry.npmjs.org, api.anthropic.com and claude.ai, direct (Claude runs under `env -i`, so no
-     `HTTPS_PROXY` or custom CA variables reach it). Node 22 comes from the job
+1. **Runners, by default:** with the variable `SELF_HOSTED_REVIEW` (prerequisite 2) unset, `preflight` and `review`
+   take the `runs-on` input (`ubuntu-latest`, the canonical value, or a self-hosted label set), and `appcheck` and
+   `publish`, which hold the App key and tokens, run on `ubuntu-latest`. GitHub-hosted runners must be allowed for
+   every job left on them: a private repo that may not use them gets no review, because its jobs wait for a hosted
+   runner that never starts and nothing is posted on the PR.
+   - Tested on self-hosted Linux runners (v2.3) and `ubuntu-latest` (v2.4); `appcheck` and `publish` on a
+     self-hosted pool since v3.3.
+   - A self-hosted runner for `review` needs at least 2G of memory; `gh`, `jq`, `git` and `python3` ≥ 3.8 on `PATH`;
+     and outbound HTTPS to github.com, registry.npmjs.org, api.anthropic.com and claude.ai, direct (Claude runs under
+     `env -i`, so no `HTTPS_PROXY` or custom CA variables reach it). Node 22 comes from the job
      (`actions/setup-node`, from the runner's tool cache or a download), so the runner needs none; it must let the
-     job run the Claude Code package's install script (`npm ci`). Never a runner that holds a deploy key. The App key never
-     reaches it.
+     job run the Claude Code package's install script (`npm ci`). Never a runner that holds a deploy key.
+     `appcheck` and `publish` need `bash`, `gh`, `git`
+     and `python3` ≥ 3.8; the runner's bundled Node runs their three JavaScript actions (the token minter, the
+     artifact download and the checkout of the kit's script); and they reach github.com, api.github.com and the
+     Actions and artifact service hosts. The kit repository must be one a job's `GITHUB_TOKEN` can read (this one is
+     public). These hosts are what the jobs need, not a control: self-hosted egress allow-lists are often not enforced.
    - On a **public repo**, keep `ubuntu-latest`. GitHub recommends self-hosted runners for private repos only,
      since a pull request from a fork of a public repo can run its own code on them.
-2. **Runner for `appcheck` and `publish`** (they hold the App key and tokens): `ubuntu-latest` by default, which needs
-   GitHub-hosted runners allowed for the repo. Or, **for a private repo only**, a dedicated self-hosted pool, chosen by
-   the repo variable `CLAUDE_REVIEW_KEY_RUNS_ON`: a JSON array of labels such as `["self-hosted","key-pool"]`. Set it
-   at repository scope, never organisation scope (an org variable could reach a public repo). It must be a non-empty
-   JSON array of strings: anything else fails those jobs when they are queued, and a pool that is offline leaves the
-   review waiting with nothing on the PR. Unset (or deleted) means `ubuntu-latest`. The pool must meet this rule:
-   - It runs only `appcheck` and `publish`: no PR code, no PR checkout, no CI or deploy jobs. (`publish` checks out
-     the kit's own script, with no credentials kept.)
-   - It holds no deploy key and no other long-lived secret on the host. Its own runner-registration credential (for
-     example a PAT or a registration App) is a different thing from the reviewer App's key, which arrives per job as
-     the repo secret. The registration credential is read only by the runner's start-up and never reaches a job's
+2. **`SELF_HOSTED_REVIEW`, for a private repo only:** a JSON array of labels such as `["self-hosted","review"]`. When
+   set, all four jobs run there and the `runs-on` input is ignored. Set it as a repository variable, or as an
+   organisation variable whose visibility is private repositories only, never one a public repo can see. A public repo
+   ignores it (the `runs-on` expressions check `github.event.repository.private`), so one it sees by mistake leaves it
+   on the defaults above. It must be a non-empty JSON array of strings: anything else fails the jobs when they are
+   queued, and a pool that is offline leaves the review waiting with nothing on the PR. Delete it to go back to the
+   defaults above.
+   - **The cost:** the App key then reaches the runners where Claude reads PR text, and, if the pool also runs CI,
+     where PR code runs. Code that gets to run on such a runner can leave something behind that reads the key in a
+     later `appcheck` or `publish`: a PR's CI job, a Dependabot PR's CI job (third-party install scripts), a
+     compromised package in the review's install, or a tool escape steered by text in the PR. The sole-pusher
+     assumption bounds only the first; the others need no second writer. Setting the variable is the owner's choice
+     (see the residual risk under Security model).
+   - The pool's runner group allows no public repository: that setting, not the variable, decides which repos' jobs
+     reach the pool.
+   - The runners hold no deploy key and no other long-lived secret on the host. Their own runner-registration
+     credential (for example a PAT or a registration App) is a different thing from the reviewer App's key, which
+     arrives per job as the repo secret; it is read only by the runner's start-up and never reaches a job's
      environment or a path the job's user can read.
-   - It is not shared with the runners of `preflight`/`review` or of CI. Recommended: no route to internal networks or
-     services beyond what the jobs need, since a PR that edits the workflow can send its own code to it.
-   - A pool that serves several repos carries over between them (see the residual risk under Security model): do that
-     only while every repo that reaches it is private with the same single writer.
-   - Only private repos can reach it. Never use a self-hosted runner for these jobs on a public repo.
-   - A runner that is restarted and re-registered for each job, with its work and temp directories wiped, is
-     recommended. That is not a clean machine (the runner's install directory stays writable by the job's user), so
-     the controls that matter are that only private repos reach the pool and that only `appcheck` and `publish` run
-     there.
-   - What the jobs need: `bash`, `gh`, `git` and `python3` ≥ 3.8 on `PATH`; the runner's bundled Node runs the three
-     JavaScript actions (the token minter, the artifact download and the checkout of the kit's script); outbound HTTPS
-     to github.com, api.github.com and the Actions and artifact service hosts; a little memory is enough. No `jq` or
-     Claude is needed. The kit repository must be one the job's `GITHUB_TOKEN` can read (this one is public). These hosts
-     are what the jobs need, not a control: self-hosted egress allow-lists are often not enforced.
+   - Only private repos with the same single writer reach the pool: a pool that serves several repos carries over
+     between them.
+   - Recommended: a runner that is restarted and re-registered for each job, with its work and temp directories
+     wiped (not a clean machine: the runner's install directory stays writable by the job's user); a pool apart from
+     the CI runners that run PR code; no route to internal networks or services beyond what the jobs need.
 3. **(user) A reviewer GitHub App**, one per owner (a personal account, or an org), shared by its repos:
    - Create it in the owner's settings → Developer settings → GitHub Apps → New GitHub App. Name it (its slug becomes
      the bot login, e.g. `acme-review` → `acme-review[bot]`); no webhook; repository permission **Pull requests: Read
@@ -353,11 +362,15 @@ jobs:
    gh secret set CLAUDE_REVIEW_APP_KEY -R <owner/repo> < <path to the .pem>
    gh secret set <CLAUDE SECRET NAME> -R <owner/repo>
    ```
-   Optional, only with a key pool (prerequisite 2): set the variable `CLAUDE_REVIEW_KEY_RUNS_ON` to your pool's labels:
+   Optional, only for a private repo on its own runners (prerequisite 2): set `SELF_HOSTED_REVIEW` to the pool's
+   labels, on the repo or, for every private repo of an org at once, on the org with private visibility:
    ```
-   gh variable set CLAUDE_REVIEW_KEY_RUNS_ON -R <owner/repo> --body '["self-hosted","key-pool"]'
+   gh variable set SELF_HOSTED_REVIEW -R <owner/repo> --body '["self-hosted","review"]'
+   gh variable set SELF_HOSTED_REVIEW --org <org> --visibility private --body '["self-hosted","review"]'
    ```
-   Deleting that variable (`gh variable delete`) goes back to GitHub-hosted runners.
+   The org variable reaches every private repo of the org, those added later included, so each must meet the
+   single-writer condition of prerequisite 2; otherwise use repository variables. Deleting it (`gh variable delete`)
+   goes back to the defaults of prerequisite 1.
    Then delete the downloaded `.pem`, or keep it only in a password manager. The workflow must reference no other
    secret. Pick a Claude secret name nothing else uses (a repo with a production `ANTHROPIC_API_KEY` uses e.g.
    `CLAUDE_REVIEW_API_KEY`).
@@ -373,8 +386,8 @@ jobs:
    the inputs `changes-event` and `approve-event` to `COMMENT` (on a vendored copy, `CHANGES_EVENT` and `APPROVE_EVENT`
    in `publish`: a replacement point, below).
 7. **Org repos:** an org owner may have blocked GitHub-hosted runners or restricted workflow permissions; then
-   `appcheck` or `publish` never starts (`appcheck` and `publish` use the key pool when it is set, `preflight` and
-   `review` still use theirs), and no review is posted. Do not restrict the
+   the jobs left on hosted runners never start (all four use `SELF_HOSTED_REVIEW` when it is set), and no review is
+   posted. Do not restrict the
    pool to one workflow ref: on `pull_request` the ref is the merge ref, so such a restriction never matches and the
    jobs queue.
 8. **Recommended:** a "Review" section in the root `CLAUDE.md` listing quotable rules. The CLAUDE.md agents flag only
@@ -393,7 +406,10 @@ For an existing vendored copy only (no new one is installed since v4.0). Change 
 
 Optional, only for a repo whose required reviews could count the App: lines 650–651 (`CHANGES_EVENT`,
 `APPROVE_EVENT`) → `COMMENT`. Don't edit `appcheck`'s and `publish`'s `runs-on` lines (200, 642): they read the
-variable `CLAUDE_REVIEW_KEY_RUNS_ON`, so set that instead, and only to a pool that meets prerequisite 2. A diff against
+frozen copy's own variable, `CLAUDE_REVIEW_KEY_RUNS_ON` (the kit reads `SELF_HOSTED_REVIEW` instead), so set that,
+and only for a private repo, to a dedicated pool that meets the pool rule in
+[ADR 0013](../../docs/adr/0013-app-owned-pr-review.md) (it runs only those two jobs and is not shared with `review`
+or CI). A diff against
 the canonical file must show only the lines above; check it and both SHAs before merging.
 
 **Auth options:** the default passes both inputs, so the credential is whichever org or repo secret exists; switch
@@ -572,9 +588,10 @@ Don't loosen any of this when adapting the files.
 - **The caller maps the credentials and sets the ceiling.** A caller passes the three declared secrets by name, never
   `secrets: inherit`. Every kit job declares its own `permissions:` inside the caller's ceiling (a test fails one that
   declares none: it would inherit the whole ceiling).
-- **The App key and tokens live only in `appcheck` and `publish`** (GitHub-hosted by default, or the key pool of
-  prerequisite 2). No expression in `preflight` or `review`, which may run self-hosted, names the key, and neither
-  reads `CLAUDE_REVIEW_KEY_RUNS_ON`. The App has Pull requests: write only; `publish`'s
+- **The App key and tokens live only in `appcheck` and `publish`** (GitHub-hosted by default, or the runners of
+  `SELF_HOSTED_REVIEW`, prerequisite 2). No expression in `preflight` or `review` names the key, so neither job's
+  runner receives it. With the variable set, all four jobs share one pool, so the key reaches runners where Claude
+  reads PR text: the owner's choice, in the residual risk below. The App has Pull requests: write only; `publish`'s
   `GITHUB_TOKEN` has `contents: write` for resolving threads only. `publish` resolves a thread only if
   the review started it, it is on this PR and open, and its last comment is this workflow's `verdict=resolved` marker
   for the reviewed commit.
@@ -585,12 +602,15 @@ Don't loosen any of this when adapting the files.
   Bump deliberately, in the kit; callers pick it up when it merges (a vendored copy needs the bump in every repo).
 - **Residual risk (accepted under a sole-pusher assumption):** a same-repo PR can edit the workflow and so read the
   App key (one App per owner: the key reaches every repo it is installed on; one key per repo limits rotation, not
-  reach, and the same PR can target any runner, a key pool included; the pool rule limits who can reach the pool, not
-  what the workflow runs there; and a pool shared by several repos carries over between them, because code a PR runs
-  there can leave something in the runner's install directory for a later job of another repo, accepted only while
-  every repo that reaches the pool is private with the same single writer: give a repo with a second writer its own
-  pool, or unset the variable); a self-hosted runner shared with CI jobs that run PR code can carry planted files
-  into a review; a prompt
+  reach, and the same PR can target any runner; the pool's rules limit who can reach the pool, not what the workflow
+  runs there; and a pool shared by several repos carries over between them, because code a PR runs there can leave
+  something in the runner's install directory for a later job of another repo, accepted only while every repo that
+  reaches the pool is private with the same single writer: give a repo with a second writer its own pool, or unset the
+  variable); with `SELF_HOSTED_REVIEW` set, the key jobs share runners with `review` (and with CI, where the pool runs
+  it), so code that gets to run there (a PR's CI job, a Dependabot PR's CI job, a compromised package in the review's
+  install, or a tool escape steered by PR text) can leave something that reads the key in a later job, and only the
+  first of those is bounded by the sole-pusher assumption (the owner's choice, prerequisite 2); a self-hosted runner shared with CI jobs
+  that run PR code can carry planted files into a review; a prompt
   injection in the PR can steer misleading findings, a wrong "resolved", a "no issues" (which becomes an APPROVE),
   or a committable suggestion. All
   visible and attributed to the App; the verdict is never a required review. The private-data pass is a model's
@@ -623,7 +643,7 @@ Don't loosen any of this when adapting the files.
 
 ## Upkeep
 
-- Keep the cost record's `reviewer` string (`claude-pr-review@v4.3`) equal to the version above (a test checks).
+- Keep the cost record's `reviewer` string (`claude-pr-review@v4.4`) equal to the version above (a test checks).
 - Run `tests/` after any change to `collect.py`, `publish.py` or `reviewer/`.
 - Claude Code's version is `reviewer/package.json`'s, bumped by Dependabot's `npm` entry. Check a bump PR with a
   replay (`replay/replay.py`) before it merges: the flags in `reviewer/run.sh` are the CLI's, and a version can drop one

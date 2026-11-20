@@ -1,7 +1,7 @@
 # 18. The Review Kit as a Reusable Workflow
 
 **Status:** accepted
-**Date:** 2026-11-19 · **Amended:** 2026-11-20 (callers use `@main`)
+**Date:** 2026-11-19 · **Amended:** 2026-11-20 (callers use `@main`; one runner variable)
 
 ## Context
 
@@ -37,7 +37,8 @@ is a caller of about 30 lines that owns three things:
 
 The kit's inputs are `runs-on` (a JSON array, for `preflight` and `review`, default `["ubuntu-latest"]`),
 `changes-event` and `approve-event` (the two verdict events, defaults as before). They replace the lines a repo used
-to edit by hand. The key jobs still read `CLAUDE_REVIEW_KEY_RUNS_ON`.
+to edit by hand. The runners of all four jobs can come from one variable instead, `SELF_HOSTED_REVIEW` (amended
+2026-11-20, below; before, the key jobs read `CLAUDE_REVIEW_KEY_RUNS_ON`).
 
 **How a repo calls it.** This repo calls its own copy by a local path (`uses: ./.github/workflows/claude-review-kit.yml`),
 which GitHub resolves to the caller's own commit. A SHA of a file that is part of the same PR cannot exist yet, and the
@@ -98,6 +99,19 @@ as orientation, and is not a rule source when the PR changes it). Claude's envir
   only in another repo's call (its inputs, secrets, `vars` or permissions) is not caught before the merge. A comment
   run in this repo uses main's workflow, as before. Rollback: merge a revert of the kit PR; runs already started finish
   on the old commit, every later run takes the revert, and nothing changes in the repos.
+- Amended 2026-11-20: one variable, `SELF_HOSTED_REVIEW` (a JSON label array), sets the runners of all four jobs and
+  replaces `CLAUDE_REVIEW_KEY_RUNS_ON`. Unset, `preflight` and `review` take the `runs-on` input (kept, so a caller
+  that passes it still works) and `appcheck` and `publish` run on `ubuntu-latest`. It may be a repository variable
+  or an org variable visible to private repos only, and a public repo ignores it (the expressions check
+  `github.event.repository.private`). Why: a private repo on its own runners needed two settings, the
+  input and the key-job variable, to keep every job off hosted runners, and its owner chose one pool for all jobs.
+  Cost: the App key, which ADR 0013 kept off the runners where Claude reads PR text, reaches them when the variable
+  is set, and reaches the CI runners too where the pool runs CI. Code that gets to run there (a PR's CI job, a
+  Dependabot PR's CI job, a compromised package in the review's install, a tool escape steered by PR text) can leave
+  something that reads the key in a later `appcheck` or `publish`. The sole-pusher assumption bounds only the first;
+  the others are accepted without it. That is the owner's choice; unsetting the variable restores the separation. A private repo that may not use hosted runners and has not set the variable gets
+  no review: its jobs wait for a hosted runner that never starts, and nothing is posted. Rollout: callers run
+  `@main`, so the old variable stops being read when this merges; a repo that relied on it sets the new one first.
 - A repo's required-check names change: a called job reports as `<caller job id> / <job name>`.
 - ADR 0015's byte-identical-copies model still holds for the build kit; the review kit no longer follows it.
 - The verdict inputs are checked in `publish` (two accepted values each), since a called workflow has no choice type.

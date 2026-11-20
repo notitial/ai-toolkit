@@ -2,7 +2,7 @@
 
 **Status:** accepted
 **Date:** 2026-10-23
-**Amended:** 2026-11-10 (the key jobs may run on a dedicated runner pool), 2026-11-19 (the kit is a reusable workflow, [ADR 0018](0018-review-kit-as-reusable-workflow.md))
+**Amended:** 2026-11-10 (the key jobs may run on a dedicated runner pool), 2026-11-19 (the kit is a reusable workflow, [ADR 0018](0018-review-kit-as-reusable-workflow.md)), 2026-11-20 (one runner variable for all four jobs, ADR 0018)
 
 The toolkit ships this review as a kit, `tools/claude-review/` and `.github/workflows/claude-review-kit.yml`, and this
 repo calls it from `.github/workflows/claude-review.yml`.
@@ -57,6 +57,12 @@ separate job. Three problems followed:
     `publish` run there;
   - the outbound hosts it needs (github.com, api.github.com and the Actions and artifact service hosts) are what the
     jobs need, not a control: self-hosted egress allow-lists are often not enforced.
+
+  Amended 2026-11-20 ([ADR 0018](0018-review-kit-as-reusable-workflow.md)): in the reusable kit, one variable,
+  `SELF_HOSTED_REVIEW`, now sets the runners of all four jobs, so where it is set the key shares the runners where
+  Claude reads PR text, and the CI runners where the pool runs CI, and the separate-pool rule above no longer holds
+  there. Unset, the key jobs stay
+  GitHub-hosted. The frozen vendored copy keeps the rule above.
 
 ## Decision
 
