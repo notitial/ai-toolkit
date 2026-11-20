@@ -66,7 +66,7 @@ Two conventions run through the steps:
   | `actionlint` | a bad workflow expression fails only on GitHub, after the push | no: the workflow run itself fails at once |
 
   Left out on purpose: `detect-private-key` (gitleaks has a private-key rule), `check-json` (a bad JSON file fails the first test or build that reads it), `shellcheck` (add it in a repo with shell scripts, from a pinned release of a shellcheck package; it needs a clean baseline first), and anything that rewrites files (`black`, `prettier`, `end-of-file-fixer`): formatters belong to each repo's lint job. Add a hook to the config only with its CI twin, or a reason it needs none.
-- **Optional: no hosted `runs-on`.** In a repo that must use its own runners (step 3), a local hook fails a hosted label before the push. The kit bakes in no labels: the pattern below matches only GitHub's hosted image names, so it also catches a hosted fallback inside an expression. It skips `claude-review.yml`, since a frozen vendored copy of the review keeps a hosted fallback in its key jobs (a caller of the kit takes its runners from the kit's variable, step 3). It is early feedback like every hook.
+- **Optional: no hosted `runs-on`.** In a repo that must use its own runners (step 3), a local hook fails a hosted label before the push. The kit bakes in no labels: the pattern below matches only GitHub's hosted image names, so it also catches a hosted fallback inside an expression. It skips `claude-review.yml`, the kit's caller: its `runs-on` input is only a fallback, and the kit takes its runners from the kit's variable when that is set (step 3). It is early feedback like every hook.
 
   ```yaml
   - repo: local

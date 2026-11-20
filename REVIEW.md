@@ -32,7 +32,7 @@ flag, a count, a roster entry missing from the README install table). Not wordin
 In the review workflow and `tools/github-mcp/`: anything that lets a secret, token or credential reach a log, a URL,
 a comment or a file. In the workflow: PR, comment or Claude text that reaches a `run:` through `${{ }}`; a kit job
 without its own `permissions:` (it would inherit the caller's ceiling); a secret the kit uses that the caller doesn't
-map by name, or `secrets: inherit`; a change to the frozen `tools/claude-review/claude-review.yml` (v3.4); and a change
+map by name, or `secrets: inherit`; and a change
 to `tools/claude-review/claude-pr-review.md` that weakens its trust rules, its private-data pass or its verification, or
 tells agents to skip a path (this repo's own `pull_request` run follows the PR's copy of the command; a later
 `@claude review` comment run follows main's).

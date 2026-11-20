@@ -62,7 +62,7 @@ separate job. Three problems followed:
   `SELF_HOSTED_REVIEW`, now sets the runners of all four jobs, so where it is set the key shares the runners where
   Claude reads PR text, and the CI runners where the pool runs CI, and the separate-pool rule above no longer holds
   there. Unset, the key jobs stay
-  GitHub-hosted. The frozen vendored copy keeps the rule above.
+  GitHub-hosted.
 
 ## Decision
 
