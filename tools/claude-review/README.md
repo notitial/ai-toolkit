@@ -29,7 +29,7 @@ minimum is 9. v4.0 (2026-11-19; breaking): a fixed issue that comes back is an o
 thread. `publish` no longer unresolves anything: resolving a thread is the only write it makes with its
 `GITHUB_TOKEN`. `collect` leaves resolved threads out of the threads file, and the result schema loses the `reopens`
 key. When Claude finds the bug again, it is a new finding, so the review is REQUEST_CHANGES. A repo that moved to the
-reusable kit gets this by pinning the new SHA; a repo on the frozen v3.4 copy keeps the old behaviour. v3.4 (2026-11-17; as a reusable workflow, 2026-11-19, with no behaviour change): the review step runs with `--permission-mode default`. Since `claude-code-action` v1.0.273 a
+reusable kit got this by pinning the new SHA (callers now use `@main`); a repo on the frozen v3.4 copy keeps the old behaviour. v3.4 (2026-11-17; as a reusable workflow, 2026-11-19, with no behaviour change): the review step runs with `--permission-mode default`. Since `claude-code-action` v1.0.273 a
 session that has a prompt starts in auto mode, where a tool call no allow rule covers can be approved by a safety
 review; `default` refuses it, so `--allowedTools` stays a strict list. The deny list, review command, findings format and
 modes are unchanged. v3.3 (2026-11-10): the two jobs that hold the App key, `appcheck` and `publish`, may run on a dedicated
@@ -180,9 +180,9 @@ How it is applied:
   `pr-files.json`) and the overview says so; otherwise a PR could write "skip `hooks/`" into its own review. Land
   REVIEW.md changes in a PR that nothing else depends on.
 - Findings in skip paths are dropped and the rest trimmed to the cap after validation.
-- The command is read from the kit's checkout, at the commit of the workflow file that runs: a caller's pinned SHA,
-  so a command change reaches a repo when it changes its pin. In this repo, which calls the kit by a local path, a
-  `pull_request` run uses the PR's own command (as it uses the PR's own scripts) and a comment run uses main's. A
+- The command is read from the kit's checkout, at the commit of the workflow file that runs: for a caller of `@main`,
+  main's commit when the run starts, so a command change reaches every caller when it merges. In this repo, which
+  calls the kit by a local path, a `pull_request` run uses the PR's own command (as it uses the PR's own scripts) and a comment run uses main's. A
   `REVIEW.md` added in a PR is not read by that PR's own review.
 
 Keep it under about 60 lines; every line is read by every review agent on every review.
@@ -266,14 +266,16 @@ jobs:
       contents: write
       pull-requests: write
       issues: read
-    uses: <owner>/ai-toolkit/.github/workflows/claude-review-kit.yml@<40-hex commit sha>  # vX.Y
+    uses: <owner>/ai-toolkit/.github/workflows/claude-review-kit.yml@main
     secrets:
       CLAUDE_REVIEW_APP_KEY: ${{ secrets.CLAUDE_REVIEW_APP_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 ```
 
-- **Pin by full commit SHA**, with the tag in a comment. This repo calls its own copy by a local path
+- **Call `@main`**: a kit change reaches every caller when it merges. Before that, CI runs the kit's tests and the kit
+  PR's own review runs its edited copy (below); a break that shows only in another repo's call is not caught first.
+  Write access to the kit's `main` reaches every caller's keys. To roll a bad change back, merge a revert of its PR. This repo calls its own copy by a local path
   (`uses: ./.github/workflows/claude-review-kit.yml`, the caller's own commit), because a SHA of a file in the same PR
   cannot exist yet and a PR that edits the review has always been reviewed by its own edited copy.
 - **Inputs** (all optional, in a `with:` block): `runs-on`, a JSON array of labels for `preflight` and `review`
@@ -288,7 +290,8 @@ jobs:
   `pull-requests: write`); a caller that grants less makes the run fail at start-up.
 - **Check names** read `<caller job id> / <job name>`, for example `claude-review / Publish the review`.
 - **The scripts** (`collect.py`, `publish.py` in this folder) are checked out by the kit itself, at the commit of its own
-  workflow file (`job.workflow_sha`), so a caller pinned to a SHA runs that SHA's scripts. Nothing to install.
+  workflow file (`job.workflow_sha`), so the scripts always match the
+  workflow that runs: for a caller of `@main`, main's commit when the run starts. Nothing to install.
 - **The command** (`claude-pr-review.md` in this folder) and **the reviewer folder** (`reviewer/`: `CLAUDE.md`, `run.sh`,
   the result schema, `package.json` and its lockfile) come from the same checkout: `review` checks them out with
   `collect.py`, copies them to a folder in the runner's temp directory, installs the pinned Claude Code there with
@@ -543,7 +546,8 @@ from the PR's review list.
 Don't loosen any of this when adapting the files.
 
 - **Nothing from the PR checkout executes** in the review steps. The kit's scripts run from a checkout of the kit at
-  the commit of its own workflow file: a pinned caller's SHA, or, for a local `./` call, the caller's own commit
+  the commit of its own workflow file: for a caller of `@main`, main's commit when the run starts, or, for a local
+  `./` call, the caller's own commit
   (on `pull_request` the PR's merge commit, so a PR that edits a script runs its edit, as it runs an edited caller).
   Comment runs always use the default branch's workflow. No PR, comment or Claude text reaches a `run:` through `${{ }}`; it goes through files and env vars. The
   mode is a fixed `startsWith()` test, and the comment text never reaches Claude.
@@ -578,7 +582,7 @@ Don't loosen any of this when adapting the files.
   access and runs the default branch's workflow.
 - **Pinned actions** (full commit SHAs): `actions/checkout` v7.0.1, `actions/setup-node` v7.1.0,
   `actions/upload-artifact` v7.0.2, `actions/download-artifact` v8.0.2, `actions/create-github-app-token` v3.3.0.
-  Bump deliberately: in the kit, and a repo picks it up by changing the SHA in its caller (on a vendored copy, in every repo).
+  Bump deliberately, in the kit; callers pick it up when it merges (a vendored copy needs the bump in every repo).
 - **Residual risk (accepted under a sole-pusher assumption):** a same-repo PR can edit the workflow and so read the
   App key (one App per owner: the key reaches every repo it is installed on; one key per repo limits rotation, not
   reach, and the same PR can target any runner, a key pool included; the pool rule limits who can reach the pool, not
@@ -625,6 +629,6 @@ Don't loosen any of this when adapting the files.
   replay (`replay/replay.py`) before it merges: the flags in `reviewer/run.sh` are the CLI's, and a version can drop one
   (`--permission-mode default` is no longer listed as of 2.1.328).
 - `REVIEW.md` (repo root) is the repo's own file, not part of the kit: edit it freely.
-- A change to the review, the command included, goes in the reusable kit. A repo on the reusable kit picks it up by
-  changing the SHA in its caller. The frozen v3.4 workflow is not edited; a repo still on it moves to the reusable
+- A change to the review, the command included, goes in the reusable kit. A repo on the reusable kit picks it up when
+  it merges. The frozen v3.4 workflow is not edited; a repo still on it moves to the reusable
   kit.

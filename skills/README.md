@@ -22,7 +22,7 @@ Reviews an existing repo against the same standard and closes what it can. It re
 
 ### [/add-claude-review](add-claude-review/SKILL.md)
 
-Adds the automatic Claude PR review to the current repo: writes the caller `.github/workflows/claude-review.yml`, which calls the reusable kit ([tools/claude-review/](../tools/claude-review/README.md)) pinned by commit SHA. Asks for the runner labels, the key-job runner, the auth mode, the secret name and the reviewer GitHub App, checks the caller against the kit's shape and opens the PR; the user creates or installs the App, sets the variables and secrets, and merges. Also re-pins a caller and moves a repo off a vendored copy. Run from the target repo.
+Adds the automatic Claude PR review to the current repo: writes the caller `.github/workflows/claude-review.yml`, which calls the reusable kit ([tools/claude-review/](../tools/claude-review/README.md)) at `@main`. Asks for the runner labels, the key-job runner, the auth mode, the secret name and the reviewer GitHub App, checks the caller against the kit's shape and opens the PR; the user creates or installs the App, sets the variables and secrets, and merges. Also reconfigures a caller and moves a repo off a vendored copy or a SHA pin. Run from the target repo.
 
 ### [/claude-review-loop](claude-review-loop/SKILL.md)
 

@@ -60,7 +60,7 @@ ruleset's required checks only after the CI job names exist on `main`). Wait for
    workflow or deploy-script change needs the user's live go (the repo's CLAUDE.md rule, and a risk topic): name
    each such file in the restated plan.
 3. For the automatic PR review, run `/add-claude-review` from the repo instead of writing its caller from the file
-   model: the kit owns its pin and the caller's shape. A repo that uses another review kit follows that
+   model: the kit owns the caller's shape (it calls `@main`). A repo that uses another review kit follows that
    kit's setup guide.
 4. Commit and open the PR only on the user's go, title and description per the repo's own rules (doc steps 5–6).
    Normal PR, not a draft. Never merge.
