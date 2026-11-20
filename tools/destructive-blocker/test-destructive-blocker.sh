@@ -64,7 +64,7 @@ check pass "plain heredoc text"        $'cat <<EOF\nhello\nEOF'
 check deny "a refused line next to rm -r -f in a heredoc" $'ssh host <<\'EOF\'\necho done (in that case)\nrm -r -f /srv/app\nEOF'
 body() { awk -v n="$1" 'BEGIN { print "cat > README.md <<EOF"; print "skip it (in that case)."; for (k = 0; k < n; k++) print "line " k " some prose"; print "EOF" }'; }
 check pass "a refused heredoc body of 50 lines is read line by line" "$(body 50)"
-check deny "a refused heredoc body of 150 lines is denied (bash 3.2 cannot loop that far)" "$(body 150)"
+check pass "a refused heredoc body of 150 lines is read line by line (no line cap)" "$(body 150)"
 check pass "a README heredoc with a fenced block" $'cat > README.md <<\'EOF\'\n```bash\n# install\nmake\n```\nEOF'
 check pass "a heredoc with a parenthesized case" $'cat <<EOF\nskip it (in that case).\nEOF'
 check pass "a here-string with a parenthesized case" 'cat <<< "(in that case)"'
@@ -244,6 +244,17 @@ audit_case() {  # audit_case <label> <command> <jq test on the log> [VAR=value .
   log=$(ls "$T"/work/.archive/audit/audit-*.log 2>/dev/null | head -1)
   if [ -n "$log" ] && jq -e "$test" "$log" >/dev/null 2>&1; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: $label"; fi
 }
+# A text with a backtick, where the parser may misplace a group end: an rm, a -r and a -f among its words is denied
+check deny "backtick text: rm -r -f after a lone quote" "bash -c 'x=\`echo '\"'\"'; rm -r -f /x'"
+check pass "backtick text: rm -r alone"                 'echo `date`; rm -r /x'
+check pass "backtick text: ls -rf is no rm"             'echo `date`; ls -rf /x'
+# Here-strings and heredoc bodies are read as scripts (ssh host <<< 'cmd' is one); an inherited option changes nothing
+check deny "a here-string is a script"                  "ssh h <<< 'rm -r -f /x'"
+check deny "a here-string ahead of a separator"         "ssh h <<< 'rm -r -f /x'; ls"
+check pass "a here-string with no rm"                   "ssh h <<< 'ls /x'"
+check deny "an inherited SP_LENIENT does not pass a refusal" 'echo $(case x in x) ls;; esac)' SP_LENIENT=1
+check deny "a heredoc body of 300 refused lines is still read" "$(printf 'ssh h <<EOF\n'; awk 'BEGIN { for (i = 0; i < 300; i++) print "echo (in that case) " i; print "rm -r -f /x" }'; printf 'EOF')"
+
 audit_case "a deny is logged" 'rm -rf x' 'select(.event == "deny" and .hook == "destructive-blocker" and .reason == "Recursive forced deletion")'
 audit_case "an ask is logged" 'rm -f /tmp/x' 'select(.event == "ask" and .hook == "destructive-blocker")' CLAUDE_CODE_ENTRYPOINT=cli
 rm -rf "$T/work/.archive"

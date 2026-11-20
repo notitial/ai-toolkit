@@ -261,6 +261,14 @@ if [ "$TOOL_NAME" = "Bash" ]; then
     CWD=""
     SP_ALL_HEREDOCS=1  # as in destructive-blocker: any heredoc body may be a script
     shell_parse "$CONTENT"
+    # Backticks: the parse may misplace a group end inside them (the header of lib/shell-parse.sh). A text that holds one, names
+    # grep or rg with a flag that may make a search recursive or read hidden files among its words (deliberately coarse: any -r or -u word of any command
+    # in the text counts, as does a *.env* word that is a pattern) and has no .env exclude anywhere is denied.
+    case $CONTENT in
+      *'`'*) if sp_raw_has "$CONTENT" '-[a-z]*r[a-z]*|-u+|-\.|--(recursive|dereference-recursive|hidden|no-ignore.*|unrestricted)' && ! sp_raw_has "$CONTENT" '!?\*\.env\*'; then
+        deny "blocked recursive search over .env" "A recursive search may read .env files, and this text holds a backtick the hook cannot read exactly, so any -r word counts. Add --exclude='*.env*' (grep) or -g '!*.env*' (rg), or use the Grep tool."
+      fi ;;
+    esac
   fi
 fi
 

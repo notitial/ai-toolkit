@@ -40,9 +40,17 @@
 # fooled by that does not rely on the parse around a substitution: protected-paths-guard denies a text that holds one and
 # could touch a protected place (sub_guard in that hook), whatever this parser made of its words.
 # HOME_R, the real path of $HOME, is set here; lexnorm is shared with the hook.
-# Names it defines: HOME_R NEST SP_LC SP_STDIN SP_SEG_* lexnorm tokenise set_cwd sp_lc sp_command sp_watch sp_xargs read_nested sp_body sp_pop shell_parse.
+# A hook that opts in to SP_ALL_HEREDOCS reads a here-string (`cmd <<< 'text'`) as a script too, as it reads a heredoc body: `ssh host <<< 'cmd'`
+# is a script for a remote shell. That is intended, and a command that only feeds text to grep or cat is read the same way (it may be refused).
+# Both options are dropped from the environment when this file is sourced (a hook sets them after it): an inherited SP_LENIENT=1 would
+# turn every refusal into a pass.
+# Names it defines: HOME_R NEST SP_LC SP_STDIN SP_SEG_* lexnorm tokenise set_cwd sp_lc sp_command sp_watch sp_xargs read_nested sp_body sp_raw_has sp_pop shell_parse.
 
 command -v deny >/dev/null 2>&1 || return 1
+
+# The two options of the interface are the hook's to set, after sourcing this file: a value inherited from the environment is dropped
+# (SP_LENIENT=1 would turn every refusal into a pass, SP_ALL_HEREDOCS=1 would change what a hook reads).
+unset SP_LENIENT SP_ALL_HEREDOCS
 
 HOME_R=$(cd -P -- "${HOME:-}" 2>/dev/null && pwd -P) || HOME_R=${HOME:-}
 
@@ -520,19 +528,20 @@ read_nested() {
 # sp_body <text>: a heredoc body read as a script (the SP_ALL_HEREDOCS opt-in). A body the parser refuses (a README fence,
 # `(in that case)` prose) is read again line by line, so a refused line drops only itself, not the lines around it.
 sp_body() {
-  local l rest n=0 SP_REFUSED=""
+  local l SP_REFUSED=""
   SP_LENIENT=1 read_nested "$1"
   [ -n "$SP_REFUSED" ] || return 0
-  rest=$1
-  while :; do
-    # bash 3.2 crashes (and the hook fails open) after about 250 parser calls in one function: a long refused body is denied
-    n=$((n + 1)); [ "$n" -le 100 ] || deny "a heredoc body of over 100 lines that cannot be read as one script - blocked (fail-closed); split the call."
-    l=${rest%%$'\n'*}
-    case "$rest" in *$'\n'*) rest=${rest#*$'\n'} ;; *) rest="" ;; esac
+  while IFS= read -r l; do  # a here-document: linear in the text (a cut at each newline of a long line is not), and no descriptor leaks
     SP_LENIENT=1 read_nested "$l"
-    [ -n "$rest" ] || break
-  done
+  done <<EOF
+$1
+EOF
 }
+
+# sp_raw_has <text> <ERE>: whether some word of the text, read raw (quotes and backslashes dropped, split at blanks and ; | & < > ( ) ` = :, lower case,
+# the parse ignored), matches the ERE as a whole. The backstop of a hook for a text with a backtick, where the parse may misplace
+# a group end (see the header): one tr pass and one grep, no fork per word (grep reads it all: no early exit, so no broken pipe under pipefail).
+sp_raw_has() { printf '%s' "$1" | tr -d "'\"\\\\" | tr " \t\n;|&<>()\`=:" '\n' | tr '[:upper:]' '[:lower:]' | grep -E "^($2)\$" >/dev/null; }
 
 # sp_pop: shell_parse's helper (it uses that function's locals): a group closes, so what the O record parked comes back.
 sp_pop() {
@@ -599,6 +608,7 @@ EOF
   while :; do  # a group the text leaves open still gives back the words parked in front of it
     SP_STDIN=$sin
     [ "${#SEG[@]}" -gt 0 ] && sp_command "${SEG[@]}"
+    [ -n "$sin" ] && [ -n "${SP_ALL_HEREDOCS:-}" ] && sp_body "$sin"  # a here-string closes the text: no separator ends its segment
     [ "${#STK[@]}" -gt 0 ] || break
     sp_pop
   done
