@@ -103,9 +103,11 @@ if [ -d "$MYHOME" ] && [ "$MYHOME" != "/" ]; then
   H_SAVE=$H
   H=$MYHOME
   bash_ $d "cp /tmp/x ~$ME/.claude/settings.json"
-  bash_ $d "cp /tmp/x ~$ME/.claude/settings.js?n"
-  bash_ $d "cp /tmp/settings.json ~$ME/.claude/"
   bash_ $p "cp /tmp/x ~$ME/.claude/nosuchfile-zz"
+  if [ -e "$MYHOME/.claude/settings.json" ]; then  # a glob and a folder operand are judged by the settings files that exist (a CI runner has none)
+    bash_ $d "cp /tmp/x ~$ME/.claude/settings.js?n"
+    bash_ $d "cp /tmp/settings.json ~$ME/.claude/"
+  fi
   H=$H_SAVE
 fi
 # ---- substitutions: the text is denied when it could touch a protected place, whatever the parse says ----
