@@ -53,7 +53,7 @@ What each mode returns:
 
 | Run | `stopped` | `no_issues` | `findings` | `suggestions` | `threads` | `overview` |
 |---|---|---|---|---|---|---|
-| `initial`, not eligible | `true` | `false` | `[]` | `[]` | `[]` | `""` |
+| `initial`, not open or a draft | `true` | `false` | `[]` | `[]` | `[]` | `""` |
 | `initial`, issues found | `false` | `false` | 1 to 8 | 0 to 3 | `[]` | 2 or 3 sentences |
 | `initial`, nothing found | `false` | `true` | `[]` | 0 to 3 | `[]` | 2 or 3 sentences |
 | `rereview` | `false` | `true` exactly when `findings` is `[]` and the review completed | 0 to 8 | 0 to 3 | one per `open` thread | 2 or 3 sentences |
@@ -120,18 +120,14 @@ If a subagent fails or returns nothing usable, launch it once more with the same
 
 Read `CONTEXT/pr.json`. Stop at once (`stopped: true`, everything else as in the table in section 4) when `state` is not `OPEN` or `isDraft` is `true`. The workflow never asks for an `initial` review of a PR it already reviewed, so do not check for that.
 
-The third reason to stop, a PR with nothing a reviewer could act on, is decided after triage (7.2).
-
 ### 7.2 Orientation
 
 Launch together:
 
-- **Triage** (model `sonnet`). It reads `pr.json` and `pr-files.json` and the changed files, and returns: two to four plain sentences on what the PR changes; one line per changed file; and, in `initial` only, a recommendation on whether there is anything a reviewer could act on, with the reason.
+- **Triage** (model `sonnet`). It reads `pr.json` and `pr-files.json` and the changed files, and returns: two to four plain sentences on what the PR changes; one line per changed file.
 - **Guidance** (model `haiku`). It uses `Glob` to list the applicable `CLAUDE.md` paths (section 5) for the files in `pr-files.json`, without reading their contents, and returns the list.
 
 Triage describes what the PR changes without names, hosts, emails or keys. The triage summary is for you: it feeds the overview and helps you dedupe. Do not pass it to the review passes or the verifiers; they form their own view of the code.
-
-In `initial`, stop after triage only when the recommendation is clearly right: an automated dependency or version bump with no logic in it, or a change that is obviously correct and trivial. Never stop because an AI wrote the PR. When in doubt, review: a stopped run gives no verdict at all.
 
 ### 7.3 Review passes
 

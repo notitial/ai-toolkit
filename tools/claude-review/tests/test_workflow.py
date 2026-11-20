@@ -330,6 +330,15 @@ class Workflow(unittest.TestCase):
         self.assertIn("Set apart the confirmed simplifications and no-caller candidates", text)
         self.assertIn("a piece something outside the repo's own code reaches or reads by name", text)   # no false positive on a public API
 
+    def test_command_has_no_early_stop_beyond_not_open_and_draft(self):
+        # v4.5: the triage recommendation and its "obviously correct and trivial" stop are gone; control files and
+        # one-line changes get the full review. Only the deterministic gate (7.1) stops a run.
+        text = COMMAND.read_text(encoding="utf-8")
+        self.assertIn("when `state` is not `OPEN` or `isDraft` is `true`", text)
+        self.assertIn("A PR's size never changes the process", text)
+        for gone in ("obviously correct and trivial", "a recommendation on whether", "The third reason to stop"):
+            self.assertNotIn(gone, text)
+
     def test_runners_and_the_app_key(self):
         # v4.4: the variable SELF_HOSTED_REVIEW, when set on a private repo, runs all four jobs (a public repo ignores
         # it); unset, `preflight` and `review` take the runs-on input and the key jobs run hosted. Only the key jobs
