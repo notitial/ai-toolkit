@@ -52,7 +52,7 @@ If no global CLAUDE.md exists, offer this as a starting point for the user to cu
 
 - Always stop and ask when the request touches a risk topic: the canonical list is in workflow.md (Unattended runs, Risk topic exception)
 - For simple informational questions, answer directly without preamble
-- Ask, plan, then act: one round of at most 4 questions when it matters, and an approved plan before any change past a small fix or any dispatch; see workflow.md, Ask, Plan, Then Act
+- Ask, plan, then act: one round of at most 4 questions when it matters, and an approved plan before any change past a small fix or any dispatch of an agent that will edit; see workflow.md, Ask, Plan, Then Act
 
 ## Code Changes
 
