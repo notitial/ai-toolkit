@@ -340,9 +340,9 @@ judge_target() {
       d=${p%/*} l=${p##*/}
       case "$d" in
         *[\*\?\[]*) ;;
-        *) d=$(lexnorm "$d")  # ./ and // spellings of the folder
+        *) d=$(phys_any "$d")  # the real folder, as candidates sees it: a link to ~/.claude and ./ or // spellings of it count
           case "$(lower "$d")" in
-          "$LHOME_R/.claude" | "$(lexnorm "$LHOME")/.claude")
+          "$LHOME_R/.claude")
             [ "${#l}" -le 64 ] || deny "a glob of over 64 characters in $d cannot be judged within the hook's time limit - blocked (fail-closed)."
             f=${l//[^*?[]/}
             [ "${#f}" -le 3 ] || deny "a glob with over 3 wildcards in $d cannot be judged within the hook's time limit - blocked (fail-closed)."

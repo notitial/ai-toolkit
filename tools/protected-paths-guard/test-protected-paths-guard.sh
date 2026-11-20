@@ -38,6 +38,7 @@ ln -s "$LIVE/tools/a.ts" "$LIVE/.archive/task/sneaky"
 ln -s "$T/other" "$LIVE/.archive/outside"
 ln -s "$H/.claude/settings.json" "$T/other/settings-link"
 ln -s "$LIVE" "$T/livelink"
+ln -s "$H/.claude" "$T/claudelink"
 
 PASS=0
 FAIL=0
@@ -80,6 +81,10 @@ bash_ $p "cp /tmp/x ~-/a.ts" "$LIVE/tools"
 bash_ $p "cp /tmp/x ~nosuchaccount-zz/.claude/settings.json"
 bash_ $p "cp /tmp/x ~'a b'/x"
 bash_ $d "cp /tmp/x ~/.claude/settings.js?n"
+bash_ $d "cp /tmp/x $T/claudelink/settings.js?n"
+bash_ $d "echo x > $T/claudelink/settings.js?n"
+bash_ $d "touch $T/claudelink/settings.local.*"
+bash_ $p "touch $T/claudelink/settings.json.bak-*"
 bash_ $d "cp /tmp/x ~/./.claude/settings.js?n"
 bash_ $d "cp /tmp/x ~//.claude/settings.*"
 bash_ $d "cp /tmp/settings.json ~/.claude/"
