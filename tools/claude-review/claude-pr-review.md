@@ -53,7 +53,7 @@ What each mode returns:
 
 | Run | `stopped` | `no_issues` | `findings` | `suggestions` | `threads` | `overview` |
 |---|---|---|---|---|---|---|
-| `initial`, not eligible | `true` | `false` | `[]` | `[]` | `[]` | `""` |
+| `initial`, not open or a draft | `true` | `false` | `[]` | `[]` | `[]` | `""` |
 | `initial`, issues found | `false` | `false` | 1 to 8 | 0 to 3 | `[]` | 2 or 3 sentences |
 | `initial`, nothing found | `false` | `true` | `[]` | 0 to 3 | `[]` | 2 or 3 sentences |
 | `rereview` | `false` | `true` exactly when `findings` is `[]` and the review completed | 0 to 8 | 0 to 3 | one per `open` thread | 2 or 3 sentences |
@@ -90,14 +90,14 @@ There is no severity field. Severity is the order of `findings`: most severe fir
 
 **`initial`**
 1. Gate (7.1), done by you.
-2. Orientation (7.2): the triage and guidance subagents, in parallel.
+2. Guidance (7.2), done by you.
 3. Review passes (7.3): seven subagents, in parallel.
 4. Verification (7.4): one verifier per candidate, in parallel.
 5. Selection (7.5), then write the findings (section 8) and the overview (section 11).
 
 **`rereview`** (someone with write access asked for it: never stop, for a draft or for any other reason)
 1. Read the threads file.
-2. Orientation (7.2) and the thread judges (section 9), all in parallel. The judges start first or together with orientation, never after the review.
+2. Start the thread judges (section 9), then do guidance (7.2) yourself while they run. The judges never start after the review passes.
 3. Review passes (7.3), verification (7.4) and selection (7.5), exactly as thorough as in `initial`. Judging the threads does not shorten the review: new commits are the usual reason someone asks for it.
 4. Selection also drops issues the threads already cover (7.5).
 5. Write findings, thread verdicts and the overview.
@@ -111,7 +111,6 @@ A PR's size never changes the process. A one-line PR gets the same passes and th
 
 If a subagent fails or returns nothing usable, launch it once more with the same brief. What happens when it fails again depends on the subagent:
 - **A review pass or a verifier:** the review is incomplete, and an incomplete review must never be reported as clean, because a clean result approves the PR. Finish the stages that can finish, then return `no_issues: false` with the verified findings you have. If you have none, return `findings: []` anyway: `publish` then gives no verdict and writes only an overview note saying the review was incomplete. That is the intended outcome, since an unfinished review never earns an approval. Name the pass that failed in the overview, or say that a verifier failed.
-- **Triage or guidance:** carry on without it, and say in the overview what was missing. Without guidance, the written-rules pass finds the `CLAUDE.md` files itself.
 - **A thread judge:** see section 9.
 
 ## 7. Stages
@@ -120,18 +119,9 @@ If a subagent fails or returns nothing usable, launch it once more with the same
 
 Read `CONTEXT/pr.json`. Stop at once (`stopped: true`, everything else as in the table in section 4) when `state` is not `OPEN` or `isDraft` is `true`. The workflow never asks for an `initial` review of a PR it already reviewed, so do not check for that.
 
-The third reason to stop, a PR with nothing a reviewer could act on, is decided after triage (7.2).
+### 7.2 Guidance
 
-### 7.2 Orientation
-
-Launch together:
-
-- **Triage** (model `sonnet`). It reads `pr.json` and `pr-files.json` and the changed files, and returns: two to four plain sentences on what the PR changes; one line per changed file; and, in `initial` only, a recommendation on whether there is anything a reviewer could act on, with the reason.
-- **Guidance** (model `haiku`). It uses `Glob` to list the applicable `CLAUDE.md` paths (section 5) for the files in `pr-files.json`, without reading their contents, and returns the list.
-
-Triage describes what the PR changes without names, hosts, emails or keys. The triage summary is for you: it feeds the overview and helps you dedupe. Do not pass it to the review passes or the verifiers; they form their own view of the code.
-
-In `initial`, stop after triage only when the recommendation is clearly right: an automated dependency or version bump with no logic in it, or a change that is obviously correct and trivial. Never stop because an AI wrote the PR. When in doubt, review: a stopped run gives no verdict at all.
+Use `Glob` to list the applicable `CLAUDE.md` paths (section 5) for the files in `pr-files.json`, without reading their contents. The overview (section 11) comes from your own read of `pr.json`, `pr-files.json` and the changed files. Do not pass your reading of the PR to the review passes or the verifiers; they form their own view of the code.
 
 ### 7.3 Review passes
 
@@ -262,7 +252,7 @@ You are part of an automated, read-only review of pull request <owner>/<repo>#<n
 
 ## 11. The overview
 
-For a full review that did not stop, `overview` is two or three plain sentences, under 600 characters: what the PR changes, and how the review came out (how many findings and of what kind, or a clean result, and how many suggestions). When `REVIEW.md` was ignored because the PR changes it, say so. When a part of the review did not complete (section 6), name it: the pass that failed, a verifier, triage or guidance.
+For a full review that did not stop, `overview` is two or three plain sentences, under 600 characters: what the PR changes, and how the review came out (how many findings and of what kind, or a clean result, and how many suggestions). When `REVIEW.md` was ignored because the PR changes it, say so. When a part of the review did not complete (section 6), name it: the pass that failed, or a verifier.
 
 Never repeat private data in it. When the PR's title or description holds private data (7.3), say in one short clause which of the two and what kind, so the author edits it before merging. When the private-data pass found more of one kind than it could report, say more may exist.
 

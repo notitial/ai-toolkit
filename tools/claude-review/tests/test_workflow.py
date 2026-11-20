@@ -330,6 +330,17 @@ class Workflow(unittest.TestCase):
         self.assertIn("Set apart the confirmed simplifications and no-caller candidates", text)
         self.assertIn("a piece something outside the repo's own code reaches or reads by name", text)   # no false positive on a public API
 
+    def test_command_has_no_early_stop_beyond_not_open_and_draft(self):
+        # v4.5: the triage recommendation and its "obviously correct and trivial" stop are gone; control files and
+        # one-line changes get the full review. Only the deterministic gate (7.1) stops a run. The triage and
+        # guidance agents are gone too: a full review is the seven passes, which is the cost step's minimum.
+        text = COMMAND.read_text(encoding="utf-8")
+        self.assertIn("when `state` is not `OPEN` or `isDraft` is `true`", text)
+        self.assertIn("A PR's size never changes the process", text)
+        for gone in ("obviously correct and trivial", "a recommendation on whether", "The third reason to stop",
+                     "Triage", "triage", "**Guidance**"):
+            self.assertNotIn(gone, text)
+
     def test_runners_and_the_app_key(self):
         # v4.4: the variable SELF_HOSTED_REVIEW, when set on a private repo, runs all four jobs (a public repo ignores
         # it); unset, `preflight` and `review` take the runs-on input and the key jobs run hosted. Only the key jobs
@@ -414,15 +425,15 @@ class Workflow(unittest.TestCase):
             return out.stdout
 
     def test_cost_step_warns_when_the_pipeline_was_cut_short(self):   # L2
-        self.assertIn("::warning::Claude launched 2 agents; a full review (initial) launches at least 9",
+        self.assertIn("::warning::Claude launched 2 agents; a full review (initial) launches at least 7",
                       self.cost_step("initial", 2))
-        self.assertIn("::warning::Claude launched 6 agents; a full review (rereview) launches at least 9",
+        self.assertIn("::warning::Claude launched 3 agents; a full review (rereview) launches at least 7",
+                      self.cost_step("rereview", 3))
+        self.assertIn("::warning::Claude launched 6 agents; a full review (rereview) launches at least 7",
                       self.cost_step("rereview", 6))
-        self.assertIn("::warning::Claude launched 7 agents; a full review (rereview) launches at least 9",
-                      self.cost_step("rereview", 7))
-        self.assertIn("::warning::Claude launched 8 agents; a full review (initial) launches at least 9",
-                      self.cost_step("initial", 8))
-        for mode, agents, stopped in (("initial", 9, False), ("rereview", 9, False), ("followup", 0, False),
+        self.assertIn("::warning::Claude launched 6 agents; a full review (initial) launches at least 7",
+                      self.cost_step("initial", 6))
+        for mode, agents, stopped in (("initial", 7, False), ("rereview", 7, False), ("followup", 0, False),
                                       ("initial", 0, True), ("initial", 1, True), ("initial", 2, True)):
             with self.subTest(mode=mode, agents=agents, stopped=stopped):
                 self.assertNotIn("::warning::", self.cost_step(mode, agents, stopped))
@@ -432,7 +443,7 @@ class Workflow(unittest.TestCase):
         denials = [{"tool_name": "Read", "tool_input": {"file_path": "/a/claude-pr-review.md"}},
                    {"tool_name": "Glob", "tool_input": {"pattern": "**/x\n::error::forged"}},
                    {"tool_name": "Agent", "tool_input": {}}]
-        out = self.cost_step("initial", 9, denials=denials)
+        out = self.cost_step("initial", 7, denials=denials)
         self.assertIn("::notice::Claude was denied Read on /a/claude-pr-review.md\n", out)
         self.assertIn("::notice::Claude was denied Glob on **/x???error??forged\n", out)   # no workflow command from a path
         self.assertIn("::notice::Claude was denied Agent on \n", out)
@@ -441,7 +452,7 @@ class Workflow(unittest.TestCase):
     def test_cost_record_names_the_kit_version(self):
         readme = (HERE.parent / "README.md").read_text(encoding="utf-8")
         version = re.search(r"^\*\*Version:\*\* (v[0-9.]+) ", readme, re.M).group(1)
-        self.cost_step("initial", 9)
+        self.cost_step("initial", 7)
         self.assertEqual(self.record["reviewer"], f"claude-pr-review@{version}")
         self.assertEqual(self.record["claude_code"], "2.1.0")   # the CLI that ran, from the stream's init message
 
