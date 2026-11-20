@@ -29,7 +29,9 @@ for key, old in (("files", False), ("stale_files", True)):
 sys.stdout.write(plan.get("out", ""))
 sys.stdout.flush()
 if plan.get("spawn"):
-    with open(home + "/child.pid", "w") as f:
-        f.write(str(subprocess.Popen(["sleep", "60"]).pid))
+    pid = subprocess.Popen(["sleep", "60"]).pid
+    with open(home + "/child.pid.tmp", "w") as f:
+        f.write(str(pid))
+    os.replace(home + "/child.pid.tmp", home + "/child.pid")
 time.sleep(plan.get("sleep", 0))
 sys.exit(plan.get("exit", 0))
