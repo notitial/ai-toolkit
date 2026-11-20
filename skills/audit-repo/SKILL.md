@@ -61,8 +61,7 @@ If `archived` is true, report "`<owner/repo>` is archived" and stop.
 ## Step 3: Read the files
 
 From the default branch (github MCP): `.github/workflows/*`, `.pre-commit-config.yaml`, `.github/dependabot.yml`,
-`.github/pull_request_template.md`, the root CLAUDE.md, and when the repo uses the review, `REVIEW.md` and `.claude/commands/`
-(where a vendored copy's command would be). Read each workflow's `name`, job names and `runs-on` lines, not only its presence. For the review, check
+`.github/pull_request_template.md`, the root CLAUDE.md, and when the repo uses the review, `REVIEW.md`. Read each workflow's `name`, job names and `runs-on` lines, not only its presence. For the review, check
 the caller against the shape in `tools/claude-review/README.md`, "The reusable kit" (F10). Evidence the review is working (a review by the reviewer App on a recent PR) comes from
 `pull_request_read` `get_reviews`.
 

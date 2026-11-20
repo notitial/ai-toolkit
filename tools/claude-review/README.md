@@ -16,9 +16,9 @@ installed in a repo that calls it, and this repo has none.
 
 | File | Read from | SHA-256 |
 |---|---|---|
-| [claude-pr-review.md](claude-pr-review.md) | the kit's own checkout (v4.5) | `a3421be0a8c04d5d48e1d709714d42f4d6c27e1d156ea86513692e5fab8d5734` |
+| [claude-pr-review.md](claude-pr-review.md) | the kit's own checkout (v4.6) | `5839e2f34664a249deba41bed97266369518fb91f61a2ed41ff32a9b70de1e3c` |
 
-**Version:** v4.5 (2026-11-20): the review has no early stop for a PR it judges trivial; only a draft or closed PR stops, so a small change to a `CLAUDE.md`, a rule or a workflow gets the full review. The triage and guidance agents are gone (the lead lists the `CLAUDE.md` paths and writes the overview itself), so a full review is seven agents and the cost step warns below 7. v4.4 (2026-11-20; breaking for a repo that set the old variable): one variable, `SELF_HOSTED_REVIEW`, sets the runners of all four jobs and replaces `CLAUDE_REVIEW_KEY_RUNS_ON`, which the kit no longer reads. Unset, `preflight` and `review` take the `runs-on` input as before (still accepted) and `appcheck` and `publish` run on `ubuntu-latest`. Set, the App key shares runners with Claude (see [Prerequisites](#prerequisites), item 2). A repo that set the old variable sets the new one before this reaches it. The review command, findings and modes are unchanged. v4.3 (2026-11-19): a third least-code kind, "no caller" (see [Least code](#least-code)): a new export, option, parameter, prop or type field nothing uses is a non-blocking suggestion, checked by a `sonnet` verifier like a simplification. v4.2 (2026-11-19): the kit's `review` job runs a pinned Claude Code CLI directly instead of through `claude-code-action`. What the review posts is unchanged; the root `CLAUDE.md` it reads is now the PR's copy, not the default branch's, and is not a rule source when the PR changes it. The CLI is pinned by `reviewer/package.json` and its lockfile, the session starts in a copy of the kit's `reviewer/` folder with no GitHub token in its environment, and nothing the PR holds can configure it (see the trust rules below). The cost record's `action` field is now `claude_code`. v4.1 (2026-11-19): a seventh review pass, "least code" (see [Least code](#least-code)). Duplication of
+**Version:** v4.6 (2026-11-20): wording and docs only. The stopped overview says why the review stopped, a rereview waits for the thread judges before the guidance step, the command tells Claude not to search outside its folders for a called workflow, and Auth options describe how the kit passes the credential. v4.5 (2026-11-20): the review has no early stop for a PR it judges trivial; only a draft or closed PR stops, so a small change to a `CLAUDE.md`, a rule or a workflow gets the full review. The triage and guidance agents are gone (the lead lists the `CLAUDE.md` paths and writes the overview itself), so a full review is seven agents and the cost step warns below 7. v4.4 (2026-11-20; breaking for a repo that set the old variable): one variable, `SELF_HOSTED_REVIEW`, sets the runners of all four jobs and replaces `CLAUDE_REVIEW_KEY_RUNS_ON`, which the kit no longer reads. Unset, `preflight` and `review` take the `runs-on` input as before (still accepted) and `appcheck` and `publish` run on `ubuntu-latest`. Set, the App key shares runners with Claude (see [Prerequisites](#prerequisites), item 2). A repo that set the old variable sets the new one before this reaches it. The review command, findings and modes are unchanged. v4.3 (2026-11-19): a third least-code kind, "no caller" (see [Least code](#least-code)): a new export, option, parameter, prop or type field nothing uses is a non-blocking suggestion, checked by a `sonnet` verifier like a simplification. v4.2 (2026-11-19): the kit's `review` job runs a pinned Claude Code CLI directly instead of through `claude-code-action`. What the review posts is unchanged; the root `CLAUDE.md` it reads is now the PR's copy, not the default branch's, and is not a rule source when the PR changes it. The CLI is pinned by `reviewer/package.json` and its lockfile, the session starts in a copy of the kit's `reviewer/` folder with no GitHub token in its environment, and nothing the PR holds can configure it (see the trust rules below). The cost record's `action` field is now `claude_code`. v4.1 (2026-11-19): a seventh review pass, "least code" (see [Least code](#least-code)). Duplication of
 code the repo already has is a blocking finding; a clear simpler rewrite is a non-blocking suggestion, posted inline
 from a new `suggestions` list in the result (at most 3). The pass added one agent to a full review, so the cost step's
 minimum became 9 (7 from v4.5). v4.0 (2026-11-19; breaking): a fixed issue that comes back is an ordinary new finding, not a reopened
@@ -79,8 +79,9 @@ Three modes:
 | `--comments` again with no push and no new thread reply | none | One follow-up per branch state; Claude doesn't run | $0 |
 | `@claude review` again with no push and no new thread reply | `rereview` or none | Skipped when every open thread already has a rereview reply for this head or, with no open thread, when this head already has a clean overview | $0 or about `initial` |
 
-- **A stopped run:** an `initial` review of a draft or closed PR stops at once; the overview says "Review stopped
-  (eligibility)" and there is no verdict. No other PR is stopped, however small or trivial.
+- **A stopped run:** an `initial` review of a PR that was closed or turned back to a draft after the run was queued
+  stops at once; the overview says "Review stopped: the PR was closed or a draft when the review ran" and there is no
+  verdict. No other PR is stopped, however small or trivial.
 - **The overview comment:** one issue comment from the App, edited on every run. It shows the head, the mode, the
   result (`clean`, `issues`, `stopped` or `followup`) with a link to the review, Claude's 2–3 sentence overview and
   the open threads with links. It is rendered again from the current state on every run and keeps no history.
@@ -241,7 +242,7 @@ own verifier (duplication on `opus`, because it blocks; simplification and no ca
 
 ## Adding it to a repo
 
-The `/add-claude-review` skill (installed by `/setup-claude`) writes the reusable kit's caller below from the target repo, and moves a repo off a vendored copy.
+The `/add-claude-review` skill (installed by `/setup-claude`) writes the reusable kit's caller below from the target repo.
 
 ### The reusable kit
 
@@ -386,17 +387,16 @@ jobs:
 8. **Recommended:** a "Review" section in the root `CLAUDE.md` listing quotable rules. The CLAUDE.md agents flag only
    clear breaks of quotable rules.
 
-**Auth options:** the default passes both inputs, so the credential is whichever org or repo secret exists; switch
-between them by changing which secret is set, with no workflow edit.
-- **API key** (tested): a Claude Console key in `ANTHROPIC_API_KEY`, passed as `anthropic_api_key:`.
-- **Subscription OAuth token** (tested, as the only input): the token made by `claude setup-token` in
-  `CLAUDE_CODE_OAUTH_TOKEN`, passed as `claude_code_oauth_token:`. The cost line still reports `total_cost_usd`, but
+**Auth options:** the caller maps both secrets, and the `review` job puts one of them in the environment of the pinned
+Claude Code CLI: the API key when `ANTHROPIC_API_KEY` is set, otherwise `CLAUDE_CODE_OAUTH_TOKEN`. With neither set
+the job fails with "No Claude credential". Switch between them by changing which secret exists, with no workflow edit.
+- **API key** (tested): a Claude Console key in `ANTHROPIC_API_KEY`. It wins when both secrets are set.
+- **Subscription OAuth token** (tested, as the only secret): the token made by `claude setup-token` in
+  `CLAUDE_CODE_OAUTH_TOKEN`. The cost line still reports `total_cost_usd`, but
   on a subscription that figure is notional: usage counts against the account's limits, shared with its interactive
   sessions, and when the limit is reached the review fails in under a second with "did not return
   structured_output". The token is a personal credential, usually long-lived: revoke it from the Claude account and
   mint a new one to rotate.
-- Unverified: that the action accepts both inputs when one secret is empty or absent. If it rejects that, keep only
-  the line for the secret that exists.
 
 ## For agents opening PRs
 
@@ -600,7 +600,7 @@ Don't loosen any of this when adapting the files.
 
 ## Upkeep
 
-- Keep the cost record's `reviewer` string (`claude-pr-review@v4.4`) equal to the version above (a test checks).
+- Keep the cost record's `reviewer` string (`claude-pr-review@v4.6`) equal to the version above (a test checks).
 - Run `tests/` after any change to `collect.py`, `publish.py` or `reviewer/`.
 - Claude Code's version is `reviewer/package.json`'s, bumped by Dependabot's `npm` entry. Check a bump PR with a
   replay (`replay/replay.py`) before it merges: the flags in `reviewer/run.sh` are the CLI's, and a version can drop one

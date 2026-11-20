@@ -120,7 +120,7 @@ class Verdicts(PublishCase):
         self.run_publish(result(no_issues=False, stopped=True))
         self.assertEqual(self.new_reviews(), [])
         self.assertIn("result=stopped", self.overview())
-        self.assertIn("Review stopped (eligibility)", self.overview())
+        self.assertIn("Review stopped: the PR was closed or a draft when the review ran", self.overview())
 
 
 class TransitionTable(PublishCase):

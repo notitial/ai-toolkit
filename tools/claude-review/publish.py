@@ -838,7 +838,7 @@ def publish(ctx):
     n_found = len(inline) + len(in_body)
 
     if data is not None and data["stopped"]:
-        decision, result, line = "none", "stopped", "Review stopped (eligibility): nothing to review. No verdict."
+        decision, result, line = "none", "stopped", "Review stopped: the PR was closed or a draft when the review ran. No verdict."
     elif incomplete:
         decision, result, line = "none", "issues", "Review incomplete: issues reported without findings. No verdict."
     elif full:
