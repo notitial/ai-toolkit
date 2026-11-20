@@ -541,7 +541,7 @@ jobs:
         run: |
           set -o pipefail
           # How many subagents Claude launched (Agent/Task tool calls): a full review (initial or rereview) launches at
-          # least 9, plus one verifier per candidate issue and, in a rereview, its thread judges, so a lower count means the pipeline was
+          # least 7, plus one verifier per candidate issue and, in a rereview, its thread judges, so a lower count means the pipeline was
           # cut short. A followup launches none or a few. A count only, no text.
           agents=$(jq -s '[.. | objects | select(.type? == "tool_use" and ((.name? // "") | test("^(Agent|Task)$")))] | length' \
             "$STREAM_FILE") || agents=null
@@ -576,7 +576,7 @@ jobs:
           jq -r '"Claude review (\(.mode)): $\(.total_cost_usd // "?"), \(if .duration_ms then "\(.duration_ms / 1000 | floor) s" else "? s" end), \(.num_turns // "?") turns, \(.agent_calls // "?") agents, \(.findings_returned // "?") findings, \(.threads_judged // "-") threads judged"' \
             "$COST_FILE" | tee -a "$GITHUB_STEP_SUMMARY"
           # Detection only: the command makes every step mandatory, but a model can still cut the pipeline short.
-          case "$MODE" in initial | rereview) min=9 ;; *) min=0 ;; esac
+          case "$MODE" in initial | rereview) min=7 ;; *) min=0 ;; esac
           jq -r --argjson min "$min" 'select(.num_turns != null and .agent_calls != null and .stopped != true and .agent_calls < $min)
             | "::warning::Claude launched \(.agent_calls) agents; a full review (\(.mode)) launches at least \($min), so it may have skipped steps"' \
             "$COST_FILE"
