@@ -66,8 +66,8 @@ since a same-repo PR can edit that line too, and fork and Dependabot runs get no
 SHA per referenced workflow, its `referenced_workflows`); the scripts use it rather than `main`, so a merge during a
 run should not give a later job scripts from a later commit.
 
-**Migration.** The vendored workflow, `tools/claude-review/claude-review.yml`, is frozen at v3.4, with its SHA row,
-for repos that have not moved; it is deleted once none uses it. This record covers the first step: the kit moves,
+**Migration.** The vendored workflow, `tools/claude-review/claude-review.yml`, was frozen at v3.4 for repos that had
+not moved, and deleted once none used it. This record covers the first step: the kit moves,
 its behaviour does not change, and the command stays installed in each repo. The second step moved the scripts into
 files (above) with no change to them. The third step feeds the command to the review from the kit's checkout: `review`
 checks it out with `collect.py` on every run, the prompt tells Claude to follow that file (the action restores

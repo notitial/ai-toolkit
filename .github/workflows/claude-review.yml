@@ -2,8 +2,8 @@
 # the kit's README is tools/claude-review/README.md). This file owns the triggers, the permission ceiling and the
 # secrets the kit may use. Every kit job narrows the ceiling with its own `permissions:`.
 #
-# This repo calls its own copy by a local path, so a PR that edits the kit is reviewed by its own edited copy, as a PR
-# that edited the vendored file always was. Any other repo calls the kit's main instead:
+# This repo calls its own copy by a local path, so a PR that edits the kit is reviewed by its own edited copy. Any
+# other repo calls the kit's main instead:
 #   uses: <owner>/ai-toolkit/.github/workflows/claude-review-kit.yml@main
 #
 # Secrets are mapped by name, never `secrets: inherit`: the kit gets the reviewer App's key and the Claude credential

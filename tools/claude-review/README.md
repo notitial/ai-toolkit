@@ -12,24 +12,20 @@ triggers, the permission ceiling and the credentials; see [The reusable kit](#th
 review that way, and its tests read the kit from that path.
 
 The kit reads the review command, [claude-pr-review.md](claude-pr-review.md), from its own checkout: no copy is
-installed in a repo that calls it, and this repo has none. The workflow beside it is the **vendored copy** for repos
-that have not moved to the reusable kit, **frozen at v3.4** (never edited; deleted once no repo uses it). Only a repo
-on that copy still keeps the command by hand, and it keeps its existing copy (the v3.4 one, SHA `9537f11b...`): the
-command below is v4.1's and expects the v4.1 `collect.py`, so a v3.4 repo does not take it.
+installed in a repo that calls it, and this repo has none.
 
-| File | Install path in the target repo | SHA-256 |
+| File | Read from | SHA-256 |
 |---|---|---|
-| [claude-review.yml](claude-review.yml) | `.github/workflows/claude-review.yml` (frozen v3.4) | `302603c31c1dff049046af03ce06ba2e96314c63561d2dbd29f2be65dbb5a760` |
-| [claude-pr-review.md](claude-pr-review.md) | the kit's own checkout (v4.5); a frozen v3.4 repo keeps its existing copy, SHA `9537f11b...` | `a3421be0a8c04d5d48e1d709714d42f4d6c27e1d156ea86513692e5fab8d5734` |
+| [claude-pr-review.md](claude-pr-review.md) | the kit's own checkout (v4.5) | `a3421be0a8c04d5d48e1d709714d42f4d6c27e1d156ea86513692e5fab8d5734` |
 
-**Version:** v4.5 (2026-11-20): the review has no early stop for a PR it judges trivial; only a draft or closed PR stops, so a small change to a `CLAUDE.md`, a rule or a workflow gets the full review. The triage and guidance agents are gone (the lead lists the `CLAUDE.md` paths and writes the overview itself), so a full review is seven agents and the cost step warns below 7. v4.4 (2026-11-20; breaking for a repo that set the old variable): one variable, `SELF_HOSTED_REVIEW`, sets the runners of all four jobs and replaces `CLAUDE_REVIEW_KEY_RUNS_ON`, which the kit no longer reads. Unset, `preflight` and `review` take the `runs-on` input as before (still accepted) and `appcheck` and `publish` run on `ubuntu-latest`. Set, the App key shares runners with Claude (see [Prerequisites](#prerequisites), item 2). A repo that set the old variable sets the new one before this reaches it; the frozen v3.4 copy still reads the old one. The review command, findings and modes are unchanged. v4.3 (2026-11-19): a third least-code kind, "no caller" (see [Least code](#least-code)): a new export, option, parameter, prop or type field nothing uses is a non-blocking suggestion, checked by a `sonnet` verifier like a simplification. v4.2 (2026-11-19): the kit's `review` job runs a pinned Claude Code CLI directly instead of through `claude-code-action`. What the review posts is unchanged; the root `CLAUDE.md` it reads is now the PR's copy, not the default branch's, and is not a rule source when the PR changes it. The CLI is pinned by `reviewer/package.json` and its lockfile, the session starts in a copy of the kit's `reviewer/` folder with no GitHub token in its environment, and nothing the PR holds can configure it (see the trust rules below). The cost record's `action` field is now `claude_code`. v4.1 (2026-11-19): a seventh review pass, "least code" (see [Least code](#least-code)). Duplication of
+**Version:** v4.5 (2026-11-20): the review has no early stop for a PR it judges trivial; only a draft or closed PR stops, so a small change to a `CLAUDE.md`, a rule or a workflow gets the full review. The triage and guidance agents are gone (the lead lists the `CLAUDE.md` paths and writes the overview itself), so a full review is seven agents and the cost step warns below 7. v4.4 (2026-11-20; breaking for a repo that set the old variable): one variable, `SELF_HOSTED_REVIEW`, sets the runners of all four jobs and replaces `CLAUDE_REVIEW_KEY_RUNS_ON`, which the kit no longer reads. Unset, `preflight` and `review` take the `runs-on` input as before (still accepted) and `appcheck` and `publish` run on `ubuntu-latest`. Set, the App key shares runners with Claude (see [Prerequisites](#prerequisites), item 2). A repo that set the old variable sets the new one before this reaches it. The review command, findings and modes are unchanged. v4.3 (2026-11-19): a third least-code kind, "no caller" (see [Least code](#least-code)): a new export, option, parameter, prop or type field nothing uses is a non-blocking suggestion, checked by a `sonnet` verifier like a simplification. v4.2 (2026-11-19): the kit's `review` job runs a pinned Claude Code CLI directly instead of through `claude-code-action`. What the review posts is unchanged; the root `CLAUDE.md` it reads is now the PR's copy, not the default branch's, and is not a rule source when the PR changes it. The CLI is pinned by `reviewer/package.json` and its lockfile, the session starts in a copy of the kit's `reviewer/` folder with no GitHub token in its environment, and nothing the PR holds can configure it (see the trust rules below). The cost record's `action` field is now `claude_code`. v4.1 (2026-11-19): a seventh review pass, "least code" (see [Least code](#least-code)). Duplication of
 code the repo already has is a blocking finding; a clear simpler rewrite is a non-blocking suggestion, posted inline
 from a new `suggestions` list in the result (at most 3). The pass added one agent to a full review, so the cost step's
 minimum became 9 (7 from v4.5). v4.0 (2026-11-19; breaking): a fixed issue that comes back is an ordinary new finding, not a reopened
 thread. `publish` no longer unresolves anything: resolving a thread is the only write it makes with its
 `GITHUB_TOKEN`. `collect` leaves resolved threads out of the threads file, and the result schema loses the `reopens`
 key. When Claude finds the bug again, it is a new finding, so the review is REQUEST_CHANGES. A repo that moved to the
-reusable kit got this by pinning the new SHA (callers now use `@main`); a repo on the frozen v3.4 copy keeps the old behaviour. v3.4 (2026-11-17; as a reusable workflow, 2026-11-19, with no behaviour change): the review step runs with `--permission-mode default`. Since `claude-code-action` v1.0.273 a
+reusable kit got this by pinning the new SHA (callers now use `@main`). v3.4 (2026-11-17; as a reusable workflow, 2026-11-19, with no behaviour change): the review step runs with `--permission-mode default`. Since `claude-code-action` v1.0.273 a
 session that has a prompt starts in auto mode, where a tool call no allow rule covers can be approved by a safety
 review; `default` refuses it, so `--allowedTools` stays a strict list. The deny list, review command, findings format and
 modes are unchanged. v3.3 (2026-11-10): the two jobs that hold the App key, `appcheck` and `publish`, may run on a dedicated
@@ -282,13 +278,13 @@ jobs:
   cannot exist yet and a PR that edits the review has always been reviewed by its own edited copy.
 - **Inputs** (all optional, in a `with:` block): `runs-on`, a JSON array of labels for `preflight` and `review`
   (default `["ubuntu-latest"]`, ignored when `SELF_HOSTED_REVIEW` is set); `changes-event` (`REQUEST_CHANGES` or
-  `COMMENT`) and `approve-event` (`APPROVE` or `COMMENT`). They replace the lines a vendored copy edits by hand. The
+  `COMMENT`) and `approve-event` (`APPROVE` or `COMMENT`). The
   variables are the ones the calling repo sees: its own, or an org's it can see.
 - **Credentials:** pass the three names above, or drop the one you do not use. Never `secrets: inherit`, and never a
   secret the kit does not declare (a caller that passes one fails). All three are optional in the kit, so a missing App
   key reaches `appcheck`'s own message.
-- **Permissions:** the ceiling above is the union of what the kit's jobs ask for. Each kit job narrows it to what a
-  vendored copy gave it (`appcheck` none, `preflight` and `review` read-only, `publish` `contents: write` and
+- **Permissions:** the ceiling above is the union of what the kit's jobs ask for. Each kit job narrows it to what it
+  needs (`appcheck` none, `preflight` and `review` read-only, `publish` `contents: write` and
   `pull-requests: write`); a caller that grants less makes the run fail at start-up.
 - **Check names** read `<caller job id> / <job name>`, for example `claude-review / Publish the review`.
 - **The scripts** (`collect.py`, `publish.py` in this folder) are checked out by the kit itself, at the commit of its own
@@ -299,9 +295,7 @@ jobs:
   `collect.py`, copies them to a folder in the runner's temp directory, installs the pinned Claude Code there with
   `npm ci` and starts Claude in that folder, so there is no `.claude/commands/` copy to install or keep in step. The
   result schema is in the kit's `reviewer/result-schema.json` only (`run.sh` passes it as `--json-schema`, `publish` checks the result against it). The command keeps its
-  frontmatter and its `$ARGUMENTS` placeholder, which only the frozen v3.4 needs (it runs the command as a slash
-  command); both go with that file. This command is v4.0's and no longer pairs with v3.4: a repo on v3.4 keeps the
-  command copy it has.
+  frontmatter and its `$ARGUMENTS` placeholder; the kit's prompt says what `$ARGUMENTS` is.
 - The prerequisites below apply to both ways of installing; "the workflow" means the kit.
 
 ### Prerequisites
@@ -383,8 +377,7 @@ jobs:
 5. **The Claude GitHub App is not needed.** If it is installed on the repo, it still reacts 👀 to every `@claude`
    comment (its own mention handling): remove the repo from its installation.
 6. **Required reviews:** the App's review must never satisfy one. Scope required reviews to people or teams, or set
-   the inputs `changes-event` and `approve-event` to `COMMENT` (on a vendored copy, `CHANGES_EVENT` and `APPROVE_EVENT`
-   in `publish`: a replacement point, below).
+   the inputs `changes-event` and `approve-event` to `COMMENT`.
 7. **Org repos:** an org owner may have blocked GitHub-hosted runners or restricted workflow permissions; then
    the jobs left on hosted runners never start (all four use `SELF_HOSTED_REVIEW` when it is set), and no review is
    posted. Do not restrict the
@@ -392,25 +385,6 @@ jobs:
    jobs queue.
 8. **Recommended:** a "Review" section in the root `CLAUDE.md` listing quotable rules. The CLAUDE.md agents flag only
    clear breaks of quotable rules.
-
-### Replacement points
-
-For an existing vendored copy only (no new one is installed since v4.0). Change only these lines of `claude-review.yml` (the frozen v3.4). Everything else stays byte-identical.
-
-| Line | Canonical | Replace with |
-|---|---|---|
-| 53 | `#   secret    ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN   Claude credential (...)` (2 lines) | the Claude secret names and what they are |
-| 111 (`preflight`) | `    runs-on: ubuntu-latest` | the repo's runner labels, if not GitHub-hosted |
-| 242 (`review`) | `    runs-on: ubuntu-latest` | the same labels |
-| 503 (+1) | `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}` and the `claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}` line under it | the one line for the chosen credential, with its secret name (what `/add-claude-review` does), or both lines with the repo's names |
-
-Optional, only for a repo whose required reviews could count the App: lines 650–651 (`CHANGES_EVENT`,
-`APPROVE_EVENT`) → `COMMENT`. Don't edit `appcheck`'s and `publish`'s `runs-on` lines (200, 642): they read the
-frozen copy's own variable, `CLAUDE_REVIEW_KEY_RUNS_ON` (the kit reads `SELF_HOSTED_REVIEW` instead), so set that,
-and only for a private repo, to a dedicated pool that meets the pool rule in
-[ADR 0013](../../docs/adr/0013-app-owned-pr-review.md) (it runs only those two jobs and is not shared with `review`
-or CI). A diff against
-the canonical file must show only the lines above; check it and both SHAs before merging.
 
 **Auth options:** the default passes both inputs, so the credential is whichever org or repo secret exists; switch
 between them by changing which secret is set, with no workflow edit.
@@ -423,25 +397,6 @@ between them by changing which secret is set, with no workflow edit.
   mint a new one to rotate.
 - Unverified: that the action accepts both inputs when one secret is empty or absent. If it rejects that, keep only
   the line for the secret that exists.
-
-### Steps
-
-Closed since v4.0 for a new vendored copy: the command in this folder no longer pairs with the frozen v3.4 workflow
-(see the SHA table). A repo not yet on the reusable kit keeps both files it has and moves to the reusable kit. On the
-reusable kit, add the caller above and check the repo's variables and secrets.
-
-1. Branch from the default branch.
-2. Copy both files to their install paths, check their SHAs, then apply the replacements.
-3. Commit both in one PR. The action restores `.claude/` from the default branch, so the command only works once it
-   is there: the two must land together. Add `[skip ci]` to the commit message so the PR doesn't run its own copy,
-   unless the repo's ruleset requires status checks from other workflows (see Quirks): `[skip ci]` would stop them
-   from reporting and the PR could not merge.
-4. Check the target repo's `.claude/settings.json` (loaded by `--setting-sources project`): `permissions.allow`
-   rules, `additionalDirectories` and `defaultMode` can widen what Claude reads in the review (hooks are off), and
-   `enableAllProjectMcpServers` or `enabledMcpjsonServers` would let a `.mcp.json` the PR adds start a server: keep
-   them out.
-5. Review the PR locally (code-reviewer, plus security-auditor), checking the SHAs and the replacement diff.
-6. (user) Merge, then run the test protocol.
 
 ## For agents opening PRs
 
@@ -601,7 +556,7 @@ Don't loosen any of this when adapting the files.
   access and runs the default branch's workflow.
 - **Pinned actions** (full commit SHAs): `actions/checkout` v7.0.1, `actions/setup-node` v7.1.0,
   `actions/upload-artifact` v7.0.2, `actions/download-artifact` v8.0.2, `actions/create-github-app-token` v3.3.0.
-  Bump deliberately, in the kit; callers pick it up when it merges (a vendored copy needs the bump in every repo).
+  Bump deliberately, in the kit; callers pick it up when it merges.
 - **Residual risk (accepted under a sole-pusher assumption):** a same-repo PR can edit the workflow and so read the
   App key (one App per owner: the key reaches every repo it is installed on; one key per repo limits rotation, not
   reach, and the same PR can target any runner; the pool's rules limit who can reach the pool, not what the workflow
@@ -652,5 +607,4 @@ Don't loosen any of this when adapting the files.
   (`--permission-mode default` is no longer listed as of 2.1.328).
 - `REVIEW.md` (repo root) is the repo's own file, not part of the kit: edit it freely.
 - A change to the review, the command included, goes in the reusable kit. A repo on the reusable kit picks it up when
-  it merges. The frozen v3.4 workflow is not edited; a repo still on it moves to the reusable
-  kit.
+  it merges.

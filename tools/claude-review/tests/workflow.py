@@ -9,7 +9,6 @@ ROOT = HERE.parents[2]   # the repo root: tools/claude-review/tests -> .
 WORKFLOWS = ROOT / ".github" / "workflows"
 WORKFLOW = WORKFLOWS / "claude-review-kit.yml"   # the reusable workflow: the live kit
 CALLER = WORKFLOWS / "claude-review.yml"         # this repo's thin caller of it
-FROZEN = HERE.parent / "claude-review.yml"       # v3.4, the vendored copy for repos not yet migrated; never edited
 COMMAND = HERE.parent / "claude-pr-review.md"
 COLLECT = HERE.parent / "collect.py"             # the review job's thread collection (a script: run it as __main__)
 PUBLISH = HERE.parent / "publish.py"             # the publish job's script
