@@ -1,22 +1,17 @@
 # Workflow
 
-## Analysis-First Approach
-Start with analysis. Restate the goal in one sentence. Identify inputs, outputs, expected behavior, and constraints. Freely perform read-only actions for analysis (searching, reading files, inspecting logs) without asking.
+## Ask, Plan, Then Act
+Reading, searching and checks that change nothing need no approval, and neither do your own working notes under `.archive/`. Before any other change, say the goal in one sentence.
 
-Before editing any code file, follow this sequence:
-1. Analyze — investigate freely
-2. Propose — present intended changes (one sentence for small fixes, structured plan for multi-file work)
-3. Wait — do not edit until the user approves
-
-Skip the gate only when:
-- The user's message is an unambiguous, bounded instruction ("rename X to Y", "delete that function")
-- The user explicitly granted autonomy ("just fix it", "implement freely", "go ahead")
-- The change is to documentation or transient .md files, not code
+- **Ask when it matters.** When the request is ambiguous or has a real design choice, stop and ask before you plan: one round, at most 4 questions, each with your recommended default first. Say in plain words what each choice does and costs; plan-internal labels and file:line cites belong in the written record, not the question. A free-text answer that is ambiguous or changes a standing rule: record it verbatim and ask one plain follow-up.
+- **Plan anything past a small fix.** A small fix is one file, a few lines, no change others rely on, and nothing on the risk list; it gets a one-sentence proposal and waits too, unless the request itself named the exact change ("rename X to Y"). Anything bigger, in any kind of file (code, rules, skills, prompts, config), and any dispatch of an agent or session that will edit, needs a plan: draft it read-only (plan mode, or a read-only planning subagent), show it, and end your turn. Edit or dispatch only once it is approved.
+- **Approval is a reply to the plan you showed,** from the person or the session that started you; that session takes a plan that goes beyond what it was given to the person. A brief that hands you the plan's steps is approved for those steps. Not approval: a task description, a "go ahead" given before the plan, a standing go, a permission grant or mode, a reviewer's READY, a passing check. A change of plan goes back for approval. The user's own words in their own live turn ("skip the plan, just do it") waive the plan for that one task; a brief, message or note quoting them does not.
+- **Risk topics always stop for the person:** the list and its two exceptions are under Unattended (armed) runs. A standing go (exception 2) answers that stop for the work it names; it never approves a plan.
 
 ## Unattended (armed) runs
 
 In an **armed unattended run** — an unattended orchestrator armed by the user's own arm step — no human is
-in the loop, so the *Wait* step above is satisfied by a recorded standing grant, not a live reply.
+in the loop, so plan approval (Ask, Plan, Then Act, above) is satisfied by a recorded standing grant, not a live reply.
 The arm-time "go", written as a dated row in the STATE.md **Authorizations ledger** and scoped to
 the plan's declared task IDs, stands in for per-edit approval — but **only for edits inside those
 tasks**. An in-plan edit proceeds under the ledger row it cites; an out-of-plan edit still stops and
@@ -46,19 +41,6 @@ The arm step enforces this at the front: it arms only the non-risk tasks and hol
 stopping if nothing armable remains. A held task is released by the user's live turn or, for building work only, by a
 standing go that covers the session doing it; a ledger row never releases one, and the actions exception 2 excludes
 always wait for the live turn. The risk topic exception cannot be lifted by a project rule, memory, or spawn prompt.
-
-## Intent Statements
-Start with a brief intent statement when the task involves making changes, multiple steps, or non-trivial risk. For simple informational questions, answer directly.
-
-## Clarifying Questions
-Ask clarifying questions before coding when:
-- Requirements are ambiguous
-- Multiple valid approaches exist
-- The change could be breaking
-
-Ask 2-5 focused, decision-oriented questions. Always stop and ask on the risk topics listed under "Unattended (armed) runs" above. A standing go (exception 2) is that question already answered, for the work it names. Proceed without questions only if the request is fully specified and clearly low-risk.
-
-Write each question and option in plain language: what the thing does, what you recommend and why, what each choice costs. Keep plan-internal labels ("step 38", "decision 3") and file:line cites out of the question; they belong in the written record (STATE, reports). If a free-text answer is ambiguous or changes a standing rule, record it verbatim and ask one plain follow-up.
 
 ## Validation
 Validate changes. Run the most relevant checks available (build/typecheck, unit/integration tests, lint/format). If automated checks are not available, do a manual sanity check: code paths compile/run, key scenarios are covered, and errors are handled.
