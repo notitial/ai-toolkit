@@ -591,7 +591,9 @@ Don't loosen any of this when adapting the files.
 - **The App key and tokens live only in `appcheck` and `publish`** (GitHub-hosted by default, or the runners of
   `SELF_HOSTED_REVIEW`, prerequisite 2). No expression in `preflight` or `review` names the key, so neither job's
   runner receives it. With the variable set, all four jobs share one pool, so the key reaches runners where Claude
-  reads PR text: the owner's choice, in the residual risk below. The App has Pull requests: write only; `publish`'s
+  reads PR text: the owner's choice, in the residual risk below. There, a kept workspace can still hold a PR tree an
+  earlier job left, so `publish` refuses a `.claude-review-kit` that is a symlink before it checks the kit out (a
+  folder is its own from an earlier run, cleaned in place). The App has Pull requests: write only; `publish`'s
   `GITHUB_TOKEN` has `contents: write` for resolving threads only. `publish` resolves a thread only if
   the review started it, it is on this PR and open, and its last comment is this workflow's `verdict=resolved` marker
   for the reviewed commit.

@@ -52,6 +52,11 @@ class Workflow(unittest.TestCase):
             self.assertEqual(checkout["with"]["sparse-checkout"].split(), [f"tools/claude-review/{f}" for f in files[job]])
             if job == "publish":
                 self.assertEqual(checkout["if"], run["if"])   # when it posts
+                # v4.4: a runner shared with `review` or CI may keep a PR tree that links the kit's folder elsewhere.
+                [guard] = [s for s in steps if s.get("name") == "Check the workspace does not link the kit's folder"]
+                self.assertLess(steps.index(guard), steps.index(checkout))
+                self.assertEqual(guard["if"], checkout["if"])
+                self.assertIn("[ -L .claude-review-kit ]", guard["run"])
             else:   # every review run: the PR first, then a guard against the PR holding the kit's folder, then the kit
                 names = [s.get("name") for s in steps]
                 guard = steps[names.index("Check the PR does not use the kit's folder")]

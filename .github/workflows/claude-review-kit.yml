@@ -639,6 +639,18 @@ jobs:
           name: ${{ needs.review.outputs.result_artifact }}
           path: ${{ runner.temp }}/claude-review-result
 
+      # With SELF_HOSTED_REVIEW set, this job can land on a runner whose kept workspace holds a PR tree an earlier job
+      # left (`review` failing at its own guard, or CI on the same pool). A symlink there would aim the checkout's
+      # clean-up outside the workspace. Only a symlink is refused: a folder is this job's own from an earlier run, and
+      # the checkout cleans it in place.
+      - name: Check the workspace does not link the kit's folder
+        if: steps.app.outcome == 'success'
+        run: |
+          if [ -L .claude-review-kit ]; then
+            echo "::error::.claude-review-kit in the workspace is a symlink (a PR tree an earlier job left?), so not checking the kit out into it"
+            exit 1
+          fi
+
       # The kit's scripts, as in `review`: from the commit of this workflow file, never from a checkout of the PR.
       - name: Check out the kit's scripts
         if: steps.app.outcome == 'success'
