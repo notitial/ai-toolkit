@@ -158,8 +158,8 @@ count it returns.
 
 ## Step 5: Report
 
-- **User-mode:** the workspace path, the affected files, the plan verdict, and the next move (start task 1, or
-  split the feature if the reviewer found it too large).
+- **User-mode:** the workspace path, the affected files, the plan verdict, and the next move: the user approves the
+  plan (a READY verdict is the reviewer's, not approval), then task 1, or a split if the reviewer found it too large.
 - **Agent-mode:** the workspace path, "scaffolded, NOT authorized, NOT user-reviewed", the parked questions and
   every `(inferred — confirm)` item, and what the user does next: answer and confirm → re-run the review if
   needed → arm the run at their own arm step, in their live turn.

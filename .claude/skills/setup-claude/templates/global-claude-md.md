@@ -12,7 +12,7 @@ How you want the agent to approach ambiguity, questions, and task planning.
 Example directives:
 - Topics that always require confirmation before acting: point at the risk-topic list in workflow.md (its one canonical home, and always loaded too) instead of restating it
 - How to handle simple vs complex requests differently
-- Pointers to the clarifying-question protocol in workflow.md (do not duplicate the protocol)
+- A pointer to workflow.md, Ask, Plan, Then Act (do not duplicate the protocol)
 
 ### Code Changes
 Your guardrails for how the agent modifies code.
@@ -52,13 +52,12 @@ If no global CLAUDE.md exists, offer this as a starting point for the user to cu
 
 - Always stop and ask when the request touches a risk topic: the canonical list is in workflow.md (Unattended runs, Risk topic exception)
 - For simple informational questions, answer directly without preamble
-- Clarifying-question protocol (when and how many to ask): see workflow.md, Clarifying Questions
+- Ask, plan, then act: one round of at most 4 questions when it matters, and an approved plan before any change past a small fix or any dispatch; see workflow.md, Ask, Plan, Then Act
 
 ## Code Changes
 
 - Understand existing patterns before introducing new ones
 - Proactively flag breaking changes, performance risks, and security implications
-- Never edit code without user approval — see workflow.md Analysis-First for the gate sequence
 - Fix a failure at its cause, subtractive option first: see workflow.md, Fixing a Failure
 - Place temporary artifacts (handover docs, draft specs, research, logs, chat trackers — session tracking across conversations) in a gitignored `.archive/` folder, creating it if needed
 - If `docs/adr/` exists, check it before proposing architectural changes; when a significant decision is made, propose creating an ADR
