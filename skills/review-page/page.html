@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review page</title>
+<!--
+  review-page kit. A throwaway local page: copy it, replace only the spec block, open it in Chrome.
+  Edit nothing outside SPEC START / SPEC END. See SKILL.md in the skill folder.
+-->
+<style>
+  :root { color-scheme: light; --bg: #f6f6f4; --fg: #1c1c1c; --mut: #5c5c5c; --card: #fff; --line: #d4d4cf; --acc: #0b57d0; --accfg: #fff; --warn: #8a4b00; --warnbg: #fff1d6; }
+  [data-theme=dark] { color-scheme: dark; --bg: #151515; --fg: #ececec; --mut: #a8a8a8; --card: #1f1f1f; --line: #3a3a3a; --acc: #8ab4f8; --accfg: #10203a; --warn: #ffcf85; --warnbg: #3a2a0a; }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  button, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; min-height: 36px; }
+  button[aria-pressed=true] { background: var(--acc); color: var(--accfg); border-color: var(--acc); font-weight: 600; }
+  :focus-visible { outline: 3px solid var(--acc); outline-offset: 2px; }
+  textarea { width: 100%; min-height: 64px; padding: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  #bar { position: sticky; top: 0; z-index: 10; background: var(--card); border-bottom: 1px solid var(--line); padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; }
+  #bar .groups { display: contents; }
+  .grp { display: flex; align-items: center; gap: 4px; }
+  .grp .lbl { color: var(--mut); font-size: 14px; margin-right: 4px; }
+  .grp button { border-radius: 0; margin-left: -1px; }
+  .grp button:first-of-type { border-radius: 8px 0 0 8px; margin-left: 0; }
+  .grp button:last-of-type { border-radius: 0 8px 8px 0; }
+  #count { margin-left: auto; color: var(--mut); font-variant-numeric: tabular-nums; }
+  #fold { display: none; }
+  @media (max-width: 640px) {
+    #fold { display: inline-block; }
+    #bar .groups { display: none; flex-direction: column; align-items: flex-start; width: 100%; gap: 8px; }
+    #bar.open .groups { display: flex; }
+    button { min-height: 44px; }
+  }
+
+  main { max-width: 1500px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 26px; margin: 8px 0; }
+  h2 { font-size: 20px; margin: 0 0 4px; }
+  .intro p { max-width: 70ch; margin: 0 0 8px; }
+  nav ol { display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 14px 0 24px; list-style: none; }
+  nav a { display: inline-block; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--fg); font-size: 13px; text-decoration: none; }
+  nav .done::after { content: " \2713"; }
+  section { margin: 0 0 40px; scroll-margin-top: 80px; }
+  section.q { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 24px; }
+  .rec { width: fit-content; max-width: 70ch; margin: 8px 0 14px; padding: 8px 12px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--acc) 55%, transparent); background: color-mix(in srgb, var(--acc) 10%, transparent); }
+  .tag { display: inline-block; background: var(--acc); color: var(--accfg); border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; margin-left: 6px; vertical-align: middle; }
+  button[aria-pressed=true] .tag { background: var(--accfg); color: var(--acc); }
+  .grid { display: grid; gap: 16px; align-items: start; }
+  .card { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; }
+  .card.picked { border-color: var(--acc); box-shadow: 0 0 0 2px var(--acc); }
+  .card h3 { font-size: 16px; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .ltr { display: inline-grid; place-items: center; min-width: 28px; height: 28px; padding: 0 6px; border-radius: 8px; background: var(--fg); color: var(--bg); font-size: 13px; font-weight: 600; }
+  .blurb { color: var(--mut); margin: 2px 0 8px; font-size: 15px; }
+  .pvwrap { position: relative; box-sizing: content-box; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; }
+  .pvwrap iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; background: Canvas; }
+  .nopv { border: 2px dashed var(--line); border-radius: 8px; color: var(--mut); padding: 32px 12px; text-align: center; }
+  .cap { color: var(--mut); font-size: 13px; margin: 4px 0 8px; word-break: break-all; }
+  .sub { color: var(--mut); max-width: 70ch; margin: 0 0 8px; }
+  .frames { display: grid; gap: 16px; align-items: start; }
+  figure { margin: 0; min-width: 0; }
+  section.q > .frames { margin: 12px 0; }
+  @media (max-width: 420px) {
+    section.q, .card, .pvwrap { margin-inline: -16px; border-radius: 0; border-inline: 0; }
+    .card { padding-inline: 16px; }
+  }
+  .pick { width: 100%; margin-bottom: 8px; }
+  .yn { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  label.n { display: block; font-size: 14px; color: var(--mut); margin-bottom: 2px; }
+  .banner { background: var(--warnbg); color: var(--warn); border: 1px solid var(--warn); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; }
+  #out textarea { font: 13px/1.4 ui-monospace, Menlo, monospace; min-height: 220px; }
+  #out .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  #out .row .reset { margin-left: auto; }
+  @media (max-width: 640px) { #out .row button { flex: 1 1 100%; } #out .row .reset { margin-left: 0; } }
+</style>
+</head>
+<body>
+<div id="bar" role="toolbar" aria-label="Page controls"></div>
+<main id="app"></main>
+
+<script>
+  // Spec errors are shown by the kit below instead of leaving a blank page.
+  var specError = '';
+  window.addEventListener('error', function (e) { if (!window.booted) specError = e.message; });
+</script>
+
+<script>
+// SPEC START - the only part to edit. Everything is plain JS values.
+// Escaping, all together: inside a template string write \` for a backtick, \${ for a literal ${, and <\/script> for
+// a closing script tag. A real closing script tag here ends the whole spec.
+// Paths in preview.css and in markup are relative to this file. Ids are plain words: no "::", and "note" is reserved
+// as an option key. Controls may not use the ids "theme" or "width".
+const card = (c, inner) => `<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: var(--surface); color: var(--text); }
+  main { padding: 24px 20px; } h1 { font-size: 22px; margin: 0 0 12px; }
+  input { display: block; width: 100%; padding: 10px; margin: 0 0 10px; font: inherit; color: inherit; background: transparent; border: 1px solid #888; border-radius: 6px; }
+  .btn { width: 100%; padding: 12px; font: inherit; color: #fff; background: var(--brand); border: 0; border-radius: 6px; }
+  .err { color: #d93025; margin: 0 0 8px; }
+</style><main>${inner}${c.form === 'error' ? '<p class="err">That password is not right.</p>' : ''}</main>`;
+
+window.REVIEW = {
+  title: 'Example: which sign-in screen?',
+  intro: [
+    'This is the example spec. Each preview below is real HTML in its own frame, at the width chosen in the toolbar, so its media queries and its light or dark rules run for real.',
+    'Pick an option, write notes, then copy the JSON at the bottom and paste it back into the chat. Question 2 starts with Yes carried over from an earlier round; change it freely.'
+  ],
+  // Picks carried over from an earlier round, as { section id: option letter, or yes / no }. Reset restores them.
+  seed: { back: 'yes' },
+  // Linked stylesheets (relative to this file) and one raw head string. Tokens written here are "proposed", not the app's own.
+  preview: {
+    css: [],
+    head: '<style>:root { --brand: #0b57d0; --surface: #fff; --text: #1c1c1c; } [data-theme=dark] { --surface: #1b1b1b; --text: #f1f1f1; --brand: #4c8dff; }</style>'
+  },
+  controls: [{ id: 'form', label: 'Form', values: [['empty', 'Empty'], ['error', 'With error']] }],
+  sections: [
+    // noPick: a display-only section. It has no question, no notes and is not counted; it can still show frames.
+    { id: 'context', title: 'Where this screen sits', noPick: true, sub: 'Already decided, shown for reference. Nothing to pick here.',
+      frames: [{ cap: 'The screen after sign-in', html: (c) => card(c, '<h1>Today</h1><p>Welcome back.</p>') }] },
+    { id: 'layout', title: 'Sign-in layout', sub: 'Three ways to lay out the same form. Switch Width to see the real media queries run.', rec: 'B', why: 'Keeps one column on a phone and uses the space on a laptop, at the cost of one more rule to maintain.',
+      opts: [
+        { k: 'A', t: 'Stacked', b: 'One centered column at every width.',
+          html: (c) => card(c, '<h1>Sign in</h1><input placeholder="Email"><input placeholder="Password" type="password"><button class="btn">Sign in</button>') },
+        { k: 'B', t: 'Split', b: 'One column on a phone, a brand panel beside the form from 800 px.',
+          html: (c) => `<style>.wrap { display: block; } .panel { display: none; } @media (min-width: 800px) { .wrap { display: grid; grid-template-columns: 1fr 1fr; min-height: 100vh; } .panel { display: block; background: linear-gradient(135deg, var(--brand), #7a3df0); } }</style>
+            <div class="wrap"><div class="panel"></div><div>${card(c, '<h1>Welcome back</h1><input placeholder="Email"><input placeholder="Password" type="password"><button class="btn">Sign in</button>')}</div></div>` },
+        { k: 'C', t: 'Email link', b: 'One field, no password.',
+          html: (c) => card(c, '<h1>Sign in</h1><input placeholder="Email"><button class="btn">Email me a link</button>') }
+      ] },
+    // A yes/no item (no opts) can carry frames too.
+    { id: 'back', title: 'Keep the back link on the sign-in screen?', rec: 'yes', why: 'People who opened it by mistake have no other way out.',
+      frames: [{ cap: 'With the back link', html: (c) => card(c, '<p><a href="#">&larr; Back</a></p><h1>Sign in</h1><input placeholder="Email">') }] },
+    { id: 'tone', title: 'Wording of the error', rec: 'A', why: 'It says what happened without blaming the person.',
+      // A running app can be shown as it is: src is a URL, or a function of the controls. A server must be up for it.
+      // opts: [{ k: 'A', t: 'Live app', src: (c) => `http://localhost:5173/signin?form=${c.form}` }]
+      opts: [
+        // An option with several frames: each has its own caption.
+        { k: 'A', t: 'Plain', b: '"That password is not right."', frames: [
+          { cap: 'Before', html: () => card({}, '<h1>Sign in</h1><input placeholder="Email">') },
+          { cap: 'After a wrong password', html: () => card({ form: 'error' }, '<h1>Sign in</h1><input placeholder="Email">') }] },
+        { k: 'B', t: 'No preview yet', b: 'An option without html or src shows a dashed box.' }
+      ] }
+  ]
+};
+// SPEC END
+</script>
+
+<script>
+(function () {
+  'use strict';
+  const WIDTHS = [[390, 'Phone'], [768, 'Tablet'], [1280, 'Laptop']];
+  const HEIGHT = { 390: 780, 768: 1024, 1280: 800 };
+  const PER_ROW = { 390: 3, 768: 2, 1280: 3 };
+  const MIN_COL = 260, GAP = 16;
+  const R = window.REVIEW;
+  const app = document.getElementById('app'), bar = document.getElementById('bar');
+
+  const h = (tag, attrs, ...kids) => {
+    const e = document.createElement(tag);
+    for (const n in attrs || {}) {
+      const v = attrs[n];
+      if (n === 'class') e.className = v;
+      else if (n === 'value') e.value = v;
+      else if (n.slice(0, 2) === 'on') e.addEventListener(n.slice(2), v);
+      else if (v !== false && v != null) e.setAttribute(n, v === true ? '' : v);
+    }
+    e.append(...kids.flat().filter((x) => x != null && x !== false));
+    return e;
+  };
+  const banner = (msg) => app.append(h('p', { class: 'banner', role: 'alert' }, msg));
+
+  // Check the spec before drawing anything.
+  const problems = [];
+  if (!R || typeof R !== 'object') problems.push('The spec block is missing or has an error' + (specError ? ': ' + specError : '. Open the browser console.'));
+  const secs = (R && R.sections) || [];
+  const ctls = (R && R.controls) || [];
+  const asked = secs.filter((s) => s.opts || !s.noPick);
+  const okPick = (id, v) => { const s = asked.find((x) => x.id === id); return !!s && (s.opts ? s.opts.some((o) => o.k === v) : v === 'yes' || v === 'no'); };
+  const seen = {};
+  secs.forEach((s) => {
+    [s.id].concat((s.opts || []).map((o) => o.k)).forEach((id) => { if (typeof id !== 'string' || id.includes('::')) problems.push('Bad id: ' + id); });
+    if (seen[s.id]) problems.push('Duplicate section id: ' + s.id);
+    seen[s.id] = 1;
+    (s.opts || []).forEach((o) => { if (o.k === 'note') problems.push('"note" is reserved; rename option in ' + s.id); });
+  });
+  ctls.forEach((c) => { if (c.id === 'theme' || c.id === 'width') problems.push('Control id "' + c.id + '" is reserved'); });
+  Object.keys((R && R.seed) || {}).forEach((id) => { if (!okPick(id, R.seed[id])) problems.push('Bad seed: ' + id); });
+  if (problems.length) { problems.forEach(banner); return; }
+
+  // State, kept per file path (file:// storage is shared by every local page).
+  const KEY = 'review-page:' + decodeURIComponent(location.pathname);
+  const PAGE = decodeURIComponent(location.pathname).split('/').pop().replace(/\.html?$/, '');
+  const dflt = () => ({ picks: Object.assign({}, R.seed), notes: {}, general: '', ctl: Object.assign({ theme: 'device', width: 390 }, ...ctls.map((c) => ({ [c.id]: c.values[0][0] }))) });
+  let S = load(), noStore = false;
+  function load() {
+    const s = dflt();
+    try {
+      const r = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (!r || typeof r !== 'object') return s;
+      s.picks = {};
+      for (const id in r.picks || {}) if (okPick(id, r.picks[id])) s.picks[id] = r.picks[id];
+      for (const k in r.notes || {}) if (typeof r.notes[k] === 'string') s.notes[k] = r.notes[k];
+      if (typeof r.general === 'string') s.general = r.general;
+      const c = r.ctl || {};
+      if (['device', 'light', 'dark'].includes(c.theme)) s.ctl.theme = c.theme;
+      if (HEIGHT[c.width]) s.ctl.width = c.width;
+      ctls.forEach((x) => { if (x.values.some((v) => v[0] === c[x.id])) s.ctl[x.id] = c[x.id]; });
+    } catch (e) { /* blocked or corrupt: start clean */ }
+    return s;
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { noStore = true; }
+    if (noStore) notice.hidden = false;
+  }
+
+  // Theme: the resolved value drives the page chrome and every frame.
+  const dark = matchMedia('(prefers-color-scheme: dark)');
+  const theme = () => (S.ctl.theme === 'device' ? (dark.matches ? 'dark' : 'light') : S.ctl.theme);
+  const context = () => Object.assign({}, S.ctl, { theme: theme() });
+  dark.addEventListener('change', () => { if (S.ctl.theme === 'device') refresh(); });
+
+  // Previews: one iframe per option, real width, real color-scheme.
+  const frames = [];
+  const val = (v, c) => (typeof v === 'function' ? v(c) : v);
+  const attr = (s) => String(s).replace(/"/g, '&quot;');
+  function srcdoc(o, c) {
+    const t = c.theme, pv = R.preview || {};
+    let body;
+    try { body = String(val(o.html, c) ?? ''); } catch (e) { body = '<pre>Preview error: ' + String(e.message).replace(/</g, '&lt;') + '</pre>'; }
+    return '<!doctype html><html lang="en" data-theme="' + t + '" class="' + t + '"><head><meta charset="utf-8">' +
+      '<meta name="color-scheme" content="' + t + '">' +
+      (pv.css || []).map((u) => '<link rel="stylesheet" href="' + attr(u) + '">').join('') +
+      '<style>:root{color-scheme:' + t + '}</style>' + (pv.head || '') + '</head><body>' + body + '</body></html>';
+  }
+  function refresh() {
+    document.documentElement.dataset.theme = theme();
+    const c = context();
+    frames.forEach(({ f, o }) => {
+      f.style.colorScheme = c.theme;
+      if (o.html != null) f.srcdoc = srcdoc(o, c);
+      else {
+        let u;
+        try { u = String(val(o.src, c)); f.dataset.url = u; } catch (e) { u = 'about:blank'; f.dataset.url = 'Preview error: ' + e.message; }
+        f.src = u;
+      }
+    });
+    layout();
+    sync();
+  }
+  function layout() {
+    const w = S.ctl.width, hh = HEIGHT[w], per = PER_ROW[w];
+    // Columns: a row holds up to PER_ROW frames and each frame needs MIN_COL. An option with k frames counts as k.
+    const cols = (box, units, perRow, need) => {
+      const n = Math.max(1, Math.min(units, perRow, Math.floor((box.clientWidth + GAP) / (need + GAP))));
+      box.style.gridTemplateColumns = 'repeat(' + n + ', minmax(0, 1fr))';
+    };
+    document.querySelectorAll('.grid').forEach((g) => {
+      const k = +g.dataset.k;
+      cols(g, g.children.length, Math.floor(per / k), k * MIN_COL + (k - 1) * GAP);
+    });
+    document.querySelectorAll('.frames').forEach((b) => cols(b, per, per, MIN_COL));
+    document.querySelectorAll('.pvwrap').forEach((p) => {
+      const s = Math.min(1, p.clientWidth / w), f = p.firstChild;
+      p.style.height = Math.round(hh * s) + 'px';
+      f.style.width = w + 'px';
+      f.style.height = hh + 'px';
+      f.style.transform = 'scale(' + s + ')';
+      p.nextSibling.textContent = (f.dataset.cap ? f.dataset.cap + ': ' : '') + w + ' px, shown at ' + Math.round(s * 100) + '%' + (f.dataset.url ? ' - ' + f.dataset.url : '');
+    });
+  }
+  let lastW = 0, raf = 0;
+  new ResizeObserver(() => {
+    if (app.clientWidth === lastW) return;
+    lastW = app.clientWidth;
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(layout);
+  }).observe(app);
+
+  // Export: always these six keys, in this order.
+  function out() {
+    const picks = {}, notes = {}, un = [];
+    asked.forEach((s) => {
+      if (S.picks[s.id]) picks[s.id] = S.picks[s.id]; else un.push(s.id);
+      (s.opts ? s.opts.map((o) => o.k) : ['note']).forEach((k) => {
+        const v = (S.notes[s.id + '::' + k] || '').trim();
+        if (v) (notes[s.id] = notes[s.id] || {})[k] = v;
+      });
+    });
+    const shown = Object.assign({}, S.ctl, { theme: theme() });
+    return { page: PAGE, picks, notes, general: (S.general || '').trim(), unanswered: un, shownAt: shown };
+  }
+
+  // Page chrome.
+  const notice = h('p', { class: 'banner', role: 'status', hidden: true }, 'Picks are not saved in this window.');
+  const count = h('span', { id: 'count' });
+  const json = h('textarea', { readonly: true, 'aria-label': 'Review result as JSON', rows: 14 });
+  const copied = h('span', { 'aria-live': 'polite' });
+  const heading = h('h2');
+  const nav = h('ol');
+  const pickBtns = {};
+  let LAB = [];
+
+  function sync() {
+    const o = out(), n = asked.length - o.unanswered.length;
+    count.textContent = n + '/' + asked.length + ' answered';
+    heading.textContent = 'Paste this back into the chat (' + n + ' of ' + asked.length + ' answered)';
+    json.value = JSON.stringify(o, null, 2);
+    nav.querySelectorAll('a').forEach((a, i) => a.classList.toggle('done', !!S.picks[secs[i].id]));
+    for (const id in pickBtns) for (const k in pickBtns[id]) {
+      const b = pickBtns[id][k], on = S.picks[id] === k;
+      b.setAttribute('aria-pressed', String(on));
+      if (b.classList.contains('pick')) { b.firstChild.nodeValue = (on ? 'Picked ' : 'Pick ') + k + (on ? ' \u2713' : ''); b.closest('.card').classList.toggle('picked', on); }
+    }
+  }
+  const change = () => { save(); sync(); };
+
+  function seg(label, vals, get, set) {
+    const bs = vals.map(([v, l]) => h('button', {
+      type: 'button', 'aria-pressed': String(get() === v),
+      onclick: () => { set(v); bs.forEach((b, i) => b.setAttribute('aria-pressed', String(vals[i][0] === v))); }
+    }, l));
+    return h('div', { class: 'grp', role: 'group', 'aria-label': label }, h('span', { class: 'lbl' }, label), bs);
+  }
+  const ctl = (key) => (v) => { S.ctl[key] = v; save(); refresh(); };
+
+  function noteBox(sid, k, label) {
+    const id = 'n-' + sid + '-' + k;
+    return h('div', null,
+      h('label', { class: 'n', for: id }, label),
+      h('textarea', { id, value: S.notes[sid + '::' + k] || '', oninput: (e) => { S.notes[sid + '::' + k] = e.target.value; change(); } }));
+  }
+  function pickBtn(s, k, text) {
+    const b = h('button', { type: 'button', class: 'pick', 'aria-pressed': 'false', onclick: () => { if (S.picks[s.id] === k) delete S.picks[s.id]; else S.picks[s.id] = k; change(); } }, text);
+    (pickBtns[s.id] = pickBtns[s.id] || {})[k] = b;
+    return b;
+  }
+  const tag = () => h('span', { class: 'tag' }, 'recommended');
+
+  // A preview is one frame ({ cap, html | src }); an option or section holds one (html / src) or a list (frames).
+  const framesOf = (x) => x.frames || (x.html != null || x.src != null ? [x] : []);
+  function frameSet(list, label) {
+    if (!list.length) return null;
+    return h('div', { class: 'frames' }, list.map((fr, i) => {
+      const f = h('iframe', { title: 'Preview of ' + label + (fr.cap ? ': ' + fr.cap : list.length > 1 ? ' (' + (i + 1) + ')' : '') });
+      f.dataset.cap = fr.cap || '';
+      frames.push({ f, o: fr });
+      return h('figure', null, h('div', { class: 'pvwrap' }, f), h('p', { class: 'cap' }));
+    }));
+  }
+
+  function option(s, o) {
+    return h('article', { class: 'card' },
+      h('h3', null, h('span', { class: 'ltr' }, o.k), o.t, s.rec === o.k && tag()),
+      o.b && h('p', { class: 'blurb' }, o.b),
+      frameSet(framesOf(o), 'option ' + o.k + ', ' + o.t) || h('div', { class: 'nopv' }, 'No preview for this option'),
+      pickBtn(s, o.k, 'Pick ' + o.k),
+      noteBox(s.id, o.k, 'Notes on ' + o.k));
+  }
+  function section(s, i) {
+    const yn = (k) => { const b = pickBtn(s, k, k === 'yes' ? 'Yes' : 'No'); if (s.rec === k) b.append(tag()); b.classList.remove('pick'); return b; };
+    return h('section', { id: 's-' + s.id, class: 'q' },
+      h('h2', null, LAB[i]),
+      s.sub && h('p', { class: 'sub' }, s.sub),
+      s.rec && h('p', { class: 'rec' }, h('b', null, 'Recommend ' + s.rec + ': '), s.why || ''),
+      s.opts
+        ? h('div', { class: 'grid', 'data-k': Math.max(1, ...s.opts.map((o) => framesOf(o).length)) }, s.opts.map((o) => option(s, o)))
+        : [frameSet(framesOf(s), s.title), !s.noPick && h('div', { class: 'yn' }, yn('yes'), yn('no')), !s.noPick && noteBox(s.id, 'note', 'Notes')]);
+  }
+
+  function render() {
+    document.documentElement.dataset.theme = theme();
+    frames.length = 0;
+    for (const k in pickBtns) delete pickBtns[k];
+    app.replaceChildren();
+    const w = h('div', { class: 'groups' },
+      seg('Theme', [['device', 'Device'], ['light', 'Light'], ['dark', 'Dark']], () => S.ctl.theme, ctl('theme')),
+      seg('Width', WIDTHS, () => S.ctl.width, ctl('width')),
+      ctls.map((c) => seg(c.label, c.values, () => S.ctl[c.id], ctl(c.id))));
+    bar.replaceChildren(h('button', { type: 'button', id: 'fold', 'aria-expanded': 'false', onclick: (e) => { bar.classList.toggle('open'); e.target.setAttribute('aria-expanded', String(bar.classList.contains('open'))); } }, 'Controls'), w, count);
+    app.append(notice, h('h1', null, R.title || 'Review'), h('div', { class: 'intro' }, (R.intro || []).map((t) => h('p', null, t))));
+    if (!secs.length) { app.append(h('p', null, 'This page has no questions.')); return; }
+    let q = 0;
+    LAB = secs.map((s) => (asked.includes(s) ? ++q + '. ' : '') + s.title);
+    nav.replaceChildren(...secs.map((s, i) => h('li', null, h('a', { href: '#s-' + s.id }, LAB[i]))));
+    app.append(h('nav', { 'aria-label': 'Questions' }, nav), ...secs.map(section),
+      h('section', { id: 'out' },
+        h('h2', null, 'Notes on the whole page'),
+        h('label', { class: 'n', for: 'general' }, 'Anything that does not belong to one question'),
+        h('textarea', { id: 'general', placeholder: 'Anything about the page as a whole?', value: S.general, oninput: (e) => { S.general = e.target.value; change(); } }),
+        heading, json,
+        h('div', { class: 'row' },
+          h('button', { type: 'button', onclick: copy }, 'Copy the JSON'), copied,
+          h('button', { type: 'button', class: 'reset', onclick: reset }, 'Reset page'))));
+    refresh();
+  }
+
+  function copy() {
+    const fallback = () => { json.focus(); json.select(); copied.textContent = 'Press Ctrl+C or Cmd+C'; };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(json.value).then(() => { copied.textContent = 'Copied'; setTimeout(() => { copied.textContent = ''; }, 1500); }, fallback);
+    else fallback();
+  }
+  function reset() {
+    if (!confirm('Clear every pick, note and control on this page?')) return;
+    S = dflt();
+    save();
+    render();
+  }
+
+  window.booted = true;
+  render();
+  save();
+})();
+</script>
+</body>
+</html>
