@@ -248,6 +248,7 @@ window.REVIEW = {
       }
     });
     layout();
+    sync();
   }
   function layout() {
     const w = S.ctl.width, hh = HEIGHT[w], per = PER_ROW[w];
@@ -323,7 +324,7 @@ window.REVIEW = {
     }, l));
     return h('div', { class: 'grp', role: 'group', 'aria-label': label }, h('span', { class: 'lbl' }, label), bs);
   }
-  const ctl = (key) => (v) => { S.ctl[key] = v; save(); refresh(); sync(); };
+  const ctl = (key) => (v) => { S.ctl[key] = v; save(); refresh(); };
 
   function noteBox(sid, k, label) {
     const id = 'n-' + sid + '-' + k;
@@ -394,7 +395,6 @@ window.REVIEW = {
           h('button', { type: 'button', onclick: copy }, 'Copy the JSON'), copied,
           h('button', { type: 'button', class: 'reset', onclick: reset }, 'Reset page'))));
     refresh();
-    sync();
   }
 
   function copy() {
