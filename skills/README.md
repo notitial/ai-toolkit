@@ -36,6 +36,10 @@ Adds the opt-in iOS and Android build, test and lint tools from [tools/build-kit
 
 Reports where the current task stands and a grounded ETA, backed by a global learning KB at `~/.claude/.eta/` that improves as real durations are recorded. Produces a progress overview, a completion table (mirrors the ticket's structure when one is in scope, else done/remaining), and an ETA with a range and its basis; `/eta close` reconciles the actual duration back into the record so estimates sharpen over time. Run from any session.
 
+### [/review-page](review-page/SKILL.md)
+
+Builds one throwaway local HTML page that shows two or more real options as rendered previews side by side (each in its own frame at a phone, tablet or laptop width, light or dark), with a recommendation, Pick buttons, notes and one fixed JSON block to paste back. The kit and example live in [review-page/page.html](review-page/page.html); a session copies it under `.archive/review/`, replaces only the spec block and opens it in Chrome. The page is never published, has no tests and is deleted freely. Also starts from plain phrases such as "show me the options side by side".
+
 ## Multi-session and orchestration skills
 
 Installed globally alongside the skills above; they work together across a feature's lifecycle:
