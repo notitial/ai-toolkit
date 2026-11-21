@@ -31,19 +31,25 @@ window.REVIEW = {
   title: '', intro: ['one or two short paragraphs'],
   preview: { css: ['../../app/dist/styles.css'], head: '' },
   controls: [{ id: 'signal', label: 'Signal', values: [['good', 'Good'], ['down', 'Down']] }],
+  seed: { back: 'yes' },
   sections: [
-    { id: 'start', title: 'Start page', rec: 'B', why: 'the reason and what it costs',
+    { id: 'flow', title: 'Where this sits', noPick: true, sub: 'Already decided.',
+      frames: [{ cap: 'After sign-in', html: (c) => `<main>...</main>` }] },
+    { id: 'start', title: 'Start page', sub: 'what is being decided', rec: 'B', why: 'the reason and what it costs',
       opts: [
-        { k: 'A', t: 'Stacked', b: 'one-line blurb', html: (c) => `<main>...</main>` },
-        { k: 'B', t: 'Live app', b: '', src: (c) => `http://localhost:5173/start?signal=${c.signal}` }
+        { k: 'A', t: 'Stacked', b: 'one-line blurb', html: (c) => `<main>...</main>`, },
+        { k: 'B', t: 'Live app', b: '', src: (c) => `http://localhost:5173/start?signal=${c.signal}` },
+        { k: 'C', t: 'Tiles', b: '', frames: [{ cap: 'Empty', html: () => `...` }, { cap: 'Full', html: () => `...` }] }
       ] },
-    { id: 'back', title: 'Keep the back button?', rec: 'yes', why: '' }
+    { id: 'back', title: 'Keep the back button?', rec: 'yes', why: '', frames: [{ cap: 'With it', html: () => `...` }] }
   ]
 };
 ```
 
-- A section with `opts` is a choice; without `opts` it is a yes/no item (`rec` is `yes` or `no`). `rec` and `why` give the visible recommendation; every section gets one, with its cost. Never pre-pick an option.
-- An option has exactly one preview: `html` (a string, or a function of the controls) or `src` (a URL, or a function). With neither, the page shows a dashed "No preview for this option" box.
+- A section with `opts` is a choice. Without `opts` it is a yes/no item (`rec` is `yes` or `no`), or, with `noPick: true`, a display-only section: no question, no notes, not counted as answered, and not in the export. `rec` and `why` give the visible recommendation; every question gets one, with its cost. Never pre-pick an option.
+- `sub` is an optional short description under a section's title: what is being decided, not the recommendation.
+- A preview is one frame. An option has exactly one of: `html` (a string, or a function of the controls), `src` (a URL, or a function), or `frames`, a list of captioned frames `{ cap, html | src }` for the same option in several states (3-day and 4-day week, folded and opened). A yes/no or display-only section may carry `frames` too. With no preview, the page shows a dashed "No preview for this option" box.
+- `seed` carries picks over from an earlier round, as `{ sectionId: 'B' | 'yes' | 'no' }`. They start as picked and appear in `picks`; the person can change or clear them, and Reset restores them. A bad seed id or value shows an error banner. Say in the intro that a pick was carried over.
 - The function argument is `{ theme, width, ...page controls }`: `theme` is the resolved `light` or `dark`, `width` is 390, 768 or 1280.
 - Ids are plain words: no `::`; `note` is reserved as an option key; `theme` and `width` are reserved control ids.
 - Escaping, all together: inside a template string write `` \` `` for a backtick, `\${` for a literal `${`, and `<\/script>` for a closing script tag. A real closing script tag ends the whole spec.
@@ -63,7 +69,8 @@ Screenshots go in as `<img>` inside `html`. Never invent a look in place of the 
 ## What the page does
 
 - Toolbar: Theme (Device, Light, Dark), Width (Phone 390x780, Tablet 768x1024, Laptop 1280x800), the spec's own controls, and an answered count. Light and dark apply to the page and to every frame.
-- Options sit side by side, up to three per row on Phone, two on Tablet and three on Laptop, scaled down to fit the column. The caption under each preview shows the real width and the scale ("1280 px, shown at 30%"); a `src` caption also shows the URL.
+- Frames sit side by side, up to three per row on Phone, two on Tablet and three on Laptop, scaled down to fit the column; an option with several frames counts each one. The caption under each preview shows its `cap`, the real width and the scale ("After a wrong password: 1280 px, shown at 30%"); a `src` caption also shows the URL.
+- In a window about phone width (420 px or less) the previews run edge to edge with no panel padding.
 - Picks, notes and controls are saved per file path in `localStorage` and survive a reload. Reset clears them after a confirm.
 
 ## Limits
@@ -95,7 +102,7 @@ State these to the person when one applies.
 }
 ```
 
-`page` is the file's base name. `picks` holds only answered sections (an option letter, or `yes` / `no`). `notes` holds only non-empty trimmed notes, keyed by section then option (`note` for a yes/no item). `shownAt.theme` is the resolved `light` or `dark`, not `device`.
+`page` is the file's base name. `picks` holds only answered sections (an option letter, or `yes` / `no`), including seeded ones the person left alone. `unanswered` lists questions only, never display-only sections. `notes` holds only non-empty trimmed notes, keyed by section then option (`note` for a yes/no item). `shownAt.theme` is the resolved `light` or `dark`, not `device`.
 
 ## Reading it back
 

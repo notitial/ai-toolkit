@@ -59,6 +59,14 @@
   .pvwrap iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; background: Canvas; }
   .nopv { border: 2px dashed var(--line); border-radius: 8px; color: var(--mut); padding: 32px 12px; text-align: center; }
   .cap { color: var(--mut); font-size: 13px; margin: 4px 0 8px; word-break: break-all; }
+  .sub { color: var(--mut); max-width: 70ch; margin: 0 0 8px; }
+  .frames { display: grid; gap: 16px; align-items: start; }
+  figure { margin: 0; min-width: 0; }
+  section.q > .frames { margin: 12px 0; }
+  @media (max-width: 420px) {
+    section.q, .card, .pvwrap { margin-inline: -16px; border-radius: 0; border-inline: 0; }
+    .card { padding-inline: 16px; }
+  }
   .pick { width: 100%; margin-bottom: 8px; }
   .yn { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
   label.n { display: block; font-size: 14px; color: var(--mut); margin-bottom: 2px; }
@@ -98,8 +106,10 @@ window.REVIEW = {
   title: 'Example: which sign-in screen?',
   intro: [
     'This is the example spec. Each preview below is real HTML in its own frame, at the width chosen in the toolbar, so its media queries and its light or dark rules run for real.',
-    'Pick an option, write notes, then copy the JSON at the bottom and paste it back into the chat.'
+    'Pick an option, write notes, then copy the JSON at the bottom and paste it back into the chat. Question 2 starts with Yes carried over from an earlier round; change it freely.'
   ],
+  // Picks carried over from an earlier round, as { section id: option letter, or yes / no }. Reset restores them.
+  seed: { back: 'yes' },
   // Linked stylesheets (relative to this file) and one raw head string. Tokens written here are "proposed", not the app's own.
   preview: {
     css: [],
@@ -107,7 +117,10 @@ window.REVIEW = {
   },
   controls: [{ id: 'form', label: 'Form', values: [['empty', 'Empty'], ['error', 'With error']] }],
   sections: [
-    { id: 'layout', title: 'Sign-in layout', rec: 'B', why: 'Keeps one column on a phone and uses the space on a laptop, at the cost of one more rule to maintain.',
+    // noPick: a display-only section. It has no question, no notes and is not counted; it can still show frames.
+    { id: 'context', title: 'Where this screen sits', noPick: true, sub: 'Already decided, shown for reference. Nothing to pick here.',
+      frames: [{ cap: 'The screen after sign-in', html: (c) => card(c, '<h1>Today</h1><p>Welcome back.</p>') }] },
+    { id: 'layout', title: 'Sign-in layout', sub: 'Three ways to lay out the same form. Switch Width to see the real media queries run.', rec: 'B', why: 'Keeps one column on a phone and uses the space on a laptop, at the cost of one more rule to maintain.',
       opts: [
         { k: 'A', t: 'Stacked', b: 'One centered column at every width.',
           html: (c) => card(c, '<h1>Sign in</h1><input placeholder="Email"><input placeholder="Password" type="password"><button class="btn">Sign in</button>') },
@@ -117,12 +130,17 @@ window.REVIEW = {
         { k: 'C', t: 'Email link', b: 'One field, no password.',
           html: (c) => card(c, '<h1>Sign in</h1><input placeholder="Email"><button class="btn">Email me a link</button>') }
       ] },
-    { id: 'back', title: 'Keep the back link on the sign-in screen?', rec: 'yes', why: 'People who opened it by mistake have no other way out.' },
+    // A yes/no item (no opts) can carry frames too.
+    { id: 'back', title: 'Keep the back link on the sign-in screen?', rec: 'yes', why: 'People who opened it by mistake have no other way out.',
+      frames: [{ cap: 'With the back link', html: (c) => card(c, '<p><a href="#">&larr; Back</a></p><h1>Sign in</h1><input placeholder="Email">') }] },
     { id: 'tone', title: 'Wording of the error', rec: 'A', why: 'It says what happened without blaming the person.',
       // A running app can be shown as it is: src is a URL, or a function of the controls. A server must be up for it.
       // opts: [{ k: 'A', t: 'Live app', src: (c) => `http://localhost:5173/signin?form=${c.form}` }]
       opts: [
-        { k: 'A', t: 'Plain', b: '"That password is not right."', html: (c) => card({ form: 'error' }, '<h1>Sign in</h1><input placeholder="Email">') },
+        // An option with several frames: each has its own caption.
+        { k: 'A', t: 'Plain', b: '"That password is not right."', frames: [
+          { cap: 'Before', html: () => card({}, '<h1>Sign in</h1><input placeholder="Email">') },
+          { cap: 'After a wrong password', html: () => card({ form: 'error' }, '<h1>Sign in</h1><input placeholder="Email">') }] },
         { k: 'B', t: 'No preview yet', b: 'An option without html or src shows a dashed box.' }
       ] }
   ]
@@ -159,6 +177,8 @@ window.REVIEW = {
   if (!R || typeof R !== 'object') problems.push('The spec block is missing or has an error' + (specError ? ': ' + specError : '. Open the browser console.'));
   const secs = (R && R.sections) || [];
   const ctls = (R && R.controls) || [];
+  const asked = secs.filter((s) => s.opts || !s.noPick);
+  const okPick = (id, v) => { const s = asked.find((x) => x.id === id); return !!s && (s.opts ? s.opts.some((o) => o.k === v) : v === 'yes' || v === 'no'); };
   const seen = {};
   secs.forEach((s) => {
     [s.id].concat((s.opts || []).map((o) => o.k)).forEach((id) => { if (typeof id !== 'string' || id.includes('::')) problems.push('Bad id: ' + id); });
@@ -167,19 +187,20 @@ window.REVIEW = {
     (s.opts || []).forEach((o) => { if (o.k === 'note') problems.push('"note" is reserved; rename option in ' + s.id); });
   });
   ctls.forEach((c) => { if (c.id === 'theme' || c.id === 'width') problems.push('Control id "' + c.id + '" is reserved'); });
+  Object.keys((R && R.seed) || {}).forEach((id) => { if (!okPick(id, R.seed[id])) problems.push('Bad seed: ' + id); });
   if (problems.length) { problems.forEach(banner); return; }
 
   // State, kept per file path (file:// storage is shared by every local page).
   const KEY = 'review-page:' + decodeURIComponent(location.pathname);
   const PAGE = decodeURIComponent(location.pathname).split('/').pop().replace(/\.html?$/, '');
-  const dflt = () => ({ picks: {}, notes: {}, general: '', ctl: Object.assign({ theme: 'device', width: 390 }, ...ctls.map((c) => ({ [c.id]: c.values[0][0] }))) });
-  const okPick = (id, v) => { const s = secs.find((x) => x.id === id); return !!s && (s.opts ? s.opts.some((o) => o.k === v) : v === 'yes' || v === 'no'); };
+  const dflt = () => ({ picks: Object.assign({}, R.seed), notes: {}, general: '', ctl: Object.assign({ theme: 'device', width: 390 }, ...ctls.map((c) => ({ [c.id]: c.values[0][0] }))) });
   let S = load(), noStore = false;
   function load() {
     const s = dflt();
     try {
       const r = JSON.parse(localStorage.getItem(KEY) || 'null');
       if (!r || typeof r !== 'object') return s;
+      s.picks = {};
       for (const id in r.picks || {}) if (okPick(id, r.picks[id])) s.picks[id] = r.picks[id];
       for (const k in r.notes || {}) if (typeof r.notes[k] === 'string') s.notes[k] = r.notes[k];
       if (typeof r.general === 'string') s.general = r.general;
@@ -229,18 +250,24 @@ window.REVIEW = {
     layout();
   }
   function layout() {
-    const w = S.ctl.width, hh = HEIGHT[w];
+    const w = S.ctl.width, hh = HEIGHT[w], per = PER_ROW[w];
+    // Columns: a row holds up to PER_ROW frames and each frame needs MIN_COL. An option with k frames counts as k.
+    const cols = (box, units, perRow, need) => {
+      const n = Math.max(1, Math.min(units, perRow, Math.floor((box.clientWidth + GAP) / (need + GAP))));
+      box.style.gridTemplateColumns = 'repeat(' + n + ', minmax(0, 1fr))';
+    };
     document.querySelectorAll('.grid').forEach((g) => {
-      const n = Math.min(PER_ROW[w], g.children.length, Math.max(1, Math.floor((g.clientWidth + GAP) / (MIN_COL + GAP))));
-      g.style.gridTemplateColumns = 'repeat(' + n + ', minmax(0, 1fr))';
+      const k = +g.dataset.k;
+      cols(g, g.children.length, Math.floor(per / k), k * MIN_COL + (k - 1) * GAP);
     });
+    document.querySelectorAll('.frames').forEach((b) => cols(b, per, per, MIN_COL));
     document.querySelectorAll('.pvwrap').forEach((p) => {
       const s = Math.min(1, p.clientWidth / w), f = p.firstChild;
       p.style.height = Math.round(hh * s) + 'px';
       f.style.width = w + 'px';
       f.style.height = hh + 'px';
       f.style.transform = 'scale(' + s + ')';
-      p.nextSibling.textContent = w + ' px, shown at ' + Math.round(s * 100) + '%' + (f.dataset.url ? ' - ' + f.dataset.url : '');
+      p.nextSibling.textContent = (f.dataset.cap ? f.dataset.cap + ': ' : '') + w + ' px, shown at ' + Math.round(s * 100) + '%' + (f.dataset.url ? ' - ' + f.dataset.url : '');
     });
   }
   let lastW = 0, raf = 0;
@@ -254,7 +281,7 @@ window.REVIEW = {
   // Export: always these six keys, in this order.
   function out() {
     const picks = {}, notes = {}, un = [];
-    secs.forEach((s) => {
+    asked.forEach((s) => {
       if (S.picks[s.id]) picks[s.id] = S.picks[s.id]; else un.push(s.id);
       (s.opts ? s.opts.map((o) => o.k) : ['note']).forEach((k) => {
         const v = (S.notes[s.id + '::' + k] || '').trim();
@@ -273,11 +300,12 @@ window.REVIEW = {
   const heading = h('h2');
   const nav = h('ol');
   const pickBtns = {};
+  let LAB = [];
 
   function sync() {
-    const o = out(), n = secs.length - o.unanswered.length;
-    count.textContent = n + '/' + secs.length + ' answered';
-    heading.textContent = 'Paste this back into the chat (' + n + ' of ' + secs.length + ' answered)';
+    const o = out(), n = asked.length - o.unanswered.length;
+    count.textContent = n + '/' + asked.length + ' answered';
+    heading.textContent = 'Paste this back into the chat (' + n + ' of ' + asked.length + ' answered)';
     json.value = JSON.stringify(o, null, 2);
     nav.querySelectorAll('a').forEach((a, i) => a.classList.toggle('done', !!S.picks[secs[i].id]));
     for (const id in pickBtns) for (const k in pickBtns[id]) {
@@ -310,25 +338,35 @@ window.REVIEW = {
   }
   const tag = () => h('span', { class: 'tag' }, 'recommended');
 
+  // A preview is one frame ({ cap, html | src }); an option or section holds one (html / src) or a list (frames).
+  const framesOf = (x) => x.frames || (x.html != null || x.src != null ? [x] : []);
+  function frameSet(list, label) {
+    if (!list.length) return null;
+    return h('div', { class: 'frames' }, list.map((fr, i) => {
+      const f = h('iframe', { title: 'Preview of ' + label + (fr.cap ? ': ' + fr.cap : list.length > 1 ? ' (' + (i + 1) + ')' : '') });
+      f.dataset.cap = fr.cap || '';
+      frames.push({ f, o: fr });
+      return h('figure', null, h('div', { class: 'pvwrap' }, f), h('p', { class: 'cap' }));
+    }));
+  }
+
   function option(s, o) {
-    const pv = o.html != null || o.src != null;
-    let f;
-    if (pv) { f = h('iframe', { title: 'Preview of option ' + o.k + ': ' + o.t }); frames.push({ f, o }); }
     return h('article', { class: 'card' },
       h('h3', null, h('span', { class: 'ltr' }, o.k), o.t, s.rec === o.k && tag()),
       o.b && h('p', { class: 'blurb' }, o.b),
-      pv ? [h('div', { class: 'pvwrap' }, f), h('p', { class: 'cap' })] : h('div', { class: 'nopv' }, 'No preview for this option'),
+      frameSet(framesOf(o), 'option ' + o.k + ', ' + o.t) || h('div', { class: 'nopv' }, 'No preview for this option'),
       pickBtn(s, o.k, 'Pick ' + o.k),
       noteBox(s.id, o.k, 'Notes on ' + o.k));
   }
   function section(s, i) {
-    const yn = !s.opts;
+    const yn = (k) => { const b = pickBtn(s, k, k === 'yes' ? 'Yes' : 'No'); if (s.rec === k) b.append(tag()); b.classList.remove('pick'); return b; };
     return h('section', { id: 's-' + s.id, class: 'q' },
-      h('h2', null, (i + 1) + '. ' + s.title),
+      h('h2', null, LAB[i]),
+      s.sub && h('p', { class: 'sub' }, s.sub),
       s.rec && h('p', { class: 'rec' }, h('b', null, 'Recommend ' + s.rec + ': '), s.why || ''),
-      yn
-        ? [h('div', { class: 'yn' }, ['yes', 'no'].map((k) => { const b = pickBtn(s, k, k === 'yes' ? 'Yes' : 'No'); if (s.rec === k) b.append(tag()); b.classList.remove('pick'); return b; })), noteBox(s.id, 'note', 'Notes')]
-        : h('div', { class: 'grid' }, s.opts.map((o) => option(s, o))));
+      s.opts
+        ? h('div', { class: 'grid', 'data-k': Math.max(1, ...s.opts.map((o) => framesOf(o).length)) }, s.opts.map((o) => option(s, o)))
+        : [frameSet(framesOf(s), s.title), !s.noPick && h('div', { class: 'yn' }, yn('yes'), yn('no')), !s.noPick && noteBox(s.id, 'note', 'Notes')]);
   }
 
   function render() {
@@ -343,7 +381,9 @@ window.REVIEW = {
     bar.replaceChildren(h('button', { type: 'button', id: 'fold', 'aria-expanded': 'false', onclick: (e) => { bar.classList.toggle('open'); e.target.setAttribute('aria-expanded', String(bar.classList.contains('open'))); } }, 'Controls'), w, count);
     app.append(notice, h('h1', null, R.title || 'Review'), h('div', { class: 'intro' }, (R.intro || []).map((t) => h('p', null, t))));
     if (!secs.length) { app.append(h('p', null, 'This page has no questions.')); return; }
-    nav.replaceChildren(...secs.map((s, i) => h('li', null, h('a', { href: '#s-' + s.id }, (i + 1) + '. ' + s.title))));
+    let q = 0;
+    LAB = secs.map((s) => (asked.includes(s) ? ++q + '. ' : '') + s.title);
+    nav.replaceChildren(...secs.map((s, i) => h('li', null, h('a', { href: '#s-' + s.id }, LAB[i]))));
     app.append(h('nav', { 'aria-label': 'Questions' }, nav), ...secs.map(section),
       h('section', { id: 'out' },
         h('h2', null, 'Notes on the whole page'),
