@@ -267,6 +267,10 @@ you don't need (fewer scopes on the `gh` login, a passphrase on SSH keys).
   it; a branch push already allows the same for `on: push` workflows.
 - Text in a PR or issue title, body or comment, a label and a Project status update leaves the machine without a prompt: a secret an agent pastes there is not seen first (the output-redaction hook filters tool output, not this input; the secret detector does not match `mcp__github__*`).
 - `update_pull_request` can edit the title and body of a PR you already reviewed, and of other people's PRs in the write repos, and the squash merge takes its commit record from them.
+- It can also set `draft` on any PR in the write repos, not only the agent's own: the guard makes no API call, so it
+  cannot see the author. A loop that toggles draft could start the paid review again; the toolkit's review kit reviews a
+  PR once (later runs skip it) with one waiting run per PR, which bounds the cost there, but another review setup is not
+  bounded.
 - The audit logger records the first short string argument of each github call, which can be a short comment body.
 - Only the server registered as `github` is guarded: a launcher or plugin server under any other name gets no repo
   or method check, only the default MCP prompt. Known routes the template doesn't close: `claude --mcp-config <file>`, a plugin that ships an MCP server, a

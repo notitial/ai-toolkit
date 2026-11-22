@@ -12,9 +12,11 @@
 #   - A git MCP git_push whose target remote resolves to a local path inside a protected place:
 #     the push writes refs and objects there. A clone made from the live checkout's folder has that path as its
 #     origin. A network URL is not judged.
-#   Exceptions: <root>/.archive/** is writable; the git MCP git_pull with fastForwardOnly and no branch named is
-#   allowed (it moves a checkout forward to the branch it tracks, reviewed while that is main, and nothing else; a
-#   named branch may be one not yet merged).
+#   Exceptions: <root>/.archive/** is writable; the git MCP git_pull with fastForwardOnly true, no rebase, no branch
+#   named, no remote other than origin (an empty one counts as none) and no other argument is allowed (it moves a
+#   checkout forward to the branch it tracks, reviewed while that is main, and nothing else; a named branch may be one
+#   not yet merged, and another remote, a URL or a folder, may hold anything; amended 2026-11-22: the remote and the
+#   exact form).
 #   Bash git is not judged here: hooks/git-mcp-redirect.sh is its one owner and denies all of it but read-only plumbing.
 #
 # NEVER ASKS. Every decision is a deny or silence. It names no repository or tool of any project.
@@ -59,7 +61,8 @@
 #   (~/.claude{,}/settings.json), a leading $VAR other than $HOME ($PWD/hooks/x, ${HOME%/}/..), a bundled option with its
 #   value attached (curl -so/path, tar -xC/path).
 #   Not read for the allowed ff-only pull: a global git config written outside the checkout (a url.<x>.insteadOf rule,
-#   or a second remote.origin.url) can redirect it to a repo holding unreviewed commits; that needs a second write first.
+#   or a second remote.origin.url, read before the checkout's own) can redirect the origin remote to a repo holding
+#   unreviewed commits; that needs a second write first.
 #
 # Reads JSON from stdin. Returns a JSON deny decision or nothing; exit 0 always (but `exit 1` when a lib file is
 # missing: the `|| exit 2` wiring blocks the call). No `set -e`: it would break the exit-0-always contract. Runs on bash 3.2.
@@ -744,8 +747,9 @@ git_tool() {
     git_remote) case "${mode:-list}" in list | get-url) return 0 ;; esac ;;
     git_stash) case "${mode:-push}" in list) return 0 ;; esac ;;
     git_clean) [ "$(ti .dryRun)" = "true" ] && return 0 ;;
-    git_pull)
-      [ "$(ti .fastForwardOnly)" = "true" ] && [ "$(ti .rebase)" != "true" ] && [ -z "$(ti .branch)" ] && return 0
+    git_pull)  # only that exact form: another key, type or remote is a write (a server may take a URL or a folder there)
+      [ "$(field '.tool_input | (keys - ["path", "remote", "branch", "rebase", "fastForwardOnly"]) == [] and .fastForwardOnly == true
+        and (.rebase == null or .rebase == false) and (.branch == null or .branch == "") and (.remote == null or .remote == "" or .remote == "origin")')" = true ] && return 0
       ;;
   esac
   path=$(ti .path)

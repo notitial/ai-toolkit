@@ -15,6 +15,8 @@
 #   except that a mention of @claude (a paid review run) or a body that is not text asks; create_pull_request also
 #   asks unless draft is true. update_pull_request with draft false (mark ready, which starts the automatic paid
 #   review) is allowed: the guard cannot see CI, so waiting for green checks is the claude-review-loop skill's rule.
+#   It makes no API call, so it cannot see whose PR it is either: draft and the text may be set on any PR of a write
+#   repo. A loop that re-marks one ready re-runs a paid review only where the review setup does not run once per PR.
 # - issue_write (create, update), sub_issue_write (add, reprioritize) and label_write (create, update) are allowed.
 #   A state change (it closes or reopens an issue or a PR), assignees, @claude in a title or body, a sub-issue
 #   removed or moved from another parent, and a label deletion ask. An argument the guard does not know, an unknown
