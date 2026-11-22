@@ -12,8 +12,9 @@
 #   - A git MCP git_push whose target remote resolves to a local path inside a protected place:
 #     the push writes refs and objects there. A clone made from the live checkout's folder has that path as its
 #     origin. A network URL is not judged.
-#   Exceptions: <root>/.archive/** is writable; the git MCP git_pull with fastForwardOnly is allowed (it moves a
-#   checkout to a reviewed commit and nothing else).
+#   Exceptions: <root>/.archive/** is writable; the git MCP git_pull with fastForwardOnly and no branch named is
+#   allowed (it moves a checkout forward to the branch it tracks, reviewed while that is main, and nothing else; a
+#   named branch may be one not yet merged).
 #   Bash git is not judged here: hooks/git-mcp-redirect.sh is its one owner and denies all of it but read-only plumbing.
 #
 # NEVER ASKS. Every decision is a deny or silence. It names no repository or tool of any project.
@@ -742,7 +743,7 @@ git_tool() {
     git_stash) case "${mode:-push}" in list) return 0 ;; esac ;;
     git_clean) [ "$(ti .dryRun)" = "true" ] && return 0 ;;
     git_pull)
-      [ "$(ti .fastForwardOnly)" = "true" ] && [ "$(ti .rebase)" != "true" ] && return 0
+      [ "$(ti .fastForwardOnly)" = "true" ] && [ "$(ti .rebase)" != "true" ] && [ -z "$(ti .branch)" ] && return 0
       ;;
   esac
   path=$(ti .path)

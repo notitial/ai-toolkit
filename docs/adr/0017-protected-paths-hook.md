@@ -55,8 +55,8 @@ base install.
   resolves to a local path inside a protected place is denied; a network URL is not judged. A remote that cannot be
   resolved passes (the hook header lists the gaps), so the rule in CLAUDE.md, clone from the GitHub URL, stays the first line.
 - **Exceptions.** `<root>/.archive/**` stays writable (the gitignored working area). The git MCP `git_pull` with
-  `fastForwardOnly` is allowed in a root: it moves a checkout to a reviewed commit, which is how a protected checkout
-  is updated.
+  `fastForwardOnly` and no branch named is allowed in a root: it moves a checkout forward to the branch it tracks
+  (reviewed while that is `main`), which is how a protected checkout is updated. A named branch may be one not yet merged, so that pull is a write.
 - **Targets are judged, not the session's folder.** A session that stands in a protected folder and works in a clone
   under `/tmp` is not blocked. The folder only decides a relative operand with no `cd` before it (a text with a substitution
   is the exception above).
