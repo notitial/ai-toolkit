@@ -50,6 +50,8 @@ Two conventions run through the steps:
 - Copy `ci.yml` from the app template. One job per package, each running that package's typecheck, lint and test; the job names become required checks in step 8, so name them before writing the ruleset.
 - Name each job `<Area> Checks`, the convention above.
 - Conventions every workflow follows: `permissions: {}` at the top and per-job grants; actions pinned by full SHA with a tag comment; `timeout-minutes` on every job; `persist-credentials: false` on checkout; a `concurrency` group; CI on the CI runner labels, never a deploy runner.
+- **Dead code.** Where the stack has a checker for unused files, exports and dependencies (knip for JavaScript and TypeScript), each job runs it and fails on a hit. A private package in a workspace reports its entry file's exports too. Start from a clean run: remove what it finds first.
+- **End-to-end job.** The specs are typechecked; the job builds first and never reuses a running server; a viewport assertion allows a sub-pixel margin; no retry unless the owner decided it, with the reason beside it.
 - **Runners.** When the reference deployment says a private repo runs on the org's own runners, every job in the repo takes its labels from there: CI, the PR title check, the secret scan, a generated-files check, the review kit's `preflight` and `review`, anything. No job uses a hosted label, and none falls back to one (`|| 'ubuntu-latest'`): a hosted job in such a repo may never start, and a required check it carries then blocks every merge. A reusable workflow takes `runs-on` as an input with no hosted default (`required: true`), and every caller passes the labels (see [tools/gitleaks/](../tools/gitleaks/README.md)). **One exception: the review kit**, whose four jobs take their runners from the kit's own variable `SELF_HOSTED_REVIEW` once it is set (unset, its `runs-on` input still applies to two of them). Where the reference deployment requires the org's runners, set it to their labels, never a hosted label: on the repo, or once on the org with visibility for private repos only. The kit keeps its hosted fallback, which applies only while the variable is unset; such a repo without it gets no review, because its jobs wait for a hosted runner that never starts (step 9; [tools/claude-review/](../tools/claude-review/README.md), which says what the App key costs on runners shared with Claude, and with CI where they are the same, and recommends a pool apart from CI where one is possible). Public repos, and the kit's own defaults, use `ubuntu-latest`.
 
 ### 4. Secret scanning and pre-commit hooks
@@ -89,7 +91,7 @@ Two conventions run through the steps:
 ### 6. PR description template
 
 - Copy `.github/pull_request_template.md`: **Summary / Why / How to verify / Checklist**. Why: the PR description becomes the squash commit's body, so it is the commit's record; "How to verify" is what the owner runs before merging.
-- Adapt the checklist to the repo (title format, CI green, review comments answered, deploy or CI files touched named, the repo's own invariants); keep the four headings.
+- Adapt the checklist to the repo (title format, CI green, review comments answered, deploy or CI files touched named, a UI change attaches the old/new pair, the repo's own invariants); keep the four headings.
 
 ### 7. CLAUDE.md conventions
 
