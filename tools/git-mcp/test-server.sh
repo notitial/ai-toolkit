@@ -117,6 +117,7 @@ expect ok "log by file, author and grep" git_log "{\"path\":\"$R\",\"filePath\":
 expect ok "log of a ref with patch" git_log "{\"path\":\"$R\",\"branch\":\"HEAD~1\",\"patch\":true,\"skip\":1,\"since\":\"2000-01-01\"}" "+two"
 expect ok "show a commit" git_show "{\"path\":\"$R\",\"object\":\"HEAD\",\"stat\":true}" "b.txt"
 expect ok "show a file at a revision" git_show "{\"path\":\"$R\",\"object\":\"HEAD~2\",\"filePath\":\"a.txt\"}" "two"
+expect err "show takes no absolute file path" git_show "{\"path\":\"$R\",\"object\":\"HEAD\",\"filePath\":\"$R/a.txt\"}" "relative to path"
 expect ok "show reads the file path from path, not from the repo top" git_show "{\"path\":\"$R/.git/..\",\"object\":\"HEAD\",\"filePath\":\"./b.txt\"}" "new"
 expect ok "show raw" git_show "{\"path\":\"$R\",\"object\":\"HEAD\",\"format\":\"raw\"}" "tree "
 expect ok "blame" git_blame "{\"path\":\"$R\",\"filePath\":\"a.txt\",\"startLine\":3,\"endLine\":3}" "three"
@@ -228,6 +229,14 @@ g config push.default upstream
 g branch --quiet --track tracks-main origin/main
 expect ok "push a branch that tracks main" git_push "{\"path\":\"$R\",\"remote\":\"origin\",\"branch\":\"tracks-main\"}"
 is "it went to its own name, not to main" git -C "$T/remote.git" rev-parse --verify -q tracks-main
+# branch HEAD sends no refspec: with push.default=upstream git then pushes to the upstream, which is what the guard judged.
+g checkout --quiet tracks-main
+g commit --quiet --allow-empty -m "on tracks-main"
+expect ok "push HEAD follows push.default" git_push "{\"path\":\"$R\",\"remote\":\"origin\",\"branch\":\"HEAD\"}"
+is "HEAD went to the upstream the guard would resolve" test "$(git -C "$T/remote.git" rev-parse main)" = "$(g rev-parse tracks-main)"
+is "and not to the branch's own name" test "$(git -C "$T/remote.git" rev-parse tracks-main)" != "$(g rev-parse tracks-main)"
+g checkout --quiet main
+g merge --quiet --ff-only tracks-main
 g config --unset push.default
 expect ok "push accepts confirmed" git_push "{\"path\":\"$R\",\"confirmed\":true,\"dryRun\":true}"
 expect ok "clone" git_clone "{\"path\":\"$T/clone\",\"url\":\"$T/remote.git\",\"branch\":\"main\"}"
@@ -252,7 +261,7 @@ g checkout --quiet -- a.txt
 # Two calls for one repo in one stream run one after the other: the log, sent with the commit, already shows it.
 printf 'queued\n' > "$R/q.txt"
 out=$(printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"git_commit\",\"arguments\":{\"path\":\"$R\",\"message\":\"queued commit\",\"filesToStage\":[\"q.txt\"]}}}" \
-  "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"git_log\",\"arguments\":{\"path\":\"$R\",\"maxCount\":1,\"oneline\":true}}}" | raw | sed -n '2p')
+  "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"git_log\",\"arguments\":{\"path\":\"$R\",\"maxCount\":1,\"oneline\":true}}}" | raw | grep -F '"id":2,')
 holds "a call waits for the one before it on the same path" "$out" "queued commit"
 
 # ---- what the server refuses -------------------------------------------------------------------------------------
@@ -261,6 +270,7 @@ expect err "no path" git_status '{}' "path is required"
 expect err "empty path" git_status '{"path":""}' "path is required"
 expect err "relative path" git_status '{"path":"repo"}' "absolute"
 expect err "dot path" git_status '{"path":"."}' "absolute"
+expect err "path with a trailing newline" git_status "{\"path\":\"$R\\n\"}" "control characters"
 expect err "path is not a string" git_status "{\"path\":[\"$R\"]}" "must be a string"
 expect err "path does not exist" git_status "{\"path\":\"$T/nowhere\"}" "not an existing folder"
 expect err "path is a file" git_status "{\"path\":\"$R/a.txt\"}" "not an existing folder"

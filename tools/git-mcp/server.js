@@ -57,7 +57,9 @@ const refuse = (msg) => { throw new Refused(msg); };
 // ---- parameter kinds ---------------------------------------------------------------------------------------------
 // Every string kind refuses a NUL byte. Every kind but `text` refuses a leading `-`.
 const KINDS = {
-  dir: { pattern: '^/', hint: 'must be an absolute path' },
+  // No control characters: the hooks read `path` through a shell substitution, which drops a trailing newline, so
+  // such a path would name one folder to them and another to git.
+  dir: { pattern: '^/[^\\x00-\\x1f\\x7f]*$', hint: 'must be an absolute path without control characters' },
   remote: { pattern: '^[A-Za-z0-9_][A-Za-z0-9._-]*$', max: 255, hint: 'must be a remote name (letters, digits, . _ -, not starting with a dot)' },
   name: { pattern: '^[^+~^:?*\\[\\\\\\s\\x00-\\x1f\\x7f][^~^:?*\\[\\\\\\s\\x00-\\x1f\\x7f]*$', max: 255,
     hint: 'must be a branch or tag name (no leading +, no whitespace, none of ~ ^ : ? * [ \\)' },
@@ -221,7 +223,8 @@ const TOOLS = {
       if (a.stat) args.push('--stat');
       if (a.format) args.push('--format=raw');
       // `./` makes git read the file path from `path`, as every other tool does, not from the top of the repo.
-      return git([...args, a.filePath ? `${a.object}:${a.filePath.startsWith('/') ? '' : './'}${a.filePath}` : a.object, '--']);
+      if (a.filePath && a.filePath.startsWith('/')) refuse('filePath must be relative to path for git_show');
+      return git([...args, a.filePath ? `${a.object}:./${a.filePath}` : a.object, '--']);
     },
   },
   git_diff: {
@@ -484,11 +487,13 @@ const TOOLS = {
       }
       const remote = await configured(git, a.remote);
       if (a.delete) return git([...args, '--delete', remote, a.remoteBranch || a.branch || refuse('delete needs branch or remoteBranch')]);
-      // HEAD and @ are the current branch, which the guard resolves itself. Any other branch gets an explicit
-      // destination, so no push.default or remote.<name>.push mapping can send it somewhere the call does not name.
-      const src = a.branch && a.branch !== 'HEAD' && a.branch !== '@' ? a.branch : 'HEAD';
-      if (a.remoteBranch) args.push(remote, `${src}:${a.remoteBranch}`);
-      else args.push(remote, ...(a.branch ? [src === 'HEAD' ? 'HEAD' : `${src}:${src}`] : []));
+      // HEAD and @ are the current branch: the guard reads them as no branch and judges the destination git would
+      // pick (@{push}), so no refspec is sent for them and git picks it by those same rules. Any other branch gets
+      // an explicit destination, so no push.default or remote.<name>.push mapping can send it somewhere the call
+      // does not name.
+      const named = a.branch && a.branch !== 'HEAD' && a.branch !== '@' ? a.branch : '';
+      if (a.remoteBranch) args.push(remote, `${named || 'HEAD'}:${a.remoteBranch}`);
+      else args.push(remote, ...(named ? [`${named}:${named}`] : []));
       return git(args);
     },
   },
@@ -538,8 +543,9 @@ async function callTool(name, input) {
 
 const send = (msg) => process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...msg })}\n`);
 
-// Calls on one repository run one after another, so two tool calls sent together cannot collide on its index lock;
-// calls on different paths run side by side. A job never rejects: it answers its own failure.
+// Calls that name the same `path` run one after another, so two tool calls sent together do not collide on the
+// index lock; calls on different paths run side by side. The key is the path as written: one repository named two
+// ways (a subfolder, a trailing slash) is two queues, and git's own lock error is the answer then. A job never rejects: it answers its own failure.
 const queues = new Map();
 function enqueue(key, job) {
   const next = (queues.get(key) || Promise.resolve()).then(job).finally(() => {

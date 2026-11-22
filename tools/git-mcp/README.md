@@ -40,7 +40,7 @@ The hooks decide what is allowed. The server decides what a call can mean, so th
 `mode` or `dryRun` and git acting on them cannot disagree.
 
 - **An absolute `path` on every call.** No working-directory state and no default folder: a missing or relative
-  `path` is refused. For every tool but `git_init` and `git_clone` it must be an existing folder.
+  `path` is refused, and so is one with a control character (the hooks would read a trailing newline away). For every tool but `git_init` and `git_clone` it must be an existing folder.
 - **A closed parameter set and strict types.** An unknown key, a string where a boolean belongs (`"true"`), a number
   where a string belongs, or `null` is refused, never coerced. The hooks read these fields with jq, which prints
   `"true"` and `true` alike. An empty string counts as not given, which is how the hooks read it too.
@@ -55,7 +55,8 @@ The hooks decide what is allowed. The server decides what a call can mean, so th
 - **A branch or tag name carries no refspec:** no `:`, no leading `+`, no whitespace, none of `~ ^ ? * [ \`. A
   refspec is only ever built by the server, and a named branch always gets an explicit destination
   (`branch:branch`, `branch:remoteBranch`, `HEAD:remoteBranch`), so `push.default` or a `remote.<name>.push` mapping
-  cannot send it elsewhere.
+  cannot send it elsewhere. `HEAD` or `@` as `branch` sends no refspec: the guard reads them as no branch, and git
+  then picks the destination by the rules the guard checked.
 - **A dry run changes nothing:** `dryRun` on `git_push` and `git_clean` wins over `force` and `delete`.
 - **`git_checkout`'s `target` is a branch or commit, never a path:** `--` always follows it.
 - **No mirror clone.** `git_clone` has no `mirror` parameter: a mirror clone marks its remote so that every later
@@ -67,7 +68,8 @@ The hooks decide what is allowed. The server decides what a call can mean, so th
   `GIT_WORK_TREE`, `GIT_CONFIG_*`, `GIT_SSH_COMMAND` or `GIT_EXTERNAL_DIFF` cannot redirect a call, plus
   `GIT_TERMINAL_PROMPT=0`, `GIT_EDITOR=true`, `GIT_PAGER=cat` and `GIT_OPTIONAL_LOCKS=0`. Set an ssh command or an
   identity in git config, not in the environment.
-- **One call at a time per `path`,** so two calls sent together do not collide on the index lock.
+- **One call at a time per `path`,** so two calls sent together do not collide on the index lock. The key is the
+  path as written: the same repository named two ways (a subfolder, a trailing slash) is not serialized.
 
 Not defended, as with any git front end: a program named in the repo's own `.git/config` or `.git/hooks` runs when git
 runs it. `git_push` with no `branch` pushes what the repo's `push.default` says; the guard resolves that destination
