@@ -161,6 +161,8 @@ for c in "touch f" "rm f" "npm test" "make" "ls | xargs rm" "echo \$(id)" "echo 
   "ls 2>&1 > out.txt" "find . -delete" "find . -exec rm {} ;" "git log --output=f" "rg --pre cat x" "git commit -m x" \
   "git -c core.pager=x log" "sed -i 's/a/b/' f" "sed -n 's/a/b/w out' f" "sed 's/a/b/w out' f" "sed 's/a/b/;w out' f" "sed 's/a/b/e' f" \
   "sed -e 's/a/b/' -e 'w out' f" "sed 's/a\\/b/c/' f" "sed 's/a/b/' -i f" "sed 'y/a/b/' f" "sort -o out f" "sort -no out f" \
+  "sed \"s/a/b\${HOME:0:1}w src/p\" f" "sed -n \"/a\${HOME:0:1}w src/p\" f" "sed 's/a/b/' \${X:--i} f" "sed 's/a/b/' {-i,f}" \
+  "sed 's/a/b/'\"\$x\" f" "sed \`echo s/a/b/\` f" \
   "uniq in out" "sysctl -w kern.x=1" "sysctl kern.x=1" "log erase" "ulimit -n 10" "curl -o f https://example.com" \
   "curl -sO https://example.com/f" "curl -d x https://example.com" "curl --data-binary @f https://example.com" \
   "curl -F a=@f https://example.com" "curl -X POST https://example.com" "curl file:///etc/hosts" "curl https://example.com > f" \

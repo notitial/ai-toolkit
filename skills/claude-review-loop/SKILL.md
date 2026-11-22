@@ -17,9 +17,9 @@ denies a post, give the user the `gh` command in a markdown code block instead.
    kit's checks are named `claude-review / ...`) (CI, the secret scan, CodeQL) has concluded `success` on the current head. Fix a failure on the branch while it is
    still a draft, then wait again. A PR that changes rendered UI carries its old/new or mockup/built pair in the
    description first. Only then mark it ready yourself, without asking (`update_pull_request` with `draft: false`;
-   the guard allows it, and cannot see CI, so this condition is yours to keep): every check outside the Claude review
-   workflow has concluded `success` on the current head. If a required check is red, missing or stays queued for a
-   long time, or a failure is outside the PR's scope, tell the user instead of marking it ready.
+   the guard allows it but cannot see CI, so the green-checks condition is yours to keep). If a required check is red,
+   missing or stays queued for a long time, or a failure is outside the PR's scope, tell the user instead of marking
+   it ready.
 2. Wait for the review (the runner may be queued): poll `pull_request_read` with `get_check_runs` every few minutes,
    until the `claude-review / Publish the review` run that started after you marked the PR ready completes (`Review PR` posts
    nothing; `publish` posts the findings). The draft phase left a `skipped` one on the same head: ignore it. The new

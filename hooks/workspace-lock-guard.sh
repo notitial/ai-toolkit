@@ -17,8 +17,9 @@
 # lock.d/holder.
 #
 # What a non-holder may still do: read (a short allowlist of read commands, below), write under
-# .archive/ or a temp dir (a quoted-heredoc `cat >` / `cat >>` to such a path included), and run the lock script (but not acquire below the workspace root while WORKSPACE_LOCK_DIR
-# is unset: the script would create a second lock there). A holder past its
+# .archive/ or a temp dir (a quoted-heredoc `cat >` / `cat >>` to such a path included), and run
+# the lock script (but not acquire below the workspace root while WORKSPACE_LOCK_DIR is unset: the
+# script would create a second lock there). A holder past its
 # ETA is re-armed: its own mutations are denied until it runs `heartbeat --eta <new>`. Freeing someone else's long-dead lock
 # goes through `clear`, which this guard turns into a permission prompt. Only the plain call is
 # gated (a compound, redirected or cd-prefixed one is denied); a wrapped spelling (an env prefix,
@@ -320,7 +321,12 @@ is_shaped_read() {
       has_write_flag "$@" && return 1 ;;
     sed)  # option letters from nEr only, and one script (a single -e or the first operand): either one plain
           # s/x/y/ with flags from gIp0-9 (no w or e flag, no second command), or, under -n, one that only
-          # prints: p, q, = with line, $ or /regex/ addresses. So never -i, -I, -f or w.
+          # prints: p, q, = with line, $ or /regex/ addresses. So never -i, -I, -f or w. A word that is not
+          # wholly single-quoted may not hold $, a backtick or a brace: the shell would expand it to a / or an option.
+      _sq="^'[^']*'\$"
+      for _w in "$@"; do
+        [[ "$_w" =~ $_sq ]] || case "$_w" in *'$'*|*'`'*|*'{'*|*'}'*) return 1 ;; esac
+      done
       _toks=$(printf '%s ' "$@" | xargs printf '%s\n' 2>/dev/null) || return 1
       _n=0; _have=0; _next=0; _script=""
       while IFS= read -r _w; do
@@ -378,7 +384,7 @@ EOT
 # a session that does not hold the lock may need them to keep the machine awake through a long run.
 is_exact_read() {
   case "$*" in
-    'launchctl list'|'crontab -l'|'pgrep -x caffeinate'|'pmset -g assertions'|'pmset displaysleepnow'|'pkill -x caffeinate') return 0 ;;
+    'launchctl list'|'crontab -l'|'pmset -g assertions'|'pmset displaysleepnow'|'pkill -x caffeinate') return 0 ;;
   esac
   [ "${1:-}" = launchctl ] && [ "${2:-}" = list ] && [ $# -eq 3 ] && case "$3" in -*|*[!A-Za-z0-9._-]*) return 1 ;; *) return 0 ;; esac
   return 1
@@ -633,7 +639,7 @@ scratch_heredoc() {
   _re="^cat (>>|>) ([A-Za-z0-9/._+,@%-]+) <<'([A-Za-z0-9_]+)'\$"
   [[ "${_c%%$'\n'*}" =~ $_re ]] || return 1
   _hd_path=${BASH_REMATCH[2]}; _hd_tag=${BASH_REMATCH[3]}
-  case "$_hd_path" in *..*|*/) return 1 ;; esac
+  case "$_hd_path" in */) return 1 ;; esac   # a folder; scratch_path refuses ..
   scratch_path "$_hd_path" || return 1
   _hd_body=${_c#*$'\n'}
   _hd_end=0

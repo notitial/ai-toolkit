@@ -1,7 +1,7 @@
 #!/bin/bash
 # Tests for tools/github-mcp/guard.sh and launch. Run: bash tools/github-mcp/test-guard.sh
 # Hook cases expect deny, ask, or pass (no output = defer to the permission rules).
-# Writes the guard lets through return ask; reads pass.
+# Writes return allow, ask or deny by the guard's rules; reads pass.
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 SRC="$HERE/guard.sh"
@@ -182,11 +182,11 @@ update_reason() {
 reason=$(update_reason '{"pullNumber":202,"title":"fix: a new title"}')
 case "$reason" in
   *'"notitial"/"toolkit-repo" #202 sets title "fix: a new title"'*'nothing else'*) PASS=$((PASS + 1)) ;;
-  *) FAIL=$((FAIL + 1)); echo "FAIL: update PR ask does not show the PR and the new title: $reason" ;;
+  *) FAIL=$((FAIL + 1)); echo "FAIL: update PR reason does not show the PR and the new title: $reason" ;;
 esac
 case "$reason" in
-  '') FAIL=$((FAIL + 1)); echo "FAIL: update PR ask returned no reason" ;;
-  *'body "'*|*'paid Claude review'*) FAIL=$((FAIL + 1)); echo "FAIL: update PR ask shows a field that was not set, or warns without draft false: $reason" ;;
+  '') FAIL=$((FAIL + 1)); echo "FAIL: update PR reason returned no reason" ;;
+  *'body "'*|*'paid Claude review'*) FAIL=$((FAIL + 1)); echo "FAIL: update PR reason shows a field that was not set, or warns without draft false: $reason" ;;
   *) PASS=$((PASS + 1)) ;;
 esac
 reason=$(update_reason '{"pullNumber":202,"draft":false}')
@@ -196,7 +196,7 @@ case "$reason" in
 esac
 reason=$(update_reason '{"pullNumber":202,"draft":true}')
 case "$reason" in
-  '') FAIL=$((FAIL + 1)); echo "FAIL: update PR draft true ask returned no reason" ;;
+  '') FAIL=$((FAIL + 1)); echo "FAIL: update PR draft true returned no reason" ;;
   *'paid Claude review'*) FAIL=$((FAIL + 1)); echo "FAIL: draft true carries the paid-review warning: $reason" ;;
   *) PASS=$((PASS + 1)) ;;
 esac
@@ -208,7 +208,7 @@ esac
 reason=$(update_reason '{"pullNumber":202,"title":"a\"; body \"(unchanged)","body":"x\u001b[31my"}')
 case "$reason" in
   *'a\"; body \"(unchanged)'*'x\u001b[31my'*) PASS=$((PASS + 1)) ;;
-  *) FAIL=$((FAIL + 1)); echo "FAIL: update PR ask does not show quotes and an escape code in escaped form: $reason" ;;
+  *) FAIL=$((FAIL + 1)); echo "FAIL: update PR reason does not show quotes and an escape code in escaped form: $reason" ;;
 esac
 reason=$(update_reason '{"pullNumber":202,"state":"closed"}')
 case "$reason" in
