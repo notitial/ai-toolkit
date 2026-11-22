@@ -19,7 +19,7 @@ decision changes.
 | Runners | `ubuntu-latest`; where the reference deployment says private repos use the org's own runners, every job uses its labels and none has a hosted fallback, except the review kit, whose four jobs take their runners from the kit's `SELF_HOSTED_REVIEW` variable: the org's labels where own runners are required, never a hosted label |
 | Claude review jobs as required checks | never |
 | Secret scan | gitleaks: `.pre-commit-config.yaml` plus a `secret-scan.yml` caller of the org's reusable workflow (`tools/gitleaks/`) |
-| Pre-commit hooks | `pre-commit-config.yaml` beside this file: `gitleaks`, `check-merge-conflict`, `check-added-large-files`, `check-yaml`, `actionlint` |
+| Pre-commit hooks | `pre-commit-config.yaml` beside this file: `gitleaks` only |
 | Ruleset `main protection` | deletion and non-fast-forward blocked; linear history; signed commits; pull request required, 0 approvals, squash only; admin role bypasses in pull-request mode; required checks = the repo's CI jobs, `Secret Scan / gitleaks`, the PR title check (`PR Title / check`) |
 | Repo-level copies of org secret or variable names | never |
 | GitHub secret scanning and push protection | on in public repos, off in private ones (a paid add-on; gitleaks covers it) |
