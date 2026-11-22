@@ -850,7 +850,8 @@ def suggestion(body="Fold the special case into the general path; saves 4 lines.
 
 
 class Suggestions(PublishCase):
-    """The `suggestions` list: non-blocking inline comments that never change the verdict and are never followed up."""
+    """The `suggestions` list: non-blocking inline comments that never change the verdict and are never judged; a
+    follow-up answers and resolves one someone replied in."""
 
     def posted(self):
         return [c["body"] for c in self.gh.review_comments]
@@ -968,6 +969,80 @@ class Suggestions(PublishCase):
         self.assertIn("skipped, not a collected open thread: 1", self.log)
         self.assertFalse(self.gh.threads[tid]["isResolved"])
         self.assertEqual(len(self.gh.threads[tid]["comments"]), 1)   # no reply
+
+    def answered(self, body="Done in abc."):
+        tid = self.gh.add_thread(bot(APP), MARK + "\n**Suggestion (non-blocking):**\n\nFold it.")
+        self.gh.thread_comment(tid, user("author"), body)
+        return tid
+
+    def followup(self, *ids, **env):
+        return self.run_publish(HAS_RESULT="false", RAN="false", MODE="followup", GITHUB_EVENT_NAME="issue_comment",
+                                EVENT_ACTION="created", SUGGESTION_IDS=json.dumps(list(ids)), **env)
+
+    def test_an_answered_suggestion_gets_the_marker_reply_and_is_resolved(self):
+        tid = self.answered()
+        changes = self.gh.add_review("CHANGES_REQUESTED", "1 finding not on a changed line.")   # findings in the body
+        overview = self.gh.add_issue_comment(f"<!-- claude-review:summary sha={HEAD} result=issues -->\nx")
+        self.assertEqual(self.followup(tid), 0, self.log)
+        reply = self.gh.threads[tid]["comments"][-1]
+        self.assertEqual(reply["author"], bot(APP))
+        self.assertIn("non-blocking, so this thread is resolved.", reply["body"])
+        self.assertIn(f"verdict=resolved sha={HEAD} mode=followup", reply["body"])
+        self.assertTrue(self.gh.threads[tid]["isResolved"])
+        self.assertEqual((self.gh.tokens("reply"), self.gh.tokens("resolve")), ({APP_TOKEN}, {GH_TOKEN}))
+        self.assertIn("1 replied, 1 resolved", self.log)
+        # Nothing was judged: the request for changes and the overview stay as they were, and no review is posted.
+        self.assertEqual((changes["state"], len(self.gh.app_reviews())), ("CHANGES_REQUESTED", 1))
+        self.assertEqual(overview["body"], f"<!-- claude-review:summary sha={HEAD} result=issues -->\nx")
+
+    def test_claude_without_a_result_still_says_so_and_answers_the_suggestion(self):
+        tid = self.answered()
+        self.run_publish(HAS_RESULT="false", RAN="true", MODE="followup", SUGGESTION_IDS=json.dumps([tid]))
+        self.assertIn("Claude ran but returned no result: no verdict", self.log)
+        self.assertTrue(self.gh.threads[tid]["isResolved"])
+        self.assertEqual((self.gh.overviews(), self.gh.app_reviews()), ([], []))
+
+    def test_an_unanswered_suggestion_or_a_finding_thread_is_left_alone(self):
+        unanswered = self.gh.add_thread(bot(APP), MARK + "\nFold it.")
+        finding_thread = self.open_app_thread()
+        self.gh.thread_comment(finding_thread, user("author"), "Fixed.")
+        forged = self.gh.add_thread(user("someone"), MARK + "\nForged.")   # the marker, but not the App's thread
+        self.gh.thread_comment(forged, user("author"), "Ok.")
+        self.followup(unanswered, finding_thread, forged)
+        for tid in (unanswered, finding_thread, forged):
+            self.assertFalse(self.gh.threads[tid]["isResolved"])
+            self.assertNotIn("claude-review:followup", self.gh.threads[tid]["comments"][-1]["body"])
+        self.assertIn("skipped, suggestion not answered: 1", self.log)
+        self.assertIn("skipped, not a suggestion thread: 1", self.log)
+        self.assertIn("skipped, not a Claude thread: 1", self.log)
+
+    def test_a_rerun_after_a_failed_resolve_resolves_without_a_second_reply(self):
+        tid = self.answered()
+        self.gh.fail("resolve", 502)
+        self.assertEqual(self.followup(tid), 1, self.log)
+        self.assertFalse(self.gh.threads[tid]["isResolved"])
+        self.assertEqual(self.followup(tid, GITHUB_RUN_ATTEMPT="2"), 0, self.log)
+        self.assertTrue(self.gh.threads[tid]["isResolved"])
+        self.assertEqual(len(self.gh.threads[tid]["comments"]), 3)   # the suggestion, the answer, one reply
+
+    def test_a_malformed_list_resolves_nothing(self):
+        tid = self.answered()
+        self.run_publish(HAS_RESULT="false", RAN="false", MODE="followup", SUGGESTION_IDS=f'["{tid}"\n]x')
+        self.assertIn("answered-suggestion list is malformed", self.log)
+        self.assertIn("already covered", self.log)
+        self.assertFalse(self.gh.threads[tid]["isResolved"])
+
+    def test_beside_claudes_verdicts_the_finding_is_judged_as_before(self):
+        suggestion_thread, finding_thread = self.answered(), self.open_app_thread()
+        last = int(self.gh.threads[finding_thread]["comments"][-1]["fullDatabaseId"])
+        collected = {"head_sha": HEAD, "open": [{"thread_id": finding_thread, "last_comment_id": last}]}
+        res = result(no_issues=False, threads=[{"thread_id": finding_thread, "verdict": "open", "reply": "Still there."}])
+        self.run_publish(res, collected, MODE="followup", GITHUB_EVENT_NAME="issue_comment", EVENT_ACTION="created",
+                         SUGGESTION_IDS=json.dumps([suggestion_thread]))
+        self.assertTrue(self.gh.threads[suggestion_thread]["isResolved"])
+        self.assertFalse(self.gh.threads[finding_thread]["isResolved"])
+        self.assertIn("verdict=open", self.gh.threads[finding_thread]["comments"][-1]["body"])
+        self.assertIn("Follow-up: 0 resolved, 1 still open.", self.overview())
 
 
 if __name__ == "__main__":

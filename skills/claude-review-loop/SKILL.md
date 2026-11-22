@@ -32,7 +32,9 @@ denies a post, give the user the `gh` command in a markdown code block instead.
    overview only a new full review runs it again; after nothing at all, the next push is reviewed afresh only if the
    App has never commented on the PR; otherwise ask the user.
 4. Fix each finding on the branch, or reply in its thread (`add_reply_to_pull_request_comment`) with why it isn't a
-   bug. A finding in the review body has no thread: fix it and say so in the handover.
+   bug. A finding in the review body has no thread: fix it and say so in the handover. A thread that starts
+   **Suggestion (non-blocking)** is never judged: apply it or decline it, reply in its thread either way, and the next
+   `--comments` run resolves it without judging it. Don't post `--comments` for a suggestion you haven't replied to.
 5. Pushes after the first review are skipped, so after pushing fixes or replies, comment
    `@claude review --comments` on the PR (`add_issue_comment`, top level, cheap; the guard asks first because a
    `@claude` comment starts a paid run): Claude judges each open thread against the new code, replies, and resolves

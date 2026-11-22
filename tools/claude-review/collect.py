@@ -80,14 +80,18 @@ def ours(c):
     return (author(c) == ("Bot", APP_LOGIN) and (FOLLOWUP_MARKER.search(c.get("body") or "") or None))
 
 mode = os.environ["REVIEW_MODE"]
-open_threads, raised, long_threads, pending, retry = [], [], 0, 0, []
+open_threads, raised, long_threads, pending, retry, soft_open, answered = [], [], 0, 0, [], 0, []
 for t in threads["nodes"]:
     comments = t["comments"]["nodes"]
     if not comments or author(comments[0]) != ("Bot", APP_LOGIN):
         continue
-    soft = comments[0]["body"].startswith(SUGGESTION_MARKER)   # a suggestion is never followed up, resolved or not
+    soft = comments[0]["body"].startswith(SUGGESTION_MARKER)   # a suggestion is never judged, resolved or not
     if t["isResolved"] and not soft:
         continue   # a resolved thread no longer covers its issue: if the issue is back, it is an ordinary new finding
+    if soft and not t["isResolved"]:
+        soft_open += 1
+        if mode == "followup" and not moved and len(comments) > 1:
+            answered.append(t["id"])   # someone replied: publish answers and resolves it, with no judge
     too_long = t["comments"]["pageInfo"]["hasNextPage"]
     long_threads += too_long
     said = [{"author": who(c), "created_at": c["createdAt"], "body": c["body"]} for c in comments]
@@ -128,10 +132,17 @@ def summarised():
 # followup with nothing to follow up, or this head already has a clean overview. A new push or a reply
 # after the follow-up makes the next request run again. A person's Unresolve alone looks like a failed
 # resolve, so it is resolved again: to reopen a thread, reply in it.
-if not moved and ((open_threads and not pending) or (not open_threads and (mode == "followup" or summarised()))):
-    print("This head was already covered: skipping Claude. Push a change, or reply in a thread, to ask again.")
-    with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+# An answered suggestion thread is queued either way: publish replies to it and resolves it, whether Claude runs or not.
+covered = not moved and ((open_threads and not pending) or (not open_threads and (mode == "followup" or summarised())))
+with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+    if covered:
+        print(f"No finding thread to follow up; {soft_open} suggestion thread(s) are never judged: skipping Claude."
+              if soft_open and not open_threads else
+              "This head was already covered: skipping Claude. Push a change, or reply in a thread, to ask again.")
         f.write("covered=true\n")
         if retry:
             print(f"Queued {len(retry)} thread(s) for publish to resolve again")
             f.write(f"retry_ids={json.dumps(retry)}\n")
+    if answered:
+        print(f"Queued {len(answered)} answered suggestion thread(s) for publish to resolve")
+        f.write(f"suggestion_ids={json.dumps(answered)}\n")
