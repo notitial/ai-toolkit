@@ -33,7 +33,7 @@ continue.
 | Tool | Needed by | Install (macOS) |
 |------|-----------|-----------------|
 | `jq` | every hook parses its input with it | recent macOS ships `/usr/bin/jq`; otherwise `brew install jq` (it must then be on the PATH Claude Code starts with: the guards fall back to `/usr/bin` only) |
-| `node` + `npm` | git-mcp-server | `brew install node` |
+| `node` | the git MCP server (`tools/git-mcp/server.js`) | `brew install node` |
 | `gh` | the user's own commands (agents are blocked from it); a missing login only warns | `brew install gh`, then `gh auth login`, answering **No** to "Authenticate Git with your GitHub credentials?" |
 
 ## Step 1: Read current state
@@ -156,37 +156,24 @@ Install MCP servers at user scope so they are available across all projects.
 
 ### Git MCP server
 
-The server provides structured git tools that replace Bash git wildcards — better input validation, structured output, and individual permission scoping.
+The toolkit's own server, `tools/git-mcp/server.js`: one node file with no dependencies, run from this checkout (resolve from this skill's location: `../../../tools/git-mcp/server.js`). It provides structured git tools that replace Bash git wildcards: validated input and individual permission scoping. Nothing is installed, pinned or downloaded, and a merge plus a pull is the update.
 
-**Run it as an installed binary, never through `npx`.** This is the fix for a measured fault, not a preference — see the diagnosis below. The pinned version is:
-
-```
-GIT_MCP_VERSION=2.15.1
-```
-
-**Step 6a — install the binary if absent.**
-
-```bash
-which git-mcp-server
-```
-
-- **Found:** check the version with `git-mcp-server --version 2>&1 | head -1` and reinstall only if it differs from the pin.
-- **Not found:** `npm i -g @cyanheads/git-mcp-server@<GIT_MCP_VERSION>`
-
-**Step 6b — assert the config invokes that binary directly.** Presence is not enough:
+**Step 6a — check the registration.** Presence is not enough: assert the command.
 
 ```bash
 claude mcp list 2>&1
 ```
 
-- **Absent:** have the user add it — `claude mcp add --scope user git-mcp -- git-mcp-server`
-- **Present as `git-mcp-server`:** correct, skip.
-- **Present as `npx …` (any form):** this is the broken shape. Have the user repair it —
+- **Absent:** have the user add it, with the checkout's absolute path filled in: `claude mcp add --scope user git-mcp -- node <checkout>/tools/git-mcp/server.js`
+- **Present as `node <checkout>/tools/git-mcp/server.js`**, for this checkout: correct, skip.
+- **Present as anything else** (another program, another path, `npx …`): have the user replace it:
   ```bash
   claude mcp remove --scope user git-mcp
-  claude mcp add --scope user git-mcp -- git-mcp-server
+  claude mcp add --scope user git-mcp -- node <checkout>/tools/git-mcp/server.js
   ```
-  Report it as `Repaired (was npx)`, never as "already installed".
+  Report it as `Repaired`, never as "already installed".
+
+Keep the name `git-mcp`: the permission rules and the hooks are keyed on it.
 
 `claude mcp add` and `claude mcp remove` are denied to agents (the template's deny list): a server
 registered under another name would bypass every name-keyed MCP rule. Give the user the commands to run with the `!`
@@ -194,19 +181,15 @@ prefix, then re-run `claude mcp list` to check. Never get around the deny with `
 
 A presence-only check is the exact defect Step 10's hook drift assertion exists to prevent, one section over: a stale entry passes a presence check while the thing it configures misbehaves. Assert the **shape**, not the key.
 
-**Step 6c — verify the one user config.** `claude mcp add --scope user` writes to `~/.claude.json`, the only user config this setup manages. Verify it afterwards:
+**Step 6b — verify the one user config.** `claude mcp add --scope user` writes to `~/.claude.json`, the only user config this setup manages. Verify it afterwards:
 
 ```bash
-grep -A4 '"git-mcp"' ~/.claude.json
+grep -A6 '"git-mcp"' ~/.claude.json
 ```
 
-It must show `"command": "git-mcp-server"`.
+It must show `"command": "node"` and the checkout's `tools/git-mcp/server.js` in `args`.
 
 **Changes take effect on restart**, and existing sessions keep their old server until then.
-
-#### Why not npx
-
-`npx -y @cyanheads/git-mcp-server@latest` was the previous instruction here: `npx` wraps the server in a parent process that does not reliably forward signals, and `@latest` re-resolves against the npm registry on every spawn, and together they caused mid-session disconnects. The installed, pinned binary has neither problem and no version drift between machines.
 
 ## Step 7: Install status line
 
@@ -641,7 +624,7 @@ Output a summary:
 ## Claude Setup Summary
 
 ### Prerequisites
-jq / node+npm / gh: all present (or: stopped at Step 0, missing <list>); gh login: ok / WARNING not logged in
+jq / node / gh: all present (or: stopped at Step 0, missing <list>); gh login: ok / WARNING not logged in
 
 ### Agents / Hooks / Skills / Rules
 
@@ -661,13 +644,12 @@ Rules rows may additionally report `Replaced file (byte-match)`. Hooks rows may 
 
 One row for the config file repaired (`~/.claude.json`), not one per server.
 
-| Server | Config file | Binary | Status |
-|--------|-------------|--------|--------|
-| git-mcp | `~/.claude.json` | `git-mcp-server` v\<pinned\> | Installed / Already correct / **Repaired (was npx)** / Skipped (error) |
+| Server | Config file | Command | Status |
+|--------|-------------|---------|--------|
+| git-mcp | `~/.claude.json` | `node <checkout>/tools/git-mcp/server.js` | Registered / Already correct / **Repaired** / Skipped (error) |
 
-`Already correct` requires the config to invoke the binary directly. An entry
-still running through `npx` is **Repaired**, never `Already installed` — that
-wording is what let the broken shape survive earlier runs of this skill.
+`Already correct` requires the config to run this checkout's server. An entry
+that runs anything else is **Repaired**, never `Already installed`.
 
 If any file was changed, say so explicitly: **restart Claude Code**, since
 running sessions keep their existing server process.

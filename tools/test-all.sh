@@ -52,6 +52,7 @@ suites() {
   suite build-redirect       0 jq                                    'bash tools/build-redirect/test-build-redirect.sh'
   suite destructive-blocker  0 bash                                  'bash tools/destructive-blocker/test-destructive-blocker.sh'
   suite gh-block             0 bash                                  'bash tools/gh-block/test-gh-block.sh'
+  suite git-mcp              0 node                                  'bash tools/git-mcp/test-server.sh'
   suite git-mcp-guard        0 bash                                  'bash tools/git-mcp-guard/test-git-mcp-guard.sh'
   suite git-mcp-redirect     0 bash                                  'bash tools/git-mcp-redirect/test-git-mcp-redirect.sh'
   suite github-mcp-guard     0 bash                                  'bash tools/github-mcp/test-guard.sh'

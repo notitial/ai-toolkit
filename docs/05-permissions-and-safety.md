@@ -130,7 +130,7 @@ MCP is not limited to git. Any tool category where a quality server exists is a 
 
 | Category | Example MCP servers | What it replaces |
 |---|---|---|
-| Git operations | `@cyanheads/git-mcp-server` | `Bash(git *)` wildcards |
+| Git operations | the toolkit's own `tools/git-mcp/server.js` | `Bash(git *)` wildcards |
 | GitHub / project management | GitHub MCP plugin | `Bash(gh *)` commands |
 | Filesystem browsing | Filesystem MCP server | `Bash(ls *)`, `Bash(find *)` |
 | Documentation lookup | Context7, custom doc servers | `Bash(curl *)` for API docs |
@@ -140,7 +140,7 @@ The pattern is consistent: identify Bash permissions that use wildcards, find or
 
 ### Migration pattern: Git (worked example)
 
-Git is the most common migration because every project uses it and a mature MCP server exists.
+Git is the most common migration because every project uses it. The toolkit ships its own small server for it ([tools/git-mcp/](../tools/git-mcp/README.md)): one node file, no dependencies.
 
 Replace Bash git permissions with their MCP equivalents in `settings.json`:
 
@@ -157,14 +157,13 @@ Replace Bash git permissions with their MCP equivalents in `settings.json`:
 
 Auto-approve the read-only MCP tools and the writes an agent needs on its own branch: `git_add`, `git_commit`, `git_branch`, `git_checkout`, `git_fetch`, `git_pull`, `git_merge`, `git_push`, `git_stash`, `git_tag`, `git_cherry_pick`, `git_rebase` and `git_reset`. An allow rule skips only the permission prompt and the auto mode classifier; PreToolUse hooks still run, so the irreversible cases stay blocked by `hooks/git-mcp-guard.sh` (a missing or relative repo path on every git tool that takes one, reads included; `git_set_working_dir` and `git_clear_working_dir` always; on push, force and delete pushes, pushes to `main`, `master` and `production`, indeterminate targets and any remote that is not configured in the repo; hard and merge resets, clean, worktree). What the guard does not cover: `git_checkout` can discard uncommitted work, branch and tag deletion and stash drop are unchecked, and the secret detector reads only the commit message, not the staged files, so a credential in a file not written through Write or Edit is caught only by the PR's secret scan. Keep `git_remote` off the list: its `set-url` mode can point `origin` at a foreign URL, and a permission rule matches the tool name, not the mode.
 
-Install the server at user scope for global availability:
+Register the server at user scope for global availability, with the absolute path of your checkout:
 
 ```bash
-npm i -g @cyanheads/git-mcp-server@2.15.1
-claude mcp add --scope user git-mcp -- git-mcp-server
+claude mcp add --scope user git-mcp -- node <checkout>/tools/git-mcp/server.js
 ```
 
-Run it as an installed binary, never through `npx -y …@latest`, which caused mid-session disconnects. [`/setup-claude`](../.claude/skills/setup-claude/SKILL.md) pins the version and checks the config.
+It runs from the checkout: nothing is installed, pinned or downloaded. Keep the name `git-mcp`: the permission rules and the hooks are keyed on it. [`/setup-claude`](../.claude/skills/setup-claude/SKILL.md) checks the config.
 
 ### Permissions alone do not steer behavior
 

@@ -20,7 +20,7 @@ Prerequisites (`/setup-claude` checks them first and stops with these hints if o
 | Tool | Needed by | Install (macOS) |
 |------|-----------|-----------------|
 | `jq` | every hook parses its input with it | recent macOS ships `/usr/bin/jq`; otherwise `brew install jq` (it must then be on the PATH Claude Code starts with: the guards fall back to `/usr/bin` only) |
-| `node` + `npm` | git-mcp-server | `brew install node` |
+| `node` | the git MCP server (`tools/git-mcp/server.js`) | `brew install node` |
 
 1. Clone this repo (https or ssh)
 2. Open it in Claude Code and run `/setup-claude`, which is idempotent, so safe to repeat
@@ -36,7 +36,7 @@ Then run `/audit-claude` in any project to evaluate its AI configuration.
 | [Hooks](hooks/) | secret-detector, secret-redact-output, destructive-blocker, gh-block, git-mcp-redirect, build-redirect, git-mcp-guard, workspace-lock-guard, protected-paths-guard, audit-logger, session-name-restore | `~/.claude/hooks/` |
 | [Skills](skills/README.md) | adr, audit-claude, feature-kickoff, fable-plan, handover, review-gate, archive-index, prep-compact, workspace-lock-protocol, eta, repo-setup, audit-repo, add-claude-review, claude-review-loop, add-build-kit, review-page | `~/.claude/skills/` |
 | [Rules](rules/) | workflow, communication, engineering-defaults, security, model-discipline (always-on); workspace-lock (conditional) | `~/.claude/rules/` |
-| [MCP server](docs/adr/0010-mcp-git-over-bash-git.md) | git-mcp: structured git tools replacing Bash git; the pinned binary (v2.15.1), registered by you with `claude mcp add --scope user` | `~/.claude.json` |
+| [MCP server](docs/adr/0010-mcp-git-over-bash-git.md) | git-mcp: structured git tools replacing Bash git; the toolkit's own server ([tools/git-mcp/](tools/git-mcp/README.md)), run from the checkout and registered by you with `claude mcp add --scope user` | `~/.claude.json` |
 | [Status line](tools/statusline.sh) | Context and rate-limit display | `~/.claude/statusline.sh` |
 | [Tool scripts](tools/README.md) | workspace-lock.sh; shell-init.zsh (loads the `ait` zsh helpers and the account launchers; your `~/.zshrc` sources it) | `~/.claude/tools/` |
 | [Permissions](docs/05-permissions-and-safety.md) | Safe defaults, hook wiring, plugin config | `~/.claude/settings.json` |
