@@ -103,9 +103,10 @@ Until the last stage merges, the code still uses typed slugs; the text above des
   carries no weight.
 - Residuals the session lock accepts:
   - A waiting session's Bash narrows: `sed -n`, `curl`, `sort`, `uniq`, `sysctl`, `log show`, the git `fetch`, `branch`,
-    `remote` and `config` read forms, and `tee` scratch writes become denies (amended 2026-11-22: `sed` without `-n`
-    takes one plain `s/x/y/` with no `w` or `e` flag, `pgrep`, `cmp` and `od` read, and a quoted-delimiter heredoc to a
-    scratch path passes, as `echo x > file` does; it used to pass into the root's `.archive/` only). It uses Read, Grep, Glob, the
+    `remote` and `config` read forms, and `tee` scratch writes become denies (amended 2026-11-22: `pgrep`, `cmp` and
+    `od` read, and a quoted-delimiter heredoc to a scratch path passes, as `echo x > file` does; it used to pass into the
+    root's `.archive/` only. `sed` without `-n` stays a deny: a substitution read needs the guard to model shell
+    quoting it does not). It uses Read, Grep, Glob, the
     Write tool for `.archive/` and the git MCP reads, as the global rules already prefer. A quoted metacharacter
     (`grep "a|b"`) is a false deny, never a false allow.
   - Nothing guards the lock folder: a holder's `git clean -fdx` or `rm -rf .workspace-lock` removes the lock and the

@@ -154,15 +154,16 @@ for c in "ls -la" "cat README.md" "head -n 20 f" "tail -f log" "grep -rn foo src
   "ls | wc -l" "cd src && ls" "git log | head -5" "grep -n 'x;y' f" "grep x f 2>/dev/null | head" "ls > /dev/null 2>&1" \
   "cat f > /tmp/out.txt" "launchctl list" "launchctl list com.example.job" "crontab -l" "pgrep -x caffeinate" \
   "pmset -g assertions" "pmset displaysleepnow" "pkill -x caffeinate" "nohup caffeinate -dims -t 3600 >/dev/null 2>&1 &" \
-  "pgrep -f 'playwright test'" "cmp a b" "od -c f" "sed 's/a/b/g' f" "sed -E 's/a+/b/' f | tr a b" "sed -n 's/a/b/2p' f"; do
+  "pgrep -f 'playwright test'" "cmp a b" "od -c f" "sed -n \"1,5p\" f" "sed -n '/foo bar/p' f" "sed -n -e '/x/p' -E f"; do
   run allow "read: $c" "$(bashjson "$W" "$c")"
 done
 for c in "touch f" "rm f" "npm test" "make" "ls | xargs rm" "echo \$(id)" "echo \`id\`" "cat <(ls)" "ls > out.txt" \
   "ls 2>&1 > out.txt" "find . -delete" "find . -exec rm {} ;" "git log --output=f" "rg --pre cat x" "git commit -m x" \
   "git -c core.pager=x log" "sed -i 's/a/b/' f" "sed -n 's/a/b/w out' f" "sed 's/a/b/w out' f" "sed 's/a/b/;w out' f" "sed 's/a/b/e' f" \
-  "sed -e 's/a/b/' -e 'w out' f" "sed 's/a\\/b/c/' f" "sed 's/a/b/' -i f" "sed 'y/a/b/' f" "sort -o out f" "sort -no out f" \
+  "sed -e 's/a/b/' -e 'w out' f" "sed 's/a\\/b/c/' f" "sed 's/a/b/' -i f" "sed 'y/a/b/' f" "sed 's/a/b/' f" "sed 's/a/b/g' f" "sort -o out f" "sort -no out f" \
   "sed \"s/a/b\${HOME:0:1}w src/p\" f" "sed -n \"/a\${HOME:0:1}w src/p\" f" "sed 's/a/b/' \${X:--i} f" "sed 's/a/b/' {-i,f}" \
-  "sed 's/a/b/'\"\$x\" f" "sed \`echo s/a/b/\` f" \
+  "sed 's/a/b/'\"\$x\" f" "sed \`echo s/a/b/\` f" "sed -n /a'b '\${HOME:0:1}' 'w\\ src/p f" "sed -n 1p * src/main.c" \
+  "sed -n -e 1p * src/main.c" "sed -n 1p \"\\\"\" -i \\\" src/main.py" "sed -n \"/a '\${HOME:0:1}' b/p\" f" "sed -n 1p ~/f" \
   "uniq in out" "sysctl -w kern.x=1" "sysctl kern.x=1" "log erase" "ulimit -n 10" "curl -o f https://example.com" \
   "curl -sO https://example.com/f" "curl -d x https://example.com" "curl --data-binary @f https://example.com" \
   "curl -F a=@f https://example.com" "curl -X POST https://example.com" "curl file:///etc/hosts" "curl https://example.com > f" \
@@ -223,6 +224,7 @@ run allow "heredoc: append to .archive/"            "$(bashjson "$W" "$(hd "$HA"
 run allow "heredoc: a trailing newline (the hook input never has one)" "$(bashjson "$W" "$(hd "$HA" 'text' 'EOF')"$'\n')"
 run allow "heredoc: overwrite with >"               "$(bashjson "$W" "$(hd "cat > $W/.archive/NOTES/new.md <<'END_1'" 'a' 'END_1')")"
 run allow "heredoc: relative path from the root"    "$(bashjson "$W" "$(hd "cat >> .archive/NOTES/log.md <<'EOF'" 'a' 'EOF')")"
+run allow "heredoc: relative path, a cd line in the body" "$(bashjson "$W" "$(hd "cat >> .archive/NOTES/log.md <<'EOF'" 'cd tools && ./run.sh' 'EOF')")"
 run allow "heredoc: body with a backslash-newline, \$(..) and a lock call" "$(bashjson "$W" "$(hd "$HA" 'a \' 'b $(id) `id`' "$LS clear --id a --holder b" 'EOF')")"
 run allow "heredoc: empty body"                     "$(bashjson "$W" "$(hd "$HA" 'EOF')")"
 run deny  "heredoc: early terminator, then a command" "$(bashjson "$W" "$(hd "$HA" 'a' 'EOF' 'rm -rf src')")"

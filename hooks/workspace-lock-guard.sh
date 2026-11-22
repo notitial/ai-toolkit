@@ -319,14 +319,13 @@ is_shaped_read() {
         *) return 1 ;;
       esac
       has_write_flag "$@" && return 1 ;;
-    sed)  # option letters from nEr only, and one script (a single -e or the first operand): either one plain
-          # s/x/y/ with flags from gIp0-9 (no w or e flag, no second command), or, under -n, one that only
-          # prints: p, q, = with line, $ or /regex/ addresses. So never -i, -I, -f or w. A word that is not
-          # wholly single-quoted may not hold $, a backtick or a brace: the shell would expand it to a / or an option.
-      _sq="^'[^']*'\$"
-      for _w in "$@"; do
-        [[ "$_w" =~ $_sq ]] || case "$_w" in *'$'*|*'`'*|*'{'*|*'}'*) return 1 ;; esac
-      done
+    sed)  # -n, option letters from nEr only, and one script (a single -e or the first operand) that only
+          # prints: p, q, = with line, $ or /regex/ addresses. So never -i, -I, -f, w or s. The words are judged
+          # after xargs removes the quotes, so the raw word list may only use quoting that xargs and bash read alike,
+          # read left to right: 'text', "text" with no $ ` \ or ", and bare _./,:=+@%- letters and digits.
+      _wd="('[^']*'|\"[^\"\$\`\\\\]*\"|[A-Za-z0-9_./,:=+@%-])+"
+      _wd="^$_wd( $_wd)*\$"
+      [[ "$*" =~ $_wd ]] || return 1
       _toks=$(printf '%s ' "$@" | xargs printf '%s\n' 2>/dev/null) || return 1
       _n=0; _have=0; _next=0; _script=""
       while IFS= read -r _w; do
@@ -340,10 +339,7 @@ is_shaped_read() {
       done <<EOT
 $_toks
 EOT
-      [ "$_have" = 1 ] && [ "$_next" = 0 ] || return 1
-      _re='^s/[^/\\]*/[^/\\]*/[gIp0-9]*$'
-      case "$_script" in s*) [[ "$_script" =~ $_re ]] || return 1; return 0 ;; esac
-      [ "$_n" = 1 ] || return 1
+      [ "$_n" = 1 ] && [ "$_have" = 1 ] && [ "$_next" = 0 ] || return 1
       _rest=$(printf '%s' "$_script" | sed -E 's#/[^/]*/##g')
       case "$_rest" in *[!0-9,\$\!pq=\;[:space:]]*) return 1 ;; esac ;;
     sort) # never an output file, temp dir or compress program, however the long option is abbreviated
@@ -640,7 +636,7 @@ scratch_heredoc() {
   [[ "${_c%%$'\n'*}" =~ $_re ]] || return 1
   _hd_path=${BASH_REMATCH[2]}; _hd_tag=${BASH_REMATCH[3]}
   case "$_hd_path" in */) return 1 ;; esac   # a folder; scratch_path refuses ..
-  scratch_path "$_hd_path" || return 1
+  CD_SEEN=0 scratch_path "$_hd_path" || return 1   # no cd fits the first line; a cd in the body is text
   _hd_body=${_c#*$'\n'}
   _hd_end=0
   while IFS= read -r _hd_line; do
