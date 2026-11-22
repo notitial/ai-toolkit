@@ -53,7 +53,7 @@ Links to external tools, repos, or services go stale. Internal cross-references 
 
 - **PASS** — Cross-references to other docs: `See [01-project-instructions.md](01-project-instructions.md)`
 - **FLAG** — Links to external URLs: `[github.com/example/tool](https://github.com/example/tool)`
-- **INFO** — Installation commands that reference package names are acceptable (e.g., `npm i -g @cyanheads/git-mcp-server@2.15.1`, the pinned install from setup-claude Step 6) — the command is actionable even if the package evolves
+- **INFO** — Installation commands that reference package names are acceptable (e.g., `brew install jq`, or an `npm i -g <package>@<version>` line) — the command is actionable even if the package evolves
 
 ### Check 5: Transferable concepts over tool mechanics
 

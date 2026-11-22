@@ -12,7 +12,7 @@
 #                       (kept by default; /setup-claude puts them back). --include-deny is the same flag, old name
 #   --verbose           list every settings value path that goes (paths only, never values)
 # Never touched: login, Keychain items, transcripts, session registry, CLAUDE.md, settings backups, the checkout.
-# Never run for you: sudo, `claude mcp remove`, npm -g, Keychain deletes. Those are printed as commands.
+# Never run for you: sudo, `claude mcp remove`, Keychain deletes. Those are printed as commands.
 # Test hooks, honoured only with CLEANUP_TESTING=1: CLEANUP_HOME (instead of $HOME), CLEANUP_LIBEXEC (instead of
 # /usr/local/libexec), CLEANUP_ZDOTDIR (instead of $ZDOTDIR, which is then ignored), CLEANUP_NO_LAUNCHCTL=1. Without
 # it they are unset, so a stray exported variable cannot retarget a run.
@@ -484,9 +484,6 @@ mcp_check() {  # mcp_check <.claude.json>: reads only whether a server of that n
   done
 }
 mcp_check "$HOME_DIR/.claude.json"
-if command -v git-mcp-server >/dev/null 2>&1; then
-  manual "git-mcp-server global npm package" "npm rm -g @cyanheads/git-mcp-server"
-fi
 manual "optional, credentials: the toolkit's Keychain items are left alone. Delete only if you want them gone" "security delete-generic-password -s mcp-github"
 
 echo "== never touched"
