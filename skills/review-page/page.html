@@ -256,15 +256,17 @@ window.REVIEW = {
   function layout() {
     const w = S.ctl.width, hh = HEIGHT[w], per = PER_ROW[w], full = S.zoom === '100';
     // Columns: a row holds up to PER_ROW frames and each frame needs MIN_COL. An option with k frames counts as k.
-    // At 100% a Phone or Tablet frame needs its real width so it is not cropped; a Laptop frame scrolls sideways.
-    const need = full && w < WIDTHS[2][0] ? w : MIN_COL;
+    // At 100% a Phone or Tablet frame needs its real width plus its own 1 px borders so it is not cropped, and its card
+    // needs 26 px more (12 px padding and 1 px border each side); a Laptop frame scrolls sideways.
+    const real = full && w < WIDTHS[2][0];
+    const need = real ? w + 2 : MIN_COL, chrome = real ? 26 : 0;
     const cols = (box, units, perRow, need) => {
       const n = Math.max(1, Math.min(units, perRow, Math.floor((box.clientWidth + GAP) / (need + GAP))));
       box.style.gridTemplateColumns = 'repeat(' + n + ', minmax(0, 1fr))';
     };
     document.querySelectorAll('.grid').forEach((g) => {
       const k = +g.dataset.k;
-      cols(g, g.children.length, Math.floor(per / k), k * need + (k - 1) * GAP);
+      cols(g, g.children.length, Math.floor(per / k), k * need + (k - 1) * GAP + chrome);
     });
     // Frames inside a card fill the card; frames directly in a section keep PER_ROW columns, so a lone one stays small.
     document.querySelectorAll('.frames').forEach((b) => cols(b, b.closest('.card') ? b.children.length : per, per, need));
