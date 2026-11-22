@@ -22,7 +22,7 @@ Two conventions run through the steps:
 | 1 | Create the repo in the org, private | owner | reference deployment, "GitHub plan" |
 | 2 | Repo settings: squash merge only, update-branch on, head branches auto-deleted | owner | reference deployment; CLAUDE.md "Git Conventions" |
 | 3 | CI workflow: one job per package (typecheck, lint, test), on the right runners | files | the app template in the reference deployment |
-| 4 | Secret scanning and pre-commit hooks | files | [tools/gitleaks/](../tools/gitleaks/README.md); [pre-commit config](../skills/repo-setup/pre-commit-config.yaml) |
+| 4 | Secret scanning and pre-commit hooks | files | [tools/gitleaks/](../tools/gitleaks/README.md); [pre-commit config](../tools/gitleaks/.pre-commit-config.yaml) |
 | 5 | PR title check | files | an existing app repo's `pr-title.yml` |
 | 6 | PR description template | files | an existing app repo's `.github/pull_request_template.md` |
 | 7 | CLAUDE.md conventions and a Review section | files | [01](01-project-instructions.md), [06](06-repo-initialization.md), this toolkit's CLAUDE.md ("Git Conventions") |
@@ -57,7 +57,7 @@ Two conventions run through the steps:
 ### 4. Secret scanning and pre-commit hooks
 
 - A `secret-scan.yml` caller workflow, SHA-pinned to the org's reusable gitleaks workflow (the binary pinned by version and SHA-256), plus a `.pre-commit-config.yaml` at the repo root (below). The job `Secret Scan / gitleaks` is a required check (step 8): name the caller job `Secret Scan`, so the check name is the same in every repo. Why: a secret pushed to a branch is in history even after a fix commit; the scan fails the PR before it reaches `main`. The pattern, the workflow and how to bump the pin: [tools/gitleaks/](../tools/gitleaks/README.md).
-- **Pre-commit hooks.** Copy [the pre-commit config](../skills/repo-setup/pre-commit-config.yaml). A hook is early feedback only (`git commit --no-verify` skips it), so a check that must bind also runs in CI, under the same name in both places: `gitleaks` is the hook id and the called job's name. The standard is the `gitleaks` hook alone. Add a hook to the config only with its CI twin, or a reason it needs none.
+- **Pre-commit hooks.** Copy [the pre-commit config](../tools/gitleaks/.pre-commit-config.yaml). A hook is early feedback only (`git commit --no-verify` skips it), so a check that must bind also runs in CI, under the same name in both places: `gitleaks` is the hook id and the called job's name. The standard is the `gitleaks` hook alone. Add a hook to the config only with its CI twin, or a reason it needs none.
 - **Optional: no hosted `runs-on`.** In a repo that must use its own runners (step 3), a local hook fails a hosted label before the push. The kit bakes in no labels: the pattern below matches only GitHub's hosted image names, so it also catches a hosted fallback inside an expression. It skips `claude-review.yml`, the kit's caller: its `runs-on` input is only a fallback, and the kit takes its runners from the kit's variable when that is set (step 3). It is early feedback like every hook.
 
   ```yaml

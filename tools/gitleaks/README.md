@@ -92,7 +92,7 @@ jobs:
 
 ## The pre-commit hook
 
-[`.pre-commit-config.yaml`](.pre-commit-config.yaml) is the canonical copy; copy it to the repo root unchanged. A repo set up with `/repo-setup` copies [`skills/repo-setup/pre-commit-config.yaml`](../../skills/repo-setup/pre-commit-config.yaml), which holds the same gitleaks hook.
+[`.pre-commit-config.yaml`](.pre-commit-config.yaml) is the canonical copy; copy it to the repo root unchanged. `/repo-setup` and `/audit-repo` use this file too.
 
 - Hook id `gitleaks`: pre-commit builds the pinned tag from source, so the first commit needs Go.
 - Install per clone: `brew install pre-commit`, then `pre-commit install`.
@@ -102,7 +102,7 @@ jobs:
 
 1. Pick the release and download its `gitleaks_<version>_checksums.txt` from the release page.
 2. Take the `linux_x64` tarball's sha256 from that file. Download the tarball too and hash it (`shasum -a 256`); the two must match.
-3. Change `GITLEAKS_VERSION` and `GITLEAKS_SHA256` in the reusable workflow; change `rev` in every `.pre-commit-config.yaml` and in the repo-setup copy, `skills/repo-setup/pre-commit-config.yaml`.
+3. Change `GITLEAKS_VERSION` and `GITLEAKS_SHA256` in the reusable workflow; change `rev` in every `.pre-commit-config.yaml`, this folder's canonical copy included.
 4. Merge the workflow change, then raise each caller's commit SHA.
 
 ## False positives
