@@ -265,7 +265,8 @@ class FakeGitHub:
             return 200, {"data": {"node": {
                 "isResolved": th["isResolved"],
                 "pullRequest": {"number": th["number"], "repository": {"nameWithOwner": th.get("repo", "o/r")}},
-                "first": {"nodes": [{"fullDatabaseId": first["fullDatabaseId"], "author": first["author"]}]},
+                "first": {"nodes": [{"fullDatabaseId": first["fullDatabaseId"], "author": first["author"],
+                                     "body": first["body"]}]},
                 "last": {"nodes": [{"fullDatabaseId": last["fullDatabaseId"], "author": last["author"],
                                     "body": last["body"]}]}}}}, headers({})
         if "headRefOid" in q:

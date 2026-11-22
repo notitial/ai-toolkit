@@ -130,12 +130,39 @@ class Collect(unittest.TestCase):
         self.gh.threads[suggestion]["isResolved"] = True   # a person's "won't do": still context, so no second suggestion
         _, threads = self.collect()
         self.assertEqual([t["thread_id"] for t in threads["raised"]], [suggestion])
-        self.gh.threads[blocking]["isResolved"] = True   # only the suggestion left: nothing to follow up
+        self.gh.threads[blocking]["isResolved"] = True
+        self.gh.threads[suggestion]["isResolved"] = False   # only an unanswered suggestion left: nothing to judge
         outputs, threads = self.collect(mode="followup")
         self.assertEqual((outputs.get("covered"), threads["open"]), ("true", []))
+        self.assertNotIn("suggestion_ids", outputs)   # no reply, so nothing to resolve
+        self.assertIn("No finding thread to follow up; 1 suggestion thread(s) are never judged", self.log)
+        self.gh.threads[suggestion]["isResolved"] = True   # a resolved suggestion only: the ordinary "covered"
+        self.assertEqual(self.collect(mode="followup")[0].get("covered"), "true")
+        self.assertIn("This head was already covered", self.log)
+
+    def test_an_answered_suggestion_is_queued_for_publish_in_a_followup(self):
+        suggestion = self.gh.add_thread(bot(APP), "<!-- claude-review:suggestion -->\nFold it.")
+        self.gh.thread_comment(suggestion, user("author"), "Done in abc.")
+        outputs, threads = self.collect(mode="followup")
+        self.assertEqual((outputs.get("covered"), json.loads(outputs["suggestion_ids"])), ("true", [suggestion]))
+        self.assertEqual([t["thread_id"] for t in threads["raised"]], [suggestion])   # still context, never judged
+        self.assertIn("Queued 1 answered suggestion thread(s) for publish to resolve", self.log)
+        self.assertNotIn("suggestion_ids", self.collect()[0])   # a rereview leaves it alone
+        self.gh.head = OLD   # the PR moved after the checkout: publish would not write, so nothing is queued
+        self.assertNotIn("suggestion_ids", self.collect(mode="followup")[0])
+
+    def test_an_answered_suggestion_beside_a_finding_is_queued_and_the_finding_still_judged(self):
+        suggestion = self.gh.add_thread(bot(APP), "<!-- claude-review:suggestion -->\nFold it.")
+        self.gh.thread_comment(suggestion, user("author"), "Declined: it is clearer as is.")
+        finding = self.gh.add_thread(bot(APP), "A bug.")
+        outputs, threads = self.collect(mode="followup")
+        self.assertEqual([t["thread_id"] for t in threads["open"]], [finding])
+        self.assertNotIn("covered", outputs)
+        self.assertEqual(json.loads(outputs["suggestion_ids"]), [suggestion])
 
     def test_followup_with_nothing_open_is_covered(self):
         self.assertEqual(self.collect(mode="followup")[0].get("covered"), "true")
+        self.assertIn("This head was already covered", self.log)
 
 
 if __name__ == "__main__":

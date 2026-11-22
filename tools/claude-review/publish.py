@@ -333,7 +333,7 @@ query($id: ID!) {
     ... on PullRequestReviewThread {
       isResolved
       pullRequest { number repository { nameWithOwner } }
-      first: comments(first: 1) { nodes { fullDatabaseId author { __typename login } } }
+      first: comments(first: 1) { nodes { fullDatabaseId author { __typename login } body } }
       last: comments(last: 1) { nodes { fullDatabaseId author { __typename login } body } }
     }
   }
@@ -414,6 +414,35 @@ def reply_in_threads(ctx, items):
                 to_resolve.append(thread_id)
         except ERRORS as e:
             ctx.fail("A thread reply", e)
+    return to_resolve
+
+
+SUGGESTION_REPLY = "Noted. A suggestion is non-blocking, so this thread is resolved."
+
+
+def answer_suggestions(ctx, ids):
+    """Replies to each suggestion thread someone answered (App token) and returns the ids to resolve. A suggestion never
+    blocks, so any reply settles it and no judge reads it. Only a thread the App started with the suggestion marker."""
+    to_resolve = []
+    for thread_id in dict.fromkeys(ids):
+        try:
+            node = open_thread(ctx, thread_id)
+            if not node:
+                continue
+            first, last = node["first"]["nodes"][0], node["last"]["nodes"][0]
+            if not (first.get("body") or "").startswith(SUGGESTION_MARKER):
+                ctx.skip("not a suggestion thread")
+                continue
+            if int(last["fullDatabaseId"]) == int(first["fullDatabaseId"]):
+                ctx.skip("suggestion not answered")
+                continue
+            if marker_verdict(ctx, last, ctx.head)[0] != "resolved":   # else replied before, but the resolve failed
+                rest(ctx, "POST", f"/repos/{ctx.repo}/pulls/{ctx.number}/comments/{int(first['fullDatabaseId'])}/replies",
+                     {"body": reply_text(ctx, SUGGESTION_REPLY, "resolved", ctx.head)})
+                ctx.counts["replied"] += 1
+            to_resolve.append(thread_id)
+        except ERRORS as e:
+            ctx.fail("A suggestion reply", e)
     return to_resolve
 
 
@@ -739,6 +768,10 @@ def publish(ctx):
         return
 
     data, retry, incomplete = None, [], False
+    answered = parse_ids(ctx.env.get("SUGGESTION_IDS", ""))
+    if answered is None:
+        print("::warning::The answered-suggestion list is malformed: no suggestion thread is resolved")
+        answered = []
     if ctx.env.get("HAS_RESULT") == "true":
         data, why = load_result(ctx.env.get("RESULT_FILE", ""))
         if why == "missing":
@@ -759,8 +792,10 @@ def publish(ctx):
             return
         if not retry:
             print("Claude ran but returned no result: no verdict" if ctx.env.get("RAN") == "true"
-                  else "Nothing to publish: this head was already covered")
-            return
+                  else "Nothing to publish: this head was already covered" if not answered
+                  else "This head was already covered: only answered suggestions to resolve")
+            if not answered:
+                return
     if ctx.mode not in MODES or not re.fullmatch(r"[0-9a-f]{40}", ctx.head) or not ctx.run_id.isdigit() \
             or not ctx.attempt.isdigit():
         print("No verdict: the review job's outputs are missing or malformed")
@@ -781,11 +816,13 @@ def publish(ctx):
     suggested = data.get("suggestions", []) if full and not data["stopped"] else []
 
     # Replies, then resolve: resolve keys on the reply's marker.
-    to_resolve = list(retry)
+    to_resolve = list(retry) + answer_suggestions(ctx, answered)
     if data is not None and data["threads"] and ctx.mode != "initial" and not incomplete:
         to_resolve += reply_in_threads(ctx, data["threads"])
     if to_resolve:
         resolve_threads(ctx, to_resolve)
+    if data is None and not retry:
+        return   # answered suggestions only: nothing was judged, so the verdict and the overview stay as they are
     # The run marker on a review is the only idempotency key: a run that finds its own review stops. The thread writes
     # above are idempotent, so a re-run still finishes a reply or a resolve that failed.
     try:
