@@ -153,12 +153,14 @@ for c in "ls -la" "cat README.md" "head -n 20 f" "tail -f log" "grep -rn foo src
   "curl -sX GET https://example.com" "curl -sXGET https://example.com" "ls # a comment; rm -rf x" \
   "ls | wc -l" "cd src && ls" "git log | head -5" "grep -n 'x;y' f" "grep x f 2>/dev/null | head" "ls > /dev/null 2>&1" \
   "cat f > /tmp/out.txt" "launchctl list" "launchctl list com.example.job" "crontab -l" "pgrep -x caffeinate" \
-  "pmset -g assertions" "pmset displaysleepnow" "pkill -x caffeinate" "nohup caffeinate -dims -t 3600 >/dev/null 2>&1 &"; do
+  "pmset -g assertions" "pmset displaysleepnow" "pkill -x caffeinate" "nohup caffeinate -dims -t 3600 >/dev/null 2>&1 &" \
+  "pgrep -f 'playwright test'" "cmp a b" "od -c f" "sed 's/a/b/g' f" "sed -E 's/a+/b/' f | tr a b" "sed -n 's/a/b/2p' f"; do
   run allow "read: $c" "$(bashjson "$W" "$c")"
 done
 for c in "touch f" "rm f" "npm test" "make" "ls | xargs rm" "echo \$(id)" "echo \`id\`" "cat <(ls)" "ls > out.txt" \
   "ls 2>&1 > out.txt" "find . -delete" "find . -exec rm {} ;" "git log --output=f" "rg --pre cat x" "git commit -m x" \
-  "git -c core.pager=x log" "sed -i 's/a/b/' f" "sed -n 's/a/b/w out' f" "sed 's/a/b/' f" "sort -o out f" "sort -no out f" \
+  "git -c core.pager=x log" "sed -i 's/a/b/' f" "sed -n 's/a/b/w out' f" "sed 's/a/b/w out' f" "sed 's/a/b/;w out' f" "sed 's/a/b/e' f" \
+  "sed -e 's/a/b/' -e 'w out' f" "sed 's/a\\/b/c/' f" "sed 's/a/b/' -i f" "sed 'y/a/b/' f" "sort -o out f" "sort -no out f" \
   "uniq in out" "sysctl -w kern.x=1" "sysctl kern.x=1" "log erase" "ulimit -n 10" "curl -o f https://example.com" \
   "curl -sO https://example.com/f" "curl -d x https://example.com" "curl --data-binary @f https://example.com" \
   "curl -F a=@f https://example.com" "curl -X POST https://example.com" "curl file:///etc/hosts" "curl https://example.com > f" \
@@ -243,8 +245,11 @@ run deny  "heredoc: a command in front"             "$(bashjson "$W" "$(hd "cd s
 run deny  "heredoc: a command after the redirect"   "$(bashjson "$W" "$(hd "cat >> $W/.archive/NOTES/log.md <<'EOF' x" 'a' 'EOF')")"
 run deny  "heredoc: tee"                            "$(bashjson "$W" "$(hd "tee -a $W/.archive/NOTES/log.md <<'EOF'" 'a' 'EOF')")"
 run deny  "heredoc: a blank line before the cat"    "$(bashjson "$W" $'\n'"$(hd "$HA" 'a' 'EOF')")"
-run deny  "heredoc: target in /tmp"                 "$(bashjson "$W" "$(hd "cat >> /tmp/log.md <<'EOF'" 'a' 'EOF')")"
-run deny  "heredoc: another repo's .archive/"       "$(bashjson "$W" "$(hd "cat >> $SANDBOX/elsewhere/.archive/log.md <<'EOF'" 'a' 'EOF')")"
+run allow "heredoc: target in /tmp (a scratch path, as for echo > file)" "$(bashjson "$W" "$(hd "cat >> /tmp/log.md <<'EOF'" 'a' 'EOF')")"
+run allow "heredoc: another repo's .archive/ (scratch, as the Edit tool's exemption)" "$(bashjson "$W" "$(hd "cat >> $SANDBOX/elsewhere/.archive/log.md <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: .. out of /tmp"                 "$(bashjson "$W" "$(hd "cat > /tmp/../x <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: a home folder, not scratch"     "$(bashjson "$W" "$(hd "cat > $HOME/lockguard-x.md <<'EOF'" 'a' 'EOF')")"
+run deny  "heredoc: a relative path into the workspace" "$(bashjson "$W" "$(hd "cat > docs/y.md <<'EOF'" 'a' 'EOF')")"
 run deny  "heredoc: a src file inside the workspace" "$(bashjson "$W" "$(hd "cat >> $W/src/.archive/log.md <<'EOF'" 'a' 'EOF')")"
 run deny  "heredoc: .. out of .archive/"            "$(bashjson "$W" "$(hd "cat >> $W/.archive/../src/x <<'EOF'" 'a' 'EOF')")"
 run deny  "heredoc: .. in the middle"               "$(bashjson "$W" "$(hd "cat >> $W/.archive/NOTES/../../src/x <<'EOF'" 'a' 'EOF')")"
