@@ -213,7 +213,7 @@ for c in "git fetch origin x:main" "git fetch origin +main" "git fetch origin +x
   run deny "git write form: $c" "$(bashjson "$W" "$c")"
 done
 
-# --- Heredoc into the workspace's own .archive/
+# --- Heredoc to a scratch path (the workspace's own .archive/, a temp dir, another folder's .archive/)
 mkdir -p "$W/.archive/NOTES" "$SANDBOX/elsewhere/.archive"
 hd() {  # hd <first line> [body lines...]: the command text, no trailing newline
   local first=$1; shift

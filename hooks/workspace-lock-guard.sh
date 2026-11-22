@@ -608,7 +608,7 @@ all_reads() {
     [ $# -gt 0 ] || continue
     is_exact_read "$@" && continue
     case "$1" in
-      sed) set -- $_seg; is_shaped_read "$@" && continue; REASON="shape:sed"; return 1 ;;  # sed reads its quoted script itself
+      sed) set -- $_seg; is_shaped_read "$@" && continue; REASON="shape:sed"; return 1 ;;  # raw words: the sed arm checks their quoting
       git|sort|uniq|sysctl|log|/usr/bin/log|ulimit|curl)
         is_shaped_read "$@" && continue
         REASON="shape:$1"; return 1 ;;

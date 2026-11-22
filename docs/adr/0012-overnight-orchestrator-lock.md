@@ -102,8 +102,8 @@ Until the last stage merges, the code still uses typed slugs; the text above des
 - Clearing a lock is a recovery the user approves, not a pattern for risk-topic actions, where a relayed approval
   carries no weight.
 - Residuals the session lock accepts:
-  - A waiting session's Bash narrows: `sed -n`, `curl`, `sort`, `uniq`, `sysctl`, `log show`, the git `fetch`, `branch`,
-    `remote` and `config` read forms, and `tee` scratch writes become denies (amended 2026-11-22: `pgrep`, `cmp` and
+  - A waiting session's Bash narrows: only the read forms of `sed -n`, `curl`, `sort`, `uniq`, `sysctl`, `log show` and
+    the git `fetch`, `branch`, `remote` and `config` pass, and `tee` scratch writes become denies (amended 2026-11-22: `pgrep`, `cmp` and
     `od` read, and a quoted-delimiter heredoc to a scratch path passes, as `echo x > file` does; it used to pass into the
     root's `.archive/` only. `sed` without `-n` stays a deny: a substitution read needs the guard to model shell
     quoting it does not). It uses Read, Grep, Glob, the
