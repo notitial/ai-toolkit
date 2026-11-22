@@ -57,17 +57,7 @@ Two conventions run through the steps:
 ### 4. Secret scanning and pre-commit hooks
 
 - A `secret-scan.yml` caller workflow, SHA-pinned to the org's reusable gitleaks workflow (the binary pinned by version and SHA-256), plus a `.pre-commit-config.yaml` at the repo root (below). The job `Secret Scan / gitleaks` is a required check (step 8): name the caller job `Secret Scan`, so the check name is the same in every repo. Why: a secret pushed to a branch is in history even after a fix commit; the scan fails the PR before it reaches `main`. The pattern, the workflow and how to bump the pin: [tools/gitleaks/](../tools/gitleaks/README.md).
-- **Pre-commit hooks.** Copy [the pre-commit config](../skills/repo-setup/pre-commit-config.yaml). A hook is early feedback only (`git commit --no-verify` skips it), so a check that must bind also runs in CI, under the same name in both places: `gitleaks` is the hook id and the called job's name. The default set is small and runs in about a second on a typical change:
-
-  | Hook | Why | In CI too |
-  |---|---|---|
-  | `gitleaks` | a secret committed once stays in history | yes: `Secret Scan / gitleaks` |
-  | `check-merge-conflict` | a leftover `<<<<<<<` marker is cheap to catch and easy to miss in review | no |
-  | `check-added-large-files` | a large file added once stays in history; the limit is 500 KB, raise it per repo | no |
-  | `check-yaml` | an invalid YAML file breaks CI or a config at runtime | no: the file's own consumer fails on a bad one |
-  | `actionlint` | a bad workflow expression fails only on GitHub, after the push | no: the workflow run itself fails at once |
-
-  Left out on purpose: `detect-private-key` (gitleaks has a private-key rule), `check-json` (a bad JSON file fails the first test or build that reads it), `shellcheck` (add it in a repo with shell scripts, from a pinned release of a shellcheck package; it needs a clean baseline first), and anything that rewrites files (`black`, `prettier`, `end-of-file-fixer`): formatters belong to each repo's lint job. Add a hook to the config only with its CI twin, or a reason it needs none.
+- **Pre-commit hooks.** Copy [the pre-commit config](../skills/repo-setup/pre-commit-config.yaml). A hook is early feedback only (`git commit --no-verify` skips it), so a check that must bind also runs in CI, under the same name in both places: `gitleaks` is the hook id and the called job's name. The standard is the `gitleaks` hook alone. Add a hook to the config only with its CI twin, or a reason it needs none.
 - **Optional: no hosted `runs-on`.** In a repo that must use its own runners (step 3), a local hook fails a hosted label before the push. The kit bakes in no labels: the pattern below matches only GitHub's hosted image names, so it also catches a hosted fallback inside an expression. It skips `claude-review.yml`, the kit's caller: its `runs-on` input is only a fallback, and the kit takes its runners from the kit's variable when that is set (step 3). It is early feedback like every hook.
 
   ```yaml

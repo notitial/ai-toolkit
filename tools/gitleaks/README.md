@@ -92,7 +92,7 @@ jobs:
 
 ## The pre-commit hook
 
-[`.pre-commit-config.yaml`](.pre-commit-config.yaml) is the canonical copy; copy it to the repo root unchanged. A repo set up with `/repo-setup` copies [`skills/repo-setup/pre-commit-config.yaml`](../../skills/repo-setup/pre-commit-config.yaml) instead: the same gitleaks hook plus a few small checks.
+[`.pre-commit-config.yaml`](.pre-commit-config.yaml) is the canonical copy; copy it to the repo root unchanged. A repo set up with `/repo-setup` copies [`skills/repo-setup/pre-commit-config.yaml`](../../skills/repo-setup/pre-commit-config.yaml), which holds the same gitleaks hook.
 
 - Hook id `gitleaks`: pre-commit builds the pinned tag from source, so the first commit needs Go.
 - Install per clone: `brew install pre-commit`, then `pre-commit install`.
