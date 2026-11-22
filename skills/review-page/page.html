@@ -56,6 +56,7 @@
   .ltr { display: inline-grid; place-items: center; min-width: 28px; height: 28px; padding: 0 6px; border-radius: 8px; background: var(--fg); color: var(--bg); font-size: 13px; font-weight: 600; }
   .blurb { color: var(--mut); margin: 2px 0 8px; font-size: 15px; }
   .pvwrap { position: relative; box-sizing: content-box; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; }
+  .pvwrap.full { overflow-x: auto; overflow-y: hidden; }
   .pvwrap iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; background: Canvas; }
   .nopv { border: 2px dashed var(--line); border-radius: 8px; color: var(--mut); padding: 32px 12px; text-align: center; }
   .cap { color: var(--mut); font-size: 13px; margin: 4px 0 8px; word-break: break-all; }
@@ -71,6 +72,7 @@
   .yn { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
   label.n { display: block; font-size: 14px; color: var(--mut); margin-bottom: 2px; }
   .banner { background: var(--warnbg); color: var(--warn); border: 1px solid var(--warn); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; }
+  .picks { margin: 8px 0 24px; padding-left: 20px; }
   #out textarea { font: 13px/1.4 ui-monospace, Menlo, monospace; min-height: 220px; }
   #out .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
   #out .row .reset { margin-left: auto; }
@@ -153,7 +155,7 @@ window.REVIEW = {
   'use strict';
   const WIDTHS = [[390, 'Phone'], [768, 'Tablet'], [1280, 'Laptop']];
   const HEIGHT = { 390: 780, 768: 1024, 1280: 800 };
-  const PER_ROW = { 390: 3, 768: 2, 1280: 3 };
+  const PER_ROW = { 390: 4, 768: 2, 1280: 4 };
   const MIN_COL = 260, GAP = 16;
   const R = window.REVIEW;
   const app = document.getElementById('app'), bar = document.getElementById('bar');
@@ -193,7 +195,7 @@ window.REVIEW = {
   // State, kept per file path (file:// storage is shared by every local page).
   const KEY = 'review-page:' + decodeURIComponent(location.pathname);
   const PAGE = decodeURIComponent(location.pathname).split('/').pop().replace(/\.html?$/, '');
-  const dflt = () => ({ picks: Object.assign({}, R.seed), notes: {}, general: '', ctl: Object.assign({ theme: 'device', width: 390 }, ...ctls.map((c) => ({ [c.id]: c.values[0][0] }))) });
+  const dflt = () => ({ picks: Object.assign({}, R.seed), notes: {}, general: '', zoom: 'fit', ctl: Object.assign({ theme: 'device', width: 390 }, ...ctls.map((c) => ({ [c.id]: c.values[0][0] }))) });
   let S = load(), noStore = false;
   function load() {
     const s = dflt();
@@ -204,6 +206,7 @@ window.REVIEW = {
       for (const id in r.picks || {}) if (okPick(id, r.picks[id])) s.picks[id] = r.picks[id];
       for (const k in r.notes || {}) if (typeof r.notes[k] === 'string') s.notes[k] = r.notes[k];
       if (typeof r.general === 'string') s.general = r.general;
+      if (r.zoom === '100') s.zoom = '100';
       const c = r.ctl || {};
       if (['device', 'light', 'dark'].includes(c.theme)) s.ctl.theme = c.theme;
       if (HEIGHT[c.width]) s.ctl.width = c.width;
@@ -251,20 +254,25 @@ window.REVIEW = {
     sync();
   }
   function layout() {
-    const w = S.ctl.width, hh = HEIGHT[w], per = PER_ROW[w];
+    const w = S.ctl.width, hh = HEIGHT[w], per = PER_ROW[w], full = S.zoom === '100';
     // Columns: a row holds up to PER_ROW frames and each frame needs MIN_COL. An option with k frames counts as k.
+    // At 100% a Phone or Tablet frame needs its real width so it is not cropped; a Laptop frame scrolls sideways.
+    const need = full && w < WIDTHS[2][0] ? w : MIN_COL;
     const cols = (box, units, perRow, need) => {
       const n = Math.max(1, Math.min(units, perRow, Math.floor((box.clientWidth + GAP) / (need + GAP))));
       box.style.gridTemplateColumns = 'repeat(' + n + ', minmax(0, 1fr))';
     };
     document.querySelectorAll('.grid').forEach((g) => {
       const k = +g.dataset.k;
-      cols(g, g.children.length, Math.floor(per / k), k * MIN_COL + (k - 1) * GAP);
+      cols(g, g.children.length, Math.floor(per / k), k * need + (k - 1) * GAP);
     });
-    document.querySelectorAll('.frames').forEach((b) => cols(b, per, per, MIN_COL));
+    // Frames inside a card fill the card; frames directly in a section keep PER_ROW columns, so a lone one stays small.
+    document.querySelectorAll('.frames').forEach((b) => cols(b, b.closest('.card') ? b.children.length : per, per, need));
     document.querySelectorAll('.pvwrap').forEach((p) => {
-      const s = Math.min(1, p.clientWidth / w), f = p.firstChild;
-      p.style.height = Math.round(hh * s) + 'px';
+      // Fit scales the frame down to its column; 100% keeps the real width and scrolls sideways in the column.
+      const s = full ? 1 : Math.min(1, p.clientWidth / w), f = p.firstChild;
+      p.classList.toggle('full', full);
+      p.style.height = Math.round(hh * s) + (full && p.clientWidth < w ? 16 : 0) + 'px';
       f.style.width = w + 'px';
       f.style.height = hh + 'px';
       f.style.transform = 'scale(' + s + ')';
@@ -300,6 +308,7 @@ window.REVIEW = {
   const copied = h('span', { 'aria-live': 'polite' });
   const heading = h('h2');
   const nav = h('ol');
+  const picksList = h('ul', { class: 'picks' });
   const pickBtns = {};
   let LAB = [];
 
@@ -309,6 +318,10 @@ window.REVIEW = {
     heading.textContent = 'Paste this back into the chat (' + n + ' of ' + asked.length + ' answered)';
     json.value = JSON.stringify(o, null, 2);
     nav.querySelectorAll('a').forEach((a, i) => a.classList.toggle('done', !!S.picks[secs[i].id]));
+    picksList.replaceChildren(...asked.map((s) => {
+      const k = o.picks[s.id], op = s.opts && s.opts.find((x) => x.k === k);
+      return h('li', null, h('b', null, LAB[secs.indexOf(s)] + ': '), k ? (op ? k + ' (' + op.t + ')' : k) : 'not answered yet');
+    }));
     for (const id in pickBtns) for (const k in pickBtns[id]) {
       const b = pickBtns[id][k], on = S.picks[id] === k;
       b.setAttribute('aria-pressed', String(on));
@@ -378,6 +391,7 @@ window.REVIEW = {
     const w = h('div', { class: 'groups' },
       seg('Theme', [['device', 'Device'], ['light', 'Light'], ['dark', 'Dark']], () => S.ctl.theme, ctl('theme')),
       seg('Width', WIDTHS, () => S.ctl.width, ctl('width')),
+      seg('Zoom', [['fit', 'Fit'], ['100', '100%']], () => S.zoom, (v) => { S.zoom = v; save(); layout(); }),
       ctls.map((c) => seg(c.label, c.values, () => S.ctl[c.id], ctl(c.id))));
     bar.replaceChildren(h('button', { type: 'button', id: 'fold', 'aria-expanded': 'false', onclick: (e) => { bar.classList.toggle('open'); e.target.setAttribute('aria-expanded', String(bar.classList.contains('open'))); } }, 'Controls'), w, count);
     app.append(notice, h('h1', null, R.title || 'Review'), h('div', { class: 'intro' }, (R.intro || []).map((t) => h('p', null, t))));
@@ -387,6 +401,7 @@ window.REVIEW = {
     nav.replaceChildren(...secs.map((s, i) => h('li', null, h('a', { href: '#s-' + s.id }, LAB[i]))));
     app.append(h('nav', { 'aria-label': 'Questions' }, nav), ...secs.map(section),
       h('section', { id: 'out' },
+        h('h2', null, 'Your picks'), picksList,
         h('h2', null, 'Notes on the whole page'),
         h('label', { class: 'n', for: 'general' }, 'Anything that does not belong to one question'),
         h('textarea', { id: 'general', placeholder: 'Anything about the page as a whole?', value: S.general, oninput: (e) => { S.general = e.target.value; change(); } }),
