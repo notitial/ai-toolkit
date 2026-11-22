@@ -13,9 +13,10 @@
 #     the push writes refs and objects there. A clone made from the live checkout's folder has that path as its
 #     origin. A network URL is not judged.
 #   Exceptions: <root>/.archive/** is writable; the git MCP git_pull with fastForwardOnly true, no rebase, no branch
-#   named, no remote other than origin and no other argument is allowed (it moves a checkout forward to the branch it
-#   tracks, reviewed while that is main, and nothing else; a named branch may be one not yet merged, and another
-#   remote, a URL or a folder, may hold anything; amended 2026-11-22: the remote and the exact form).
+#   named, no remote other than origin (an empty one counts as none) and no other argument is allowed (it moves a
+#   checkout forward to the branch it tracks, reviewed while that is main, and nothing else; a named branch may be one
+#   not yet merged, and another remote, a URL or a folder, may hold anything; amended 2026-11-22: the remote and the
+#   exact form).
 #   Bash git is not judged here: hooks/git-mcp-redirect.sh is its one owner and denies all of it but read-only plumbing.
 #
 # NEVER ASKS. Every decision is a deny or silence. It names no repository or tool of any project.
@@ -748,7 +749,7 @@ git_tool() {
     git_clean) [ "$(ti .dryRun)" = "true" ] && return 0 ;;
     git_pull)  # only that exact form: another key, type or remote is a write (a server may take a URL or a folder there)
       [ "$(field '.tool_input | (keys - ["path", "remote", "branch", "rebase", "fastForwardOnly"]) == [] and .fastForwardOnly == true
-        and (.rebase == null or .rebase == false) and (.branch == null or .branch == "") and (.remote == null or .remote == "origin")')" = true ] && return 0
+        and (.rebase == null or .rebase == false) and (.branch == null or .branch == "") and (.remote == null or .remote == "" or .remote == "origin")')" = true ] && return 0
       ;;
   esac
   path=$(ti .path)

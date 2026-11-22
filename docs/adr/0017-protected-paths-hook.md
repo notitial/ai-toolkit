@@ -55,7 +55,7 @@ base install.
   resolves to a local path inside a protected place is denied; a network URL is not judged. A remote that cannot be
   resolved passes (the hook header lists the gaps), so the rule in CLAUDE.md, clone from the GitHub URL, stays the first line.
 - **Exceptions.** `<root>/.archive/**` stays writable (the gitignored working area). The git MCP `git_pull` with
-  `fastForwardOnly`, no branch named, no remote other than `origin` and no other argument is allowed in a root: it moves a checkout forward
+  `fastForwardOnly`, no branch named, no remote other than `origin` (an empty one counts as none) and no other argument is allowed in a root: it moves a checkout forward
   to the branch it tracks (reviewed while that is `main`), which is how a protected checkout is updated. A named branch
   may be one not yet merged, and another remote may be a URL or a folder holding anything (the toolkit's git MCP server
   passes only a configured remote, but the hook keys on tool names any server may register), so those pulls are writes
