@@ -17,7 +17,8 @@
 # lock.d/holder.
 #
 # What a non-holder may still do: read (a short allowlist of read commands, below), write under
-# .archive/ or a temp dir (a quoted-heredoc `cat >` / `cat >>` to such a path included), and run
+# the workspace's own .archive/ (or a .archive/ in a --repos member), or a temp dir or another .archive/ outside any guarded workspace
+# (a quoted-heredoc `cat >` / `cat >>` to such a path included), and run
 # the lock script (but not acquire below the workspace root while WORKSPACE_LOCK_DIR is unset: the
 # script would create a second lock there). A holder past its
 # ETA is re-armed: its own mutations are denied until it runs `heartbeat --eta <new>`. Freeing someone else's long-dead lock
@@ -70,7 +71,17 @@ guard_log() {  # never creates the lock dir: logging a deny must not arm a works
 }
 
 # --- Which lock --------------------------------------------------------------------------------
-abspath() { case "$1" in /*) printf '%s' "$1" ;; *) printf '%s' "$CWD/$1" ;; esac; }
+# One spelling for every path the guard compares: `//` and `/./` collapse, and on macOS /tmp and /var are links
+# into /private, the cwd Claude Code reports is the /private one, and a command may type either. Not read: a change
+# of case on a case-insensitive disk, and other symlinks (the ADR 0012 residual).
+abspath() {
+  case "$1" in /*) _ap=$1 ;; *) _ap="$CWD/$1" ;; esac
+  while :; do case "$_ap" in *//*) _ap=${_ap//\/\//\/} ;; */./*) _ap=${_ap//\/.\//\/} ;; *) break ;; esac; done
+  case "$_ap" in /private/tmp|/private/tmp/*|/private/var|/private/var/*) _ap=${_ap#/private} ;; esac
+  printf '%s' "$_ap"
+}
+CWD=$(abspath "$CWD")
+case "${WORKSPACE_LOCK_DIR:-}" in /*) WORKSPACE_LOCK_DIR=$(abspath "$WORKSPACE_LOCK_DIR") ;; esac
 
 # The nearest held lock up from $1. A lock left inside .archive/ is old debris and is skipped,
 # unless a .git between them marks a real project archived there.
@@ -80,7 +91,7 @@ walk_up() {
     if [ -d "$_d/.workspace-lock/lock.d" ] && ! under_archive "$_d"; then
       printf '%s' "$_d/.workspace-lock"; return 0
     fi
-    _d=$(dirname "$_d")
+    _d=${_d%/*}   # not $(dirname): this runs for every path word, and a fork per level adds up
   done
   return 0
 }
@@ -89,7 +100,7 @@ under_archive() {
   while [ "$_p" != "/" ] && [ -n "$_p" ]; do
     [ -e "$_p/.git" ] && return 1
     case "$_p" in */.archive) return 0 ;; esac
-    _p=$(dirname "$_p")
+    _p=${_p%/*}
   done
   return 1
 }
@@ -109,6 +120,7 @@ resolve_lock_dir() {
         _r="${_r#"${_r%%[![:space:]]*}"}"; _r="${_r%"${_r##*[![:space:]]}"}"
         while [ "${#_r}" -gt 1 ] && [ "${_r%/}" != "$_r" ]; do _r=${_r%/}; done
         [ -n "$_r" ] || continue
+        case "$_r" in /*) _r=$(abspath "$_r") ;; esac
         case "$_start" in "$_r"|"$_r"/*) IFS=$_oifs; printf '%s' "$WORKSPACE_LOCK_DIR"; return 0 ;; esac
       done
       IFS=$_oifs ;;
@@ -218,20 +230,20 @@ archive_exempt() {
 }
 
 # --- Bash: what a non-holder may run -----------------------------------------------------------
-# A temp dir or a .archive/ path, judged on the text: no `..`, no expansion, no glob. Inside the
-# guarded workspace only its own .archive/ counts, even when the workspace itself sits in a temp dir.
+# A temp dir or a .archive/ path, judged on the text: no `..`, no expansion, no glob. A path in a guarded
+# workspace (what resolve_lock_dir finds: the env workspace and its --repos, or a held lock up the tree)
+# counts only under a .archive/ as archive_exempt reads it (in that lock's own workspace only its root .archive/; in a
+# --repos member any .archive/), even when the workspace sits in a temp dir.
 # A leading ~ is refused: bash expands it to $HOME, which the text check can't see. After a cd in
 # the same command a relative path no longer means $CWD/path, so only absolute paths count then.
 scratch_path() {
   case "$1" in '~'*|*..*|*'$'*|*'`'*|*'*'*|*'?'*|*'['*|*"'"*|*'"'*) return 1 ;; esac
   [ "${CD_SEEN:-0}" = 1 ] && case "$1" in /*) ;; *) return 1 ;; esac
   _sp=$(abspath "$1")
-  if [ -n "${LOCK_DIR:-}" ]; then
-    _ws=$(dirname "$LOCK_DIR")
-    case "$_sp" in "$_ws"/.archive/*) return 0 ;; "$_ws"|"$_ws"/*) return 1 ;; esac
-  fi
-  case "$_sp" in /tmp/*|/private/tmp/*|/var/folders/*|/private/var/folders/*|*/.archive/*) return 0 ;; esac
-  _td="${TMPDIR%/}"
+  _sl=$(resolve_lock_dir "$_sp")
+  [ -n "$_sl" ] && { LOCK_DIR=$_sl archive_exempt "$_sp"; return; }
+  case "$_sp" in /tmp/*|/var/folders/*|*/.archive/*) return 0 ;; esac
+  _td="${TMPDIR%/}"; case "$_td" in /*) _td=$(abspath "$_td") ;; esac
   [ -n "$_td" ] && case "$_sp" in "$_td"/*) return 0 ;; esac
   return 1
 }

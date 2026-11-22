@@ -1,7 +1,7 @@
 # 12. Workspace Lock
 
 **Status:** accepted
-**Date:** 2026-07-03 · **Amended:** 2026-10-26 (expiry, retake and the prompted `clear`), 2026-11-13 (arm step moved out), 2026-11-14 (owned team), 2026-11-19 (session lock: owned team and shared slugs removed), 2026-11-22 (fewer false denies for reads and scratch heredocs)
+**Date:** 2026-07-03 · **Amended:** 2026-10-26 (expiry, retake and the prompted `clear`), 2026-11-13 (arm step moved out), 2026-11-14 (owned team), 2026-11-19 (session lock: owned team and shared slugs removed), 2026-11-22 (fewer false denies for reads and scratch heredocs; scratch judged by workspace, not spelling)
 
 ## Context
 
@@ -49,7 +49,8 @@ works around it on purpose, the same stance as the hooks in [ADR 0011](0011-shel
   mutation in an armed workspace unless this session holds the lock. Each guarded call by the holder stamps
   `lock.d/seen`. A non-holder may still read: Read-style tools, git MCP read tools by name, writes under the root's
   `.archive/` or outside the root, the lock script as one plain call, scratch writes (`mkdir`, `cp`, `mv`, `touch`,
-  `rm` on absolute paths under a temp directory) and a Bash read check that **fails closed**: anything it does not
+  `rm` on absolute paths under a temp directory; amended 2026-11-22: not one inside a guarded workspace, a `--repos`
+  member or another held lock's tree, whether typed as `/tmp`, `/private/tmp` or with `//` or `/./`) and a Bash read check that **fails closed**: anything it does not
   recognise counts as a mutation. The check allows no command substitution, process substitution or backtick, only
   `2>&1` and redirects to `/dev/null`, splits on `&& || ; |` and newline with no quote awareness (a quoted `|` makes a
   segment that fails the check, a safe deny), allows leading `cd <path>` segments, and requires every other segment to

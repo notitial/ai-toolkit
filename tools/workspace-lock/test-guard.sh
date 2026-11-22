@@ -8,8 +8,8 @@
 #
 #   GUARD=<path>   hook under test (default: the one beside this checkout)
 #
-# The sandbox lives under $TMPDIR, which the guard treats as scratch for Bash, so cases that must
-# hit the workspace use relative paths.
+# The sandbox lives under $TMPDIR, which the guard treats as scratch for Bash outside a guarded
+# workspace; inside one only its .archive/ is scratch.
 
 set -u
 
@@ -289,6 +289,46 @@ run allow "scratch: a relative redirect, no cd"    "$(bashjson "$W/.archive/NOTE
 run deny  "$'..\'..' does not hide a &&"         "$(bashjson "$W" "echo \$'it\\'s done' && git commit -am wip")"
 run deny  "$'..\'..' does not hide a redirect"   "$(bashjson "$W" "echo \$'don\\'t' > src/main.c")"
 run allow "$'\\t' in a read"                       "$(bashjson "$W" "cut -d \$'\\t' -f1 f.txt")"
+# A workspace in a temp dir, by either spelling: macOS reports the cwd as /private/tmp/..., a command may type /tmp/...
+# The folders are made under /tmp and /private is only a spelling, so the cases mean the same on Linux.
+PT=$(mktemp -d /tmp/lockguard-p-XXXXXX); trap 'rm -rf "$SANDBOX" "$PT"' EXIT
+PW="$PT/ws"; mkdir -p "$PW/$LOCKNAME/lock.d" "$PW/src" "$PW/.archive"; echo other > "$PW/$LOCKNAME/lock.d/holder"
+run deny  "spelling: /tmp redirect from a /private cwd"  "$(bashjson "/private$PW" "echo x > $PW/src/x")"
+run deny  "spelling: /tmp heredoc from a /private cwd"   "$(bashjson "/private$PW" "$(hd "cat > $PW/src/x <<'EOF'" 'a' 'EOF')")"
+run deny  "spelling: /tmp touch from a /private cwd"     "$(bashjson "/private$PW" "touch $PW/src/x")"
+run deny  "spelling: /private redirect from a /tmp cwd"  "$(bashjson "$PW" "echo x > /private$PW/src/x")"
+run allow "spelling: its own .archive/ either way"       "$(bashjson "/private$PW" "echo x > $PW/.archive/n.md")"
+run allow "spelling: a heredoc to its own .archive/"     "$(bashjson "$PW" "$(hd "cat >> /private$PW/.archive/n.md <<'EOF'" 'a' 'EOF')")"
+EW="$PT/envws"; mkdir -p "$EW/$LOCKNAME" "$EW/src"
+EXTRA_ENV="WORKSPACE_LOCK_DIR=/private$EW/$LOCKNAME"
+run deny  "spelling: env lock dir in the other spelling, free lock" "$(bashjson "$EW" "echo x > src/x")"
+run deny  "spelling: env lock dir in the other spelling, Write"     "$(writejson "$EW" "$EW/src/x")"
+EXTRA_ENV=""
+# A --repos member in a temp dir is the workspace too, not scratch; its own .archive/ stays scratch.
+TW=$(mkws team_tmp team-t-20261122); RT="$PT/member"; mkdir -p "$RT/src" "$RT/.archive"
+printf '%s\n' "$TW,/private$RT" > "$TW/$LOCKNAME/lock.d/repos"
+EXTRA_ENV="WORKSPACE_LOCK_DIR=$TW/$LOCKNAME"
+run deny  "repos: a relative write in a member under a temp dir"   "$(bashjson "$RT" "echo x > src/x")"
+run deny  "repos: an absolute write into a member from the root"  "$(bashjson "$TW" "touch $RT/src/x")"
+run deny  "repos: a heredoc into a member"                         "$(bashjson "$TW" "$(hd "cat > $RT/src/x <<'EOF'" 'a' 'EOF')")"
+run allow "repos: a member's .archive/ stays scratch"              "$(bashjson "$RT" "echo x > .archive/n.md")"
+run deny  "repos: // does not hide a member"                       "$(bashjson "$RT" "touch /tmp//${RT#/tmp/}/src/x")"
+run deny  "repos: /./ does not hide a member"                      "$(bashjson "$RT" "rm -rf /tmp/./${RT#/tmp/}")"
+EXTRA_ENV="WORKSPACE_LOCK_DIR=$EW/$LOCKNAME"
+run deny  "spelling: // into a free env workspace"                 "$(bashjson "$EW" "echo x > /tmp//${EW#/tmp/}/src/x")"
+EXTRA_ENV=""
+run allow "spelling: // in a temp path outside it is still scratch"  "$(bashjson "$PW" "touch /tmp//lockguard-q/f")"
+run allow "spelling: /./ in a temp path outside it is still scratch" "$(bashjson "$PW" "touch /tmp/./lockguard-q/f")"
+run allow "spelling: // into its own .archive/"                     "$(bashjson "$PW" "echo x > $PW//.archive/n.md")"
+EXTRA_ENV="TMPDIR=/private/var/lockguard-t/"
+run allow "spelling: a /private/var TMPDIR matches its /var spelling" "$(bashjson "$PW" "touch /var/lockguard-t/f")"
+EXTRA_ENV=""
+# A project kept under .archive/ with its own held lock is judged by that lock, not the cwd's.
+mkdir -p "$PW/.archive/proj/.git" "$PW/.archive/proj/$LOCKNAME/lock.d" "$PW/.archive/proj/src"
+echo other > "$PW/.archive/proj/$LOCKNAME/lock.d/holder"
+run deny  "nested: a held project under .archive/ is not scratch"  "$(bashjson "$PW" "touch $PW/.archive/proj/src/x")"
+run allow "nested: that project's own .archive/ is"                "$(bashjson "$PW" "touch $PW/.archive/proj/.archive/n.md")"
+run allow "nested: the cwd's own .archive/ still is"               "$(bashjson "$PW" "touch $PW/.archive/n.md")"
 
 # --- The lock script: always allowed as a single plain call; acquire registers the session
 W=$(mkws armed_script holder-x)
