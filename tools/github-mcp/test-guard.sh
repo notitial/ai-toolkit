@@ -1,7 +1,7 @@
 #!/bin/bash
 # Tests for tools/github-mcp/guard.sh and launch. Run: bash tools/github-mcp/test-guard.sh
 # Hook cases expect deny, ask, or pass (no output = defer to the permission rules).
-# Writes the guard lets through return ask; reads pass.
+# Writes return allow, ask or deny by the guard's rules; reads pass.
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 SRC="$HERE/guard.sh"
@@ -134,7 +134,7 @@ esac
 check allow "retitle a PR" "$(acall update_pull_request '{"pullNumber":202,"title":"fix: shorter title"}')"
 check allow "edit a PR body" "$(acall update_pull_request '{"pullNumber":202,"body":"text"}')"
 check allow "mark a PR draft" "$(acall update_pull_request '{"pullNumber":202,"draft":true}')"
-check ask "title, body and draft false together" "$(acall update_pull_request '{"pullNumber":202,"title":"t","body":"b","draft":false}')"
+check allow "title, body and draft false together" "$(acall update_pull_request '{"pullNumber":202,"title":"t","body":"b","draft":false}')"
 check allow "update a PR in a new write-owner repo" "$(call update_pull_request '{"owner":"notitial","repo":"new-project","pullNumber":1,"title":"t"}')"
 check ask "create PR with @claude in the body" "$(acall create_pull_request '{"title":"t","body":"@Claude review","head":"b","base":"main","draft":true}')"
 check ask "create PR with @claude in the title" "$(acall create_pull_request '{"title":"@claude","head":"b","base":"main","draft":true}')"
@@ -147,7 +147,10 @@ check allow "create draft PR" "$(acall create_pull_request '{"title":"t","head":
 check ask "comment with body false" "$(acall add_issue_comment '{"issue_number":1,"body":false}')"
 check ask "comment with body null" "$(acall add_issue_comment '{"issue_number":1,"body":null}')"
 check ask "@claude in a PR title stays ask" "$(acall update_pull_request '{"pullNumber":202,"title":"@Claude please"}')"
-check ask "draft false alone stays ask" "$(acall update_pull_request '{"pullNumber":202,"draft":false}')"
+check allow "draft false alone (mark ready) is allowed" "$(acall update_pull_request '{"pullNumber":202,"draft":false}')"
+check ask "draft false with @claude in the title stays ask" "$(acall update_pull_request '{"pullNumber":202,"title":"@claude","draft":false}')"
+check deny "draft false next to an extra key stays deny" "$(acall update_pull_request '{"pullNumber":202,"draft":false,"state":"open"}')"
+check deny "draft false outside the write owners stays deny" "$(call update_pull_request '{"owner":"github","repo":"github-mcp-server","pullNumber":1,"draft":false}')"
 check allow "thread reply without @claude" "$(acall add_reply_to_pull_request_comment '{"commentId":5,"pullNumber":1,"body":"fixed in abc123"}')"
 check ask "workflow dispatch stays ask" "$(acall actions_run_trigger '{"method":"run_workflow","workflow_id":"x.yml","ref":"main"}')"
 check ask "body that mentions @claude stays ask" "$(acall update_pull_request '{"pullNumber":202,"body":"@claude review"}')"
@@ -179,11 +182,11 @@ update_reason() {
 reason=$(update_reason '{"pullNumber":202,"title":"fix: a new title"}')
 case "$reason" in
   *'"notitial"/"toolkit-repo" #202 sets title "fix: a new title"'*'nothing else'*) PASS=$((PASS + 1)) ;;
-  *) FAIL=$((FAIL + 1)); echo "FAIL: update PR ask does not show the PR and the new title: $reason" ;;
+  *) FAIL=$((FAIL + 1)); echo "FAIL: update PR reason does not show the PR and the new title: $reason" ;;
 esac
 case "$reason" in
-  '') FAIL=$((FAIL + 1)); echo "FAIL: update PR ask returned no reason" ;;
-  *'body "'*|*'paid Claude review'*) FAIL=$((FAIL + 1)); echo "FAIL: update PR ask shows a field that was not set, or warns without draft false: $reason" ;;
+  '') FAIL=$((FAIL + 1)); echo "FAIL: update PR reason returned no reason" ;;
+  *'body "'*|*'paid Claude review'*) FAIL=$((FAIL + 1)); echo "FAIL: update PR reason shows a field that was not set, or warns without draft false: $reason" ;;
   *) PASS=$((PASS + 1)) ;;
 esac
 reason=$(update_reason '{"pullNumber":202,"draft":false}')
@@ -193,7 +196,7 @@ case "$reason" in
 esac
 reason=$(update_reason '{"pullNumber":202,"draft":true}')
 case "$reason" in
-  '') FAIL=$((FAIL + 1)); echo "FAIL: update PR draft true ask returned no reason" ;;
+  '') FAIL=$((FAIL + 1)); echo "FAIL: update PR draft true returned no reason" ;;
   *'paid Claude review'*) FAIL=$((FAIL + 1)); echo "FAIL: draft true carries the paid-review warning: $reason" ;;
   *) PASS=$((PASS + 1)) ;;
 esac
@@ -205,7 +208,7 @@ esac
 reason=$(update_reason '{"pullNumber":202,"title":"a\"; body \"(unchanged)","body":"x\u001b[31my"}')
 case "$reason" in
   *'a\"; body \"(unchanged)'*'x\u001b[31my'*) PASS=$((PASS + 1)) ;;
-  *) FAIL=$((FAIL + 1)); echo "FAIL: update PR ask does not show quotes and an escape code in escaped form: $reason" ;;
+  *) FAIL=$((FAIL + 1)); echo "FAIL: update PR reason does not show quotes and an escape code in escaped form: $reason" ;;
 esac
 reason=$(update_reason '{"pullNumber":202,"state":"closed"}')
 case "$reason" in

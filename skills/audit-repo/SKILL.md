@@ -32,7 +32,7 @@ files through the github MCP (`get_file_contents`) from the default branch.
 
 1. This SKILL.md is symlinked from ai-toolkit: `ls -ld ~/.claude/skills/audit-repo` prints the target; drop the
    trailing `skills/audit-repo` to get the toolkit root. If the link is broken, ask for the ai-toolkit path.
-2. Read `docs/07-new-repo-setup.md`, `skills/repo-setup/defaults.md`, `skills/repo-setup/pre-commit-config.yaml` and
+2. Read `docs/07-new-repo-setup.md`, `skills/repo-setup/defaults.md`, `tools/gitleaks/.pre-commit-config.yaml` and
    `skills/audit-repo/references/checklist.md` from ai-toolkit's `main` (git MCP `git_show` with `path`), not the
    working tree.
 3. Ask once, in one AskUserQuestion, for what `defaults.md` marks **ask** and never fill it from memory: the

@@ -58,6 +58,8 @@
 #   (cp -R /tmp/x/ ~ with /tmp/x/.claude/settings.json made earlier; rsync, tar -xf -C ~, unzip -d ~), brace expansion
 #   (~/.claude{,}/settings.json), a leading $VAR other than $HOME ($PWD/hooks/x, ${HOME%/}/..), a bundled option with its
 #   value attached (curl -so/path, tar -xC/path).
+#   Not read for the allowed ff-only pull: a global git config written outside the checkout (a url.<x>.insteadOf rule,
+#   or a second remote.origin.url) can redirect it to a repo holding unreviewed commits; that needs a second write first.
 #
 # Reads JSON from stdin. Returns a JSON deny decision or nothing; exit 0 always (but `exit 1` when a lib file is
 # missing: the `|| exit 2` wiring blocks the call). No `set -e`: it would break the exit-0-always contract. Runs on bash 3.2.

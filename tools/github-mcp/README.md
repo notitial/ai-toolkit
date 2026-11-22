@@ -89,8 +89,9 @@ deliberately not in `hooks/`, which `/setup-claude` symlinks into `~/.claude/hoo
    - lets `update_pull_request` through only when it sets `title`, `body` or `draft` (a retitle or a description fix): any other key (`state`, which closes or reopens, `base`, `reviewers`,
      `maintainer_can_modify`) is denied, as are a missing or non-numeric `pullNumber`, a call that
      sets none of the three, and values of the wrong type. The
-     ask shows the new title and body (up to 600 characters each; when cut, the first and last 300 and the full
-     size) and warns when `draft` goes to false, which marks the PR ready and starts the automatic paid review.
+     reason shows the new title and body (up to 600 characters each; when cut, the first and last 300 and the full
+     size) and warns when `draft` goes to false, which marks the PR ready and starts the automatic paid review (allowed:
+     the guard cannot see CI, so the claude-review-loop skill holds the agent to green checks first).
      Merge, closing and re-basing stay with you;
    - lets `issue_write` (`create`, `update`) through in the write repos, with only the arguments of its v2.0.3 schema
      and values of the right type. A state change asks: it closes or reopens an issue, and the same call closes or
@@ -120,8 +121,9 @@ deliberately not in `hooks/`, which `/setup-claude` symlinks into `~/.claude/hoo
      review run);
    - returns allow for `create_pull_request`, `add_issue_comment`,
      `add_reply_to_pull_request_comment` and `update_pull_request` in the write-owner repos (they were most of the waiting prompts,
-     and no agent route merges). A comment, title or body that mentions `@claude`, a body that is
-     not text, and `draft: false` stay ask, and so does a `create_pull_request` that is not a draft. The template lists the four names nowhere: an ask rule would outrank the
+     and no agent route merges). A comment, title or body that mentions `@claude` and a body that is
+     not text stay ask, and so does a `create_pull_request` that is not a draft; `update_pull_request` with
+     `draft: false` (mark ready) is allowed. The template lists the four names nowhere: an ask rule would outrank the
      hook's allow, and an allow rule would pass them unchecked when the hook is missing. The template merge only
      adds, so ask entries for them already in your settings stay until you remove them by hand. The same goes for
      the four issue and Project writes, and for the `issue_write`, `sub_issue_write` and `label_write` denies that
@@ -140,7 +142,7 @@ deliberately not in `hooks/`, which `/setup-claude` symlinks into `~/.claude/hoo
 | Rule | Tools (`mcp__github__<name>`) |
 |---|---|
 | allow | `get_me`, `pull_request_read`, `list_pull_requests`, `search_pull_requests`, `issue_read`, `list_issues`, `search_issues`, `get_file_contents`, `get_commit`, `list_commits`, `list_branches`, `actions_get`, `actions_list`, `get_job_logs`, `list_label`, `projects_list`, `projects_get` |
-| none in the template; hook allow on the `github` server | `create_pull_request`, `add_issue_comment`, `add_reply_to_pull_request_comment`, `update_pull_request` (title, body and draft only), `issue_write`, `sub_issue_write`, `label_write`, in repos of the write owners only; `projects_write` in Projects of `github_projects` only. Ask when a comment, title or body mentions `@claude`, when `draft` is false, on `create_pull_request` unless `draft` is true, on an issue state change or assignees, on a sub-issue removed or moved, on a label deletion, and on a Project bulk update, delete, view or field change or new Project, or a Project not listed |
+| none in the template; hook allow on the `github` server | `create_pull_request`, `add_issue_comment`, `add_reply_to_pull_request_comment`, `update_pull_request` (title, body and draft only), `issue_write`, `sub_issue_write`, `label_write`, in repos of the write owners only; `projects_write` in Projects of `github_projects` only. Ask when a comment, title or body mentions `@claude`, on `create_pull_request` unless `draft` is true, on an issue state change or assignees, on a sub-issue removed or moved, on a label deletion, and on a Project bulk update, delete, view or field change or new Project, or a Project not listed |
 | ask | `actions_run_trigger` (re-run, re-run failed, cancel, dispatch), in repos of the write owners only (hook) |
 | deny | `merge_pull_request`, `push_files`, `create_or_update_file`, `delete_file`, `create_branch`, `fork_repository`, `create_repository`, `delete_repository`, `update_issue_comment`, `update_pull_request_branch`, `pull_request_review_write`, `add_comment_to_pending_review`, `create_repository_ruleset`, `custom_properties_write`; `actions_run_trigger` log deletion, and unknown methods and arguments of the four issue and Project writes (hook) |
 
@@ -273,8 +275,8 @@ you don't need (fewer scopes on the `gh` login, a passphrase on SSH keys).
   which the launcher reads and any same-user process can read too (above).
 - Two interactions are unverified: whether the plugin servers' settings deny still
   wins over the guard's ask (the URL block is the main layer there), and whether a hook ask still prompts in a
-  `bypassPermissions` session. Don't use bypass mode for GitHub work: there, `update_pull_request` could run
-  unprompted too (title, body and a draft-to-ready flip, which starts a paid review).
+  `bypassPermissions` session. Don't use bypass mode for GitHub work: there, the guard's asks could run
+  unprompted too (an `@claude` comment or a non-draft `create_pull_request`, each of which starts a paid review).
 - The launcher, the guard and the setting files they read are ordinary files of your user (the root-owned copies were
   retired). The template denies Edit on
   `~/.claude/install.conf` and on the `~/.claude` link paths. The live checkout itself is

@@ -1,7 +1,7 @@
 # 12. Workspace Lock
 
 **Status:** accepted
-**Date:** 2026-07-03 · **Amended:** 2026-10-26 (expiry, retake and the prompted `clear`), 2026-11-13 (arm step moved out), 2026-11-14 (owned team), 2026-11-19 (session lock: owned team and shared slugs removed)
+**Date:** 2026-07-03 · **Amended:** 2026-10-26 (expiry, retake and the prompted `clear`), 2026-11-13 (arm step moved out), 2026-11-14 (owned team), 2026-11-19 (session lock: owned team and shared slugs removed), 2026-11-22 (fewer false denies for reads and scratch heredocs)
 
 ## Context
 
@@ -102,8 +102,11 @@ Until the last stage merges, the code still uses typed slugs; the text above des
 - Clearing a lock is a recovery the user approves, not a pattern for risk-topic actions, where a relayed approval
   carries no weight.
 - Residuals the session lock accepts:
-  - A waiting session's Bash narrows: `sed -n`, `curl`, `sort`, `uniq`, `sysctl`, `log show`, the git `fetch`, `branch`,
-    `remote` and `config` read forms, and heredoc or `tee` scratch writes become denies. It uses Read, Grep, Glob, the
+  - A waiting session's Bash narrows: only the read forms of `sed -n`, `curl`, `sort`, `uniq`, `sysctl`, `log show` and
+    the git `fetch`, `branch`, `remote` and `config` pass, and `tee` scratch writes become denies (amended 2026-11-22: `pgrep`, `cmp` and
+    `od` read, and a quoted-delimiter heredoc to a scratch path passes, as `echo x > file` does; it used to pass into the
+    root's `.archive/` only. `sed` without `-n` stays a deny: a substitution read needs the guard to model shell
+    quoting it does not). It uses Read, Grep, Glob, the
     Write tool for `.archive/` and the git MCP reads, as the global rules already prefer. A quoted metacharacter
     (`grep "a|b"`) is a false deny, never a false allow.
   - Nothing guards the lock folder: a holder's `git clean -fdx` or `rm -rf .workspace-lock` removes the lock and the

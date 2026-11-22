@@ -10,10 +10,11 @@
 # - Every write must target a repo of WRITE_OWNERS; projects_write, which names a Project owner and no repo, must name
 #   an owner of WRITE_OWNERS, and every item repo it names must be a repo of one.
 # - actions_run_trigger: re-run, re-run failed jobs, cancel and dispatch ask; log deletion is denied.
-# - update_pull_request may set only title, body and draft, and asks with the new text shown.
+# - update_pull_request may set only title, body and draft; its reason shows the new text.
 # - create_pull_request, add_issue_comment, add_reply_to_pull_request_comment and update_pull_request are allowed,
-#   except that a mention of @claude (a paid review run), a body that is not text, or draft set to false asks;
-#   create_pull_request also asks unless draft is true, since a ready PR starts the automatic paid review.
+#   except that a mention of @claude (a paid review run) or a body that is not text asks; create_pull_request also
+#   asks unless draft is true. update_pull_request with draft false (mark ready, which starts the automatic paid
+#   review) is allowed: the guard cannot see CI, so waiting for green checks is the claude-review-loop skill's rule.
 # - issue_write (create, update), sub_issue_write (add, reprioritize) and label_write (create, update) are allowed.
 #   A state change (it closes or reopens an issue or a PR), assignees, @claude in a title or body, a sub-issue
 #   removed or moved from another parent, and a label deletion ask. An argument the guard does not know, an unknown
@@ -259,8 +260,8 @@ case "$TOOL" in
         + " The title and body are shown to everyone on the PR and read by its automatic reviewer."' 2>/dev/null) \
       && [ -n "$ASK" ] \
       || decide deny "update_pull_request: could not build the approval text; blocked (fail-closed)."
-    if  jqtest '.tool_input | (.draft != false) and ([.title, .body | strings | test("@claude"; "i")] | any | not)'; then
-      decide allow "update_pull_request on a write-owner repo sets only title, body or draft true. ${ASK}"
+    if  jqtest '.tool_input | [.title, .body | strings | test("@claude"; "i")] | any | not'; then
+      decide allow "update_pull_request on a write-owner repo sets only title, body or draft. ${ASK}"
     fi
     decide ask "${ASK}"
     ;;

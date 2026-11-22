@@ -411,7 +411,8 @@ denies a post, give the user the `gh` command instead.
    check outside the Claude review workflow (the kit's checks are named `claude-review / ...`; CI, the secret scan, CodeQL) has concluded `success` on the current head.
    Fix a failure on the branch while it is still a draft, then wait again. A PR that changes rendered UI carries its
    old/new or mockup/built pair in the description first. Only then mark it ready
-   (`update_pull_request` with `draft: false`; `tools/github-mcp/guard.sh` asks first, because it starts the paid run).
+   yourself (`update_pull_request` with `draft: false`; `tools/github-mcp/guard.sh` allows it and cannot see CI, so
+   the green-checks condition is the agent's to keep).
    If a required check stays queued for a long time, or a failure is outside the PR's scope, tell the user instead of
    marking it ready.
 2. Wait for the review (the runner may be queued): poll `pull_request_read` with `get_check_runs` every few minutes,

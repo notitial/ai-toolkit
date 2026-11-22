@@ -17,9 +17,9 @@
 # lock.d/holder.
 #
 # What a non-holder may still do: read (a short allowlist of read commands, below), write under
-# .archive/ or a temp dir (a quoted-heredoc `cat >` / `cat >>` into the workspace's own .archive/
-# included), and run the lock script (but not acquire below the workspace root while WORKSPACE_LOCK_DIR
-# is unset: the script would create a second lock there). A holder past its
+# .archive/ or a temp dir (a quoted-heredoc `cat >` / `cat >>` to such a path included), and run
+# the lock script (but not acquire below the workspace root while WORKSPACE_LOCK_DIR is unset: the
+# script would create a second lock there). A holder past its
 # ETA is re-armed: its own mutations are denied until it runs `heartbeat --eta <new>`. Freeing someone else's long-dead lock
 # goes through `clear`, which this guard turns into a permission prompt. Only the plain call is
 # gated (a compound, redirected or cd-prefixed one is denied); a wrapped spelling (an env prefix,
@@ -241,7 +241,7 @@ scratch_path() {
 is_read_word() {
   case "$1" in
     ls|cat|head|tail|grep|egrep|fgrep|rg|find|wc|file|stat|pwd|echo|printf|which|diff|sleep|cd|date) return 0 ;;
-    ps|du|cut|tr|jq|lsof|basename|dirname|realpath) return 0 ;;
+    ps|du|cut|tr|jq|lsof|basename|dirname|realpath|pgrep|cmp|od) return 0 ;;
   esac
   return 1
 }
@@ -320,7 +320,12 @@ is_shaped_read() {
       esac
       has_write_flag "$@" && return 1 ;;
     sed)  # -n, option letters from nEr only, and one script (a single -e or the first operand) that only
-          # prints: p, q, = with line, $ or /regex/ addresses. So never -i, -I, -f, w or s.
+          # prints: p, q, = with line, $ or /regex/ addresses. So never -i, -I, -f, w or s. The words are judged
+          # after xargs removes the quotes, so the raw word list may only use quoting that xargs and bash read alike,
+          # read left to right: 'text', "text" with no $ ` \ or ", and bare _./,:=+@%- letters and digits.
+      _wd="('[^']*'|\"[^\"\$\`\\\\]*\"|[A-Za-z0-9_./,:=+@%-])+"
+      _wd="^$_wd( $_wd)*\$"
+      [[ "$*" =~ $_wd ]] || return 1
       _toks=$(printf '%s ' "$@" | xargs printf '%s\n' 2>/dev/null) || return 1
       _n=0; _have=0; _next=0; _script=""
       while IFS= read -r _w; do
@@ -375,7 +380,7 @@ EOT
 # a session that does not hold the lock may need them to keep the machine awake through a long run.
 is_exact_read() {
   case "$*" in
-    'launchctl list'|'crontab -l'|'pgrep -x caffeinate'|'pmset -g assertions'|'pmset displaysleepnow'|'pkill -x caffeinate') return 0 ;;
+    'launchctl list'|'crontab -l'|'pmset -g assertions'|'pmset displaysleepnow'|'pkill -x caffeinate') return 0 ;;
   esac
   [ "${1:-}" = launchctl ] && [ "${2:-}" = list ] && [ $# -eq 3 ] && case "$3" in -*|*[!A-Za-z0-9._-]*) return 1 ;; *) return 0 ;; esac
   return 1
@@ -603,7 +608,7 @@ all_reads() {
     [ $# -gt 0 ] || continue
     is_exact_read "$@" && continue
     case "$1" in
-      sed) set -- $_seg; is_shaped_read "$@" && continue; REASON="shape:sed"; return 1 ;;  # sed reads its quoted script itself
+      sed) set -- $_seg; is_shaped_read "$@" && continue; REASON="shape:sed"; return 1 ;;  # raw words: the sed arm checks their quoting
       git|sort|uniq|sysctl|log|/usr/bin/log|ulimit|curl)
         is_shaped_read "$@" && continue
         REASON="shape:$1"; return 1 ;;
@@ -617,21 +622,21 @@ EOF
 }
 redact() { case "$1" in [A-Za-z_]*=*) printf '%s=<redacted>' "${1%%=*}" ;; *) printf '%s' "$1" ;; esac; }
 
-# archive_heredoc: the whole command is one heredoc written into the workspace's own .archive/, and nothing
+# scratch_heredoc: the whole command is one heredoc written to a scratch path (scratch_path, the test a plain
+# `echo x > file` gets: the workspace's own .archive/, a temp dir or another folder's .archive/), and nothing
 # else. Accepted: a first line `cat >> <path> <<'TAG'` (or `cat >`) with a single-quoted delimiter, a body, the
 # first line equal to TAG, and nothing after it. Everything the first line may hold is one plain word per slot,
 # so no second redirect, `&&`, `;`, `|`, expansion or backslash-newline fits. An unquoted delimiter, `<<-` and
 # `<<<` never match (the body would expand or the tabs would change). A body line `\` is literal under a quoted
-# delimiter, so the body is free text. Symlinks inside .archive/ are not followed: the ADR 0012 residual.
-archive_heredoc() {
+# delimiter, so the body is free text. Symlinks in the path are not followed: the ADR 0012 residual.
+scratch_heredoc() {
   _c=$CMD   # command substitution already dropped any trailing newlines
   case "$_c" in *$'\n'*) ;; *) return 1 ;; esac
   _re="^cat (>>|>) ([A-Za-z0-9/._+,@%-]+) <<'([A-Za-z0-9_]+)'\$"
   [[ "${_c%%$'\n'*}" =~ $_re ]] || return 1
   _hd_path=${BASH_REMATCH[2]}; _hd_tag=${BASH_REMATCH[3]}
-  case "$_hd_path" in *..*|*/) return 1 ;; esac
-  _hd_path=$(abspath "$_hd_path")
-  case "$_hd_path" in "$(dirname "$LOCK_DIR")"/.archive/?*) ;; *) return 1 ;; esac
+  case "$_hd_path" in */) return 1 ;; esac   # a folder; scratch_path refuses ..
+  CD_SEEN=0 scratch_path "$_hd_path" || return 1   # no cd fits the first line; a cd in the body is text
   _hd_body=${_c#*$'\n'}
   _hd_end=0
   while IFS= read -r _hd_line; do
@@ -658,10 +663,10 @@ handle_bash() {
     _segs=$(split_command "$(strip_redirects "$CMD")")
     [ "$(printf '%s\n' "$_segs" | grep -c .)" = 1 ] && lock_call
   fi
-  # A heredoc into this workspace's own .archive/ is judged on its text before anything lexes the body.
+  # A heredoc to a scratch path is judged on its text before anything lexes the body.
   if [ "$FIRST" = cat ]; then
     LOCK_DIR=$(resolve_lock_dir "$CWD")
-    [ -z "$LOCK_DIR" ] || ! archive_heredoc || exit 0
+    [ -z "$LOCK_DIR" ] || ! scratch_heredoc || exit 0
   fi
   # Any other call of a prompted verb (clear; compound, redirected, behind cd) would skip the prompt.
   case "$CMD" in
