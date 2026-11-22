@@ -16,9 +16,9 @@ installed in a repo that calls it, and this repo has none.
 
 | File | Read from | SHA-256 |
 |---|---|---|
-| [claude-pr-review.md](claude-pr-review.md) | the kit's own checkout (v4.6) | `5839e2f34664a249deba41bed97266369518fb91f61a2ed41ff32a9b70de1e3c` |
+| [claude-pr-review.md](claude-pr-review.md) | the kit's own checkout (v4.7) | `ee1d8911cdedba1cd52e99edca1ab0cf74b9fc83f69074a735dcf4fa181b2350` |
 
-**Version:** v4.6 (2026-11-20): wording and docs only. The stopped overview says why the review stopped, a rereview waits for the thread judges before the guidance step, the command tells Claude not to search outside its folders for a called workflow, and Auth options describe how the kit passes the credential. v4.5 (2026-11-20): the review has no early stop for a PR it judges trivial; only a draft or closed PR stops, so a small change to a `CLAUDE.md`, a rule or a workflow gets the full review. The triage and guidance agents are gone (the lead lists the `CLAUDE.md` paths and writes the overview itself), so a full review is seven agents and the cost step warns below 7. v4.4 (2026-11-20; breaking for a repo that set the old variable): one variable, `SELF_HOSTED_REVIEW`, sets the runners of all four jobs and replaces `CLAUDE_REVIEW_KEY_RUNS_ON`, which the kit no longer reads. Unset, `preflight` and `review` take the `runs-on` input as before (still accepted) and `appcheck` and `publish` run on `ubuntu-latest`. Set, the App key shares runners with Claude (see [Prerequisites](#prerequisites), item 2). A repo that set the old variable sets the new one before this reaches it. The review command, findings and modes are unchanged. v4.3 (2026-11-19): a third least-code kind, "no caller" (see [Least code](#least-code)): a new export, option, parameter, prop or type field nothing uses is a non-blocking suggestion, checked by a `sonnet` verifier like a simplification. v4.2 (2026-11-19): the kit's `review` job runs a pinned Claude Code CLI directly instead of through `claude-code-action`. What the review posts is unchanged; the root `CLAUDE.md` it reads is now the PR's copy, not the default branch's, and is not a rule source when the PR changes it. The CLI is pinned by `reviewer/package.json` and its lockfile, the session starts in a copy of the kit's `reviewer/` folder with no GitHub token in its environment, and nothing the PR holds can configure it (see the trust rules below). The cost record's `action` field is now `claude_code`. v4.1 (2026-11-19): a seventh review pass, "least code" (see [Least code](#least-code)). Duplication of
+**Version:** v4.7 (2026-11-22): two new candidate kinds inside existing passes, so a full review is still seven passes. The defects pass also reports a test the PR adds or changes that cannot fail, repeats another case or whose name claims what it does not check; the written-rules pass also reports a statement in a doc, ADR, README, `CLAUDE.md` or code comment that the PR's change makes false. Both are verified on `sonnet`, block like other findings and sort last. v4.6 (2026-11-20): wording and docs only. The stopped overview says why the review stopped, a rereview waits for the thread judges before the guidance step, the command tells Claude not to search outside its folders for a called workflow, and Auth options describe how the kit passes the credential. v4.5 (2026-11-20): the review has no early stop for a PR it judges trivial; only a draft or closed PR stops, so a small change to a `CLAUDE.md`, a rule or a workflow gets the full review. The triage and guidance agents are gone (the lead lists the `CLAUDE.md` paths and writes the overview itself), so a full review is seven agents and the cost step warns below 7. v4.4 (2026-11-20; breaking for a repo that set the old variable): one variable, `SELF_HOSTED_REVIEW`, sets the runners of all four jobs and replaces `CLAUDE_REVIEW_KEY_RUNS_ON`, which the kit no longer reads. Unset, `preflight` and `review` take the `runs-on` input as before (still accepted) and `appcheck` and `publish` run on `ubuntu-latest`. Set, the App key shares runners with Claude (see [Prerequisites](#prerequisites), item 2). A repo that set the old variable sets the new one before this reaches it. The review command, findings and modes are unchanged. v4.3 (2026-11-19): a third least-code kind, "no caller" (see [Least code](#least-code)): a new export, option, parameter, prop or type field nothing uses is a non-blocking suggestion, checked by a `sonnet` verifier like a simplification. v4.2 (2026-11-19): the kit's `review` job runs a pinned Claude Code CLI directly instead of through `claude-code-action`. What the review posts is unchanged; the root `CLAUDE.md` it reads is now the PR's copy, not the default branch's, and is not a rule source when the PR changes it. The CLI is pinned by `reviewer/package.json` and its lockfile, the session starts in a copy of the kit's `reviewer/` folder with no GitHub token in its environment, and nothing the PR holds can configure it (see the trust rules below). The cost record's `action` field is now `claude_code`. v4.1 (2026-11-19): a seventh review pass, "least code" (see [Least code](#least-code)). Duplication of
 code the repo already has is a blocking finding; a clear simpler rewrite is a non-blocking suggestion, posted inline
 from a new `suggestions` list in the result (at most 3). The pass added one agent to a full review, so the cost step's
 minimum became 9 (7 from v4.5). v4.0 (2026-11-19; breaking): a fixed issue that comes back is an ordinary new finding, not a reopened
@@ -104,7 +104,8 @@ Three modes:
   request for changes.
 - **The overview shows the current state only:** the head, the mode, the result line, Claude's paragraph and the
   threads. The Actions run list and the PR timeline hold the history.
-- **Doesn't report:** style, nitpicks, pre-existing issues, what the compiler or linter catches, test coverage, docs.
+- **Doesn't report:** style, nitpicks, pre-existing issues, what the compiler or linter catches, missing tests or
+  docs. A test that cannot fail and a doc the PR makes false are reported.
 - **Threads it touches:** only threads the review started. A thread is judged fixed when the code handles it, or a
   reply's "not a bug" argument holds up. A claimed fix the code doesn't show stays open.
 - **Queueing:** GitHub keeps one waiting run per PR, so a third request replaces a waiting second one. Wait for a
@@ -165,7 +166,7 @@ changes.
 
 What goes in it (this repo's own, `REVIEW.md` at the repo root, is the worked example):
 - **Failure modes to hunt:** the repo's recurring bugs, by area, each concrete enough to check against a diff.
-- **A nit cap:** the most findings to return (never more than the workflow's 8), and what never to report.
+- **A nit cap:** the most findings to return (never more than the workflow's 8), and what never to report. "Style" there means code style. No review pass sees a rendered screen: a repo with rules about looks says in its CLAUDE.md who checks them (the old/new pair), not the review.
 - **Least-code switches:** make duplication non-blocking, turn suggestions off, or lower the cap of 3 suggestions. It cannot make a suggestion block or raise the cap.
 - **Optional, for a repo porting or rewriting code:** a failure mode such as "a ported piece states its size in lines against the code it replaces".
 - **Paths to skip:** generated files, lockfiles, archives, prose-only changes.
@@ -408,7 +409,8 @@ denies a post, give the user the `gh` command instead.
    ready for review, so a CI fix pushed after that means it saw broken or stale code, and a second look costs a
    `--comments` round. CI runs on drafts: poll `pull_request_read` with `get_check_runs` every few minutes until every
    check outside the Claude review workflow (the kit's checks are named `claude-review / ...`; CI, the secret scan, CodeQL) has concluded `success` on the current head.
-   Fix a failure on the branch while it is still a draft, then wait again. Only then mark it ready
+   Fix a failure on the branch while it is still a draft, then wait again. A PR that changes rendered UI carries its
+   old/new or mockup/built pair in the description first. Only then mark it ready
    (`update_pull_request` with `draft: false`; `tools/github-mcp/guard.sh` asks first, because it starts the paid run).
    If a required check stays queued for a long time, or a failure is outside the PR's scope, tell the user instead of
    marking it ready.
@@ -600,7 +602,7 @@ Don't loosen any of this when adapting the files.
 
 ## Upkeep
 
-- Keep the cost record's `reviewer` string (`claude-pr-review@v4.6`) equal to the version above (a test checks).
+- Keep the cost record's `reviewer` string (`claude-pr-review@v4.7`) equal to the version above (a test checks).
 - Run `tests/` after any change to `collect.py`, `publish.py` or `reviewer/`.
 - Claude Code's version is `reviewer/package.json`'s, bumped by Dependabot's `npm` entry. Check a bump PR with a
   replay (`replay/replay.py`) before it merges: the flags in `reviewer/run.sh` are the CLI's, and a version can drop one
