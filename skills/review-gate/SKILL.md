@@ -60,7 +60,8 @@ Findings are only as trustworthy as the checks behind them. Before consolidating
   needs a store product or a backend deploy that doesn't exist yet). Establish the
   executability of every REQUIRED check **before the first review round**; a check the release chain makes impossible
   does not produce a NO-GO — the finding it would gate is Deferred-unreachable. Unit tests that stub the rendered
-  component do not satisfy the gate when it IS executable.
+  component do not satisfy the gate when it IS executable. For a rebuild or port of an existing screen, the pass is
+  the old screen beside the new one, at phone and laptop width.
 - **Reachability triage.** Classify every Blocking finding by whether a released client can execute its path today. A
   real defect that is unreachable is *Deferred-unreachable*: file it with an owner and bind it to the release that flips
   reachability — it does not hold the merge. **If every remaining Blocking finding is unreachable-and-filed, the verdict
@@ -98,7 +99,7 @@ Merge findings into one ranked report, de-duplicating where two reviewers flag t
 - Oracle shown RED on the known-bad state before trusted GREEN? <yes (ref) | n/a — no oracle | NO — non-discriminating>
 - Symptom paths exercised: <list> · not exercised: <list>
 - Ground truth (build freshness / target host / process) confirmed before any NO-GO? <yes | n/a>
-- UI-changing diff: live render/screenshot pass on a real build? <yes (ref) | n/a — no rendered-UI change>
+- UI-changing diff: live render/screenshot pass on a real build (old/new pair for a port)? <yes (ref) | n/a — no rendered-UI change>
 - Cross-repo contract parity current? <yes (artifact ref) | n/a — single repo or none declared | NO → NO-GO>
 
 ## Verdict

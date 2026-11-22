@@ -130,14 +130,14 @@ Present the draft to the user for review before writing. Ask specifically:
 
 ### Write the ADR
 
-After user confirmation, write the file to `docs/adr/NNNN-short-title.md`. Use a lowercase, hyphenated slug for the filename.
+After user confirmation, write the file to `docs/adr/NNNN-short-title.md`. Use a lowercase, hyphenated slug for the filename. Status is accepted when the user confirmed the decision itself, proposed only when they said it is still open; the index row carries the same status.
 
 ### Update index
 
 Add a row to the index table in `docs/adr/README.md`:
 
 ```
-| NNNN | [Title](NNNN-short-title.md) | proposed | {today's date} |
+| NNNN | [Title](NNNN-short-title.md) | {status} | {today's date} |
 ```
 
 ### Report
@@ -178,5 +178,5 @@ Tell the user: file path, ADR number, and title.
 - Do not write an ADR without user confirmation of the title and decision.
 - If the user provides only a topic, draft the Context and Options Considered sections and ask for confirmation before writing.
 - Do not overwrite existing ADR files.
-- Do not modify existing ADRs unless explicitly asked. Status changes (e.g., marking as superseded) are the exception — confirm with the user first.
+- Do not modify existing ADRs unless explicitly asked. Two status changes are the exception: flip `proposed` to `accepted` in the commit that ships the decision (the status line and the index row; tell the user), and any other status change (superseded, deprecated) after confirming with the user.
 - If `docs/adr/README.md` is missing but `docs/adr/` exists, recreate the README by scanning existing ADR files.
