@@ -3,6 +3,6 @@
   "private": true,
   "description": "Pins the Claude Code CLI that the claude-review kit's review job runs.",
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.328"
+    "@anthropic-ai/claude-code": "2.1.329"
   }
 }
