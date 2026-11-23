@@ -143,12 +143,22 @@ hook '{"source":"fork"}' "$T/repo";    t "fork is silent"     '[ -z "$OUT" ] && 
 hook 'not json' "$T/repo";             t "malformed input"    '[ -z "$OUT" ] && [ "$ST" = 0 ]'
 hook '' "$T/repo";                     t "empty input"        '[ -z "$OUT" ] && [ "$ST" = 0 ]'
 hook '[]' "$T/repo";                   t "array input"        '[ -z "$OUT" ] && [ "$ST" = 0 ]'
-hook "$STARTUP" "$T/notags";           t "no tag in the checkout is silent" '[ -z "$OUT" ] && [ "$(fetches)" = 0 ]'
-hook "$STARTUP" "$T/rc";               t "a pre-release local tag is silent" '[ -z "$OUT" ] && [ "$(fetches)" = 0 ]'
 hook "$STARTUP" "$T/other";            t "a non-github origin is silent" '[ -z "$OUT" ] && [ "$(fetches)" = 0 ]'
 hook "$STARTUP" "$T/nowhere";          t "a missing checkout is silent" '[ -z "$OUT" ] && [ "$ST" = 0 ]'
+
+# A checkout with no release tag (every install made before the first release) is behind any release.
+reset; body v0.1.0; hook "$STARTUP" "$T/notags"
+t "no tag in the checkout: the first release is announced" '[ "$(fetches)" = 1 ] && printf %s "$(msg)" | grep -q "(none->0.1.0)"'
+reset; body v0.1.0; hook "$STARTUP" "$T/rc"
+t "only a pre-release tag counts as no tag"  'printf %s "$(msg)" | grep -q "(none->0.1.0)"'
+hook "" --skip "$T/notags"
+t "skip works without a local tag"           '[ "$OUT" = "Skipped widget 0.1.0. You'"'"'ll hear about the next release." ]'
+hook "$STARTUP" "$T/notags"
+t "a skipped first release stays silent"     '[ -z "$OUT" ]'
+reset; hook "" --skip "$T/notags"
+t "skip with no tag and no cache"            '[ "$OUT" = "Nothing to skip: no release is known for widget yet." ] && [ "$ST" = 0 ]'
 hook "" --toggle "$T/notags"
-t "toggle in a checkout without a tag says so" '[ "$ST" = 1 ] && printf %s "$OUT" | grep -q "no release tag"'
+t "toggle works without a local tag"         '[ "$ST" = 0 ] && printf %s "$OUT" | grep -q "are off"'
 
 reset; body v1.10.1; hook "$STARTUP" "$T/shadow"
 t "the highest plain tag counts, not the nearest or a pre-release" 'printf %s "$(msg)" | grep -q "(1.10.0->1.10.1)"'

@@ -17,7 +17,9 @@
 # cache, no network, and prints {"systemMessage": ...} when the latest is newer than the local version and newer
 # than the skipped one. It sends nothing about the user or the machine.
 #
-# Known gaps: tags must be plain numeric versions (v1.2.3); anything else is ignored. Only github.com origins (an ssh
+# A checkout with no release tag (every install made before the first release) counts as version none, so the first
+# release is announced to it too; /update-claude then brings the tag. Known gaps: tags must be plain numeric
+# versions (v1.2.3); anything else is ignored. Only github.com origins (an ssh
 # alias like github.com-work works; a port in the URL does not). A private repo answers the unauthenticated request
 # with 404, so it never notifies. A checkout that is ahead of its last release tag is compared by that tag. Fails open: no set -e, every hook path
 # exits 0, and no output means nothing to say. bash 3.2.
@@ -63,7 +65,8 @@ newer() {  # newer <a> <b>: a is a later version than b
 
 loc=$(git -C "$DIR" tag --merged HEAD --list 'v[0-9]*' '[0-9]*' --sort=-v:refname 2>/dev/null \
   | grep -E '^v?[0-9]+(\.[0-9]+)*$' | head -n 1)
-ver_ok "$loc" || quit "$name has no release tag in this checkout yet."
+ver_ok "$loc" || loc=v0.0.0  # no release tag yet (every install made before the first release): any release is newer
+shown=${loc#v}; [ "$loc" = v0.0.0 ] && shown=none
 
 SD="$HOME/.local/state/claude-update-check"
 SF="$SD/${slug%/*}__$name.json"
@@ -91,7 +94,8 @@ case $MODE in
       save || quit "Could not write $SF."
       printf '%s\n' "Skipped $name ${latest#v}. You'll hear about the next release."
     else
-      printf '%s\n' "Nothing to skip: $name ${loc#v} is the latest release known."
+      if [ "$shown" = none ]; then printf '%s\n' "Nothing to skip: no release is known for $name yet."
+      else printf '%s\n' "Nothing to skip: $name $shown is the latest release known."; fi
     fi
     exit 0 ;;
   toggle)
@@ -117,6 +121,6 @@ fi
 
 [ -n "$latest" ] && newer "$latest" "$loc" || exit 0
 if [ -n "$skipped" ] && ! newer "$latest" "$skipped"; then exit 0; fi
-msg="Update available for \"$name\" (${loc#v}->${latest#v}). Run $UPDATE_CMD in the checkout to install it, /skip-update there to skip it or /disable-update to turn these notices off."
+msg="Update available for \"$name\" ($shown->${latest#v}). Run $UPDATE_CMD in the checkout to install it, /skip-update there to skip it or /disable-update to turn these notices off."
 jq -nc --arg m "$msg" '{systemMessage: $m}' 2>/dev/null
 exit 0

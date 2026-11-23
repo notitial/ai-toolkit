@@ -50,6 +50,9 @@ a possible install.
   machine offline at its first stale startup hears about the release within a day of being online.
 - A checkout that is ahead of its last tag compares by that tag, so a reminder can name a release the checkout
   already has the content of.
+- A checkout with no release tag, which is every install made before the first release, counts as version none, so
+  the first release is announced to it as well. The release is cut on GitHub, so no local checkout has the tag until
+  `/update-claude` (or a pull) brings it.
 - The local version is the highest plain version tag merged into `HEAD`. Other tags (`backup`, `v1.3.0-rc1`) are
   ignored on both sides, wherever they sit in the history.
 - The request is unauthenticated, so a private repo answers 404 and never notifies; a repo that reuses the script
