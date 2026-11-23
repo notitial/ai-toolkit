@@ -33,7 +33,7 @@ Then run `/audit-claude` in any project to evaluate its AI configuration.
 | Category | Items | Destination |
 |----------|-------|-------------|
 | [Agents](agents/) | code-reviewer, security-auditor, adr-advisor, plan-reviewer, plan-author, payments-reviewer | `~/.claude/agents/` |
-| [Hooks](hooks/) | secret-detector, secret-redact-output, destructive-blocker, gh-block, git-mcp-redirect, build-redirect, git-mcp-guard, workspace-lock-guard, protected-paths-guard, audit-logger, session-name-restore | `~/.claude/hooks/` |
+| [Hooks](hooks/) | secret-detector, secret-redact-output, destructive-blocker, gh-block, git-mcp-redirect, build-redirect, git-mcp-guard, workspace-lock-guard, protected-paths-guard, audit-logger, session-name-restore, update-check | `~/.claude/hooks/` |
 | [Skills](skills/README.md) | adr, audit-claude, feature-kickoff, fable-plan, handover, review-gate, archive-index, prep-compact, workspace-lock-protocol, eta, repo-setup, audit-repo, add-claude-review, claude-review-loop, add-build-kit, review-page | `~/.claude/skills/` |
 | [Rules](rules/) | workflow, communication, engineering-defaults, security, model-discipline (always-on); workspace-lock (conditional) | `~/.claude/rules/` |
 | [MCP server](docs/adr/0010-mcp-git-over-bash-git.md) | git-mcp: structured git tools replacing Bash git; the toolkit's own server ([tools/git-mcp/](tools/git-mcp/README.md)), run from the checkout and registered by you with `claude mcp add --scope user` | `~/.claude.json` |

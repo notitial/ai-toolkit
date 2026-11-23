@@ -1,6 +1,5 @@
 ---
-description: "Set up or update global Claude Code configuration — CLAUDE.md, permissions, plugins, MCP servers, skills, agents, and hooks. Run from the ai-toolkit repo to apply best practices globally."
-disable-model-invocation: true
+description: "Set up or update global Claude Code configuration — CLAUDE.md, permissions, plugins, MCP servers, skills, agents, and hooks. Run from the ai-toolkit repo to apply best practices globally. An agent runs it only when the person asks for the setup, or from /update-claude."
 ---
 
 # Setup Claude
