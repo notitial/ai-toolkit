@@ -443,6 +443,7 @@ done
 # ---- 4. state the toolkit made while running
 echo "== runtime state"
 remove_path "$HOME_DIR/.local/state/claude-statusline" "statusline readings"
+remove_path "$HOME_DIR/.local/state/claude-update-check" "update-check state"
 # The install-time settings /setup-claude wrote. Keys another installer added to the file go with it.
 CONF="$HOME_DIR/.claude/install.conf"
 if [ ! -e "$CONF" ] && [ ! -L "$CONF" ]; then :

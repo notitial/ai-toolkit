@@ -285,6 +285,17 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "_comment": "Once a week asks GitHub for ai-toolkit's latest release and, while this checkout is behind it, shows a one-line reminder at startup (/update-claude installs it, /skip-update skips it, /disable-update silences it). Fails open; the state is ~/.local/state/claude-update-check/.",
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/update-check.sh",
+            "timeout": 10
+          }
+        ]
       }
     ]
   },

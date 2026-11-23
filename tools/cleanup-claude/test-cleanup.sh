@@ -188,11 +188,13 @@ check "bad settings: links are still removed" '[ ! -L "$C/hooks/gh-block.sh" ]'
 
 # ---- runtime state
 mkhome
-mkdir -p "$C/.eta" "$H/.local/state/claude-statusline/limits"
+mkdir -p "$C/.eta" "$H/.local/state/claude-statusline/limits" "$H/.local/state/claude-update-check"
 echo x > "$H/.local/state/claude-statusline/limits/readings-x.json"
+echo '{}' > "$H/.local/state/claude-update-check/acme__widget.json"
 echo x > "$C/.eta/records.jsonl"
 run --apply
 check "state: the statusline readings folder is removed" '[ ! -e "$H/.local/state/claude-statusline" ]'
+check "state: the update-check folder is removed" '[ ! -e "$H/.local/state/claude-update-check" ]'
 check "state: the ASK item is kept (the ETA log)" '[ -f "$C/.eta/records.jsonl" ]'
 check "state: the ASK item is listed" 'grep -q "^ASK .*\.eta" "$T/out"'
 run --apply --purge-ask

@@ -41,6 +41,7 @@ Outside the directories in that list, do not search for `package.json`, `Makefil
 - Imperative mood, lowercase, title ≤45 characters (GitHub appends ` (#N)` to the squash commit title; the PR title check enforces it, Dependabot is exempt). Specifics go in the body, not the title.
 - One commit per logical change. Squash review-churn ("address findings", "round-N fixes") into the commit it amends before landing; never commit the same fix twice.
 - Squash-merge PRs (the repo allows nothing else): the PR title, with its `(#N)`, becomes the commit title, and the PR description becomes the commit body — so the title must be conventional and the description must stand as the commit's record. After a fix round changes what a PR does (counts, behavior, review status), re-read the description against the final head and update it before handing the PR over: a merged commit message can't be fixed. Avoid merge commits on `main` — pull with `--ff-only`.
+- Releases (ADR 0019): a tag `vX.Y.Z` on `main` plus a GitHub Release marked Latest; `hooks/update-check.sh` tells every install about the newest one. The owner cuts them, since `gh` is blocked for agents.
 - No force push. A PR branch that falls behind `main` gets `main` merged in, never a rebase (`rules/workflow.md`, Stale PR Branches).
 - No worktrees; branch in a plain clone under `/tmp` (see Where agents edit). Never push to `main`; land every change through a PR.
 - Check for secrets before committing — no `.env`, API keys, credentials.

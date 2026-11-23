@@ -41,6 +41,7 @@ rewrite.
 | 0016 | [Guarded Issue, Label and Project Writes](0016-guarded-issue-and-project-writes.md) | accepted | 2026-11-08 |
 | 0017 | [A Hard-Deny Hook for Protected Checkouts and the Settings Files](0017-protected-paths-hook.md) | accepted, amended | 2026-11-13 |
 | 0018 | [The Review Kit as a Reusable Workflow](0018-review-kit-as-reusable-workflow.md) | accepted | 2026-11-19 |
+| 0019 | [Releases and a Weekly Update Check](0019-release-update-check.md) | accepted | 2026-11-23 |
 
 ADR 0012's file name keeps "overnight-orchestrator-lock" from its first title; links depend on the name, so it
 stays.

@@ -61,6 +61,7 @@ suites() {
   suite secret-detector      0 bash                                  'bash tools/secret-detector/test-secret-detector.sh'
   suite secret-redact-output 0 bash                                  'bash tools/secret-redact-output/test-secret-redact-output.sh'
   suite session-name         0 bash                                  'bash tools/session-name/test-restore.sh'
+  suite update-check         0 jq                                    'bash tools/update-check/test-update-check.sh'
   suite shell-parse          0 jq                                    'bash tools/shell-parse/test-shell-parse.sh'
   suite cleanup-claude       0 jq                                    'bash tools/cleanup-claude/test-cleanup.sh'
   suite claude-review        0 python3                               'python3 -I -B -m unittest discover -s tools/claude-review/tests'
