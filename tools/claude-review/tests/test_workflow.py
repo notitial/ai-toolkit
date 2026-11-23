@@ -229,7 +229,7 @@ class Workflow(unittest.TestCase):
     RESULT = "echo '{\"type\":\"result\",\"subtype\":\"success\"}'\n"
 
     # Fake credentials only. The prefixes are the ones the step tells apart.
-    OAUTH, APIKEY = "sk-ant-oat01-fake", "sk-ant-api03-fake"
+    OAUTH, APIKEY, USRKEY = "sk-ant-oat01-fake", "sk-ant-api03-fake", "sk-ant-usr-fake"
 
     def test_run_step_gives_claude_only_the_allowed_environment(self):
         self.need_yaml()
@@ -248,7 +248,9 @@ class Workflow(unittest.TestCase):
     def test_the_prefix_decides_which_credential_variable_is_set(self):
         self.need_yaml()
         for value, name, other in ((self.OAUTH, "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"),
-                                   (self.APIKEY, "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")):
+                                   (self.APIKEY, "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"),
+                                   (self.USRKEY, "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"),   # a Console key: any sk-ant- but oat
+                                   ("sk-ant-OAT01-upper", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")):   # the prefix is case-sensitive
             with self.subTest(prefix=value[:10]):
                 out, seen, _, _, _ = self.run_step(self.RESULT, CLAUDE_REVIEW_CREDENTIAL=value)
                 self.assertEqual(out.returncode, 0, out.stderr)
@@ -283,16 +285,17 @@ class Workflow(unittest.TestCase):
 
     def test_run_step_fails_on_a_missing_or_unrecognised_credential_without_echoing_it(self):
         self.need_yaml()
-        for value in ("", " \n", "token-junk-value-1234", "sk-ant-xyz-junk", "sk-ant-OAT01-upper", "prefix sk-ant-oat01-x"):
+        for value in ("", " \n", "token-junk-value-1234", "sk-ant-", "bad sk-ant-oat01-x"):
             with self.subTest(value=value):
                 out, seen, _, _, _ = self.run_step(self.RESULT, CLAUDE_REVIEW_CREDENTIAL=value)
                 self.assertNotEqual(out.returncode, 0)
                 self.assertIn("::error::The secret CLAUDE_REVIEW_CREDENTIAL is missing or not a Claude credential", out.stdout)
                 self.assertIn("sk-ant-oat", out.stdout)
-                self.assertIn("sk-ant-api", out.stdout)
+                self.assertIn("another sk-ant- prefix (API key)", out.stdout)
                 self.assertIsNone(seen)   # claude never started
                 for part in value.split():   # nothing past the fixed prefix, whole or in part
-                    self.assertNotIn(part[7:] if len(part) > 10 else part, out.stdout + out.stderr)
+                    if part != "sk-ant-":   # a bare prefix is the message's own text
+                        self.assertNotIn(part[7:] if len(part) > 10 else part, out.stdout + out.stderr)
 
     def test_run_step_fails_when_claude_fails_without_echoing_the_credential(self):
         self.need_yaml()

@@ -18,7 +18,7 @@ installed in a repo that calls it, and this repo has none.
 |---|---|---|
 | [claude-pr-review.md](claude-pr-review.md) | the kit's own checkout (v4.7) | `ee1d8911cdedba1cd52e99edca1ab0cf74b9fc83f69074a735dcf4fa181b2350` |
 
-**Version:** v4.9 (2026-11-23), **breaking**: the kit declares one Claude secret, `CLAUDE_REVIEW_CREDENTIAL`, an API key or an
+**Version:** v4.10 (2026-11-23): `CLAUDE_REVIEW_CREDENTIAL` accepts any `sk-ant-` key as the API key except `sk-ant-oat`, the OAuth token. A Console key can start `sk-ant-usr` (not only `sk-ant-api`), and v4.9 rejected it. This only widens what is accepted. v4.9 (2026-11-23), **breaking**: the kit declares one Claude secret, `CLAUDE_REVIEW_CREDENTIAL`, an API key or an
 OAuth token told apart by its prefix, and no longer declares `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`. A caller
 that still passes either fails at start-up; the fix is one line, replacing those two lines with
 `CLAUDE_REVIEW_CREDENTIAL: ${{ secrets.CLAUDE_REVIEW_CREDENTIAL }}`. The review command is unchanged. v4.8 (2026-11-22): a `--comments` follow-up resolves a suggestion thread once someone has replied in
@@ -399,11 +399,12 @@ jobs:
    clear breaks of quotable rules.
 
 **Auth options:** one secret, `CLAUDE_REVIEW_CREDENTIAL`, holds either credential. The `review` step trims its
-whitespace and picks the variable by prefix: `sk-ant-oat` becomes `CLAUDE_CODE_OAUTH_TOKEN`, `sk-ant-api` becomes
-`ANTHROPIC_API_KEY`, and only that one enters the pinned Claude Code CLI's environment. An empty value or any other
-prefix fails the job with a message that names the secret and the two prefixes, never the value. Switch between them by
+whitespace and picks the variable by prefix: `sk-ant-oat` becomes `CLAUDE_CODE_OAUTH_TOKEN`, any other `sk-ant-` prefix becomes
+`ANTHROPIC_API_KEY`, and only that one enters the pinned Claude Code CLI's environment. An empty value or a value
+that does not start with `sk-ant-` fails the job with a message that names the secret and the two kinds, never the
+value. The kit does not check an API key's prefix against a list: a mistyped `sk-ant-` value fails at the API with a 401. Switch between them by
 setting the secret to the other credential, with no workflow edit.
-- **API key** (tested): a Claude Console key (`sk-ant-api...`).
+- **API key** (tested with `sk-ant-api...`): a Claude Console key. Any other `sk-ant-` prefix, such as `sk-ant-usr...`, is sent as the API key too.
 - **Subscription OAuth token** (tested): the token made by `claude setup-token` (`sk-ant-oat...`). The cost line still reports `total_cost_usd`, but
   on a subscription that figure is notional: usage counts against the account's limits, shared with its interactive
   sessions, and when the limit is reached the review fails in under a second with "did not return
@@ -508,7 +509,7 @@ A thread a person starts must never get a reply or be resolved.
   "no structured result"? What does `publish` print ("No verdict: …", "No-op: …")?
 - **"No verdict: Claude's result has issues reported without findings":** a review pass or a verifier failed twice,
   so the review didn't finish (the command fails closed). The overview comment says "Review incomplete" and no review is posted. Comment `@claude review` to run it again.
-- **"CLAUDE_REVIEW_CREDENTIAL is missing or not a Claude credential", or "Claude exited with status 1":** the secret is missing from the caller or has the wrong prefix, or the credential is
+- **"CLAUDE_REVIEW_CREDENTIAL is missing or not a Claude credential", or "Claude exited with status 1":** the secret is missing from the caller or does not start with `sk-ant-`, or the credential is
   out of usage or invalid. Re-run the failed jobs once it's back.
 - **`appcheck` fails:** the key doesn't match the Client ID, the App isn't installed on the repo, or
   `CLAUDE_REVIEW_APP_LOGIN` isn't the App's slug (the error says which). A key deleted after a review shows up on
@@ -616,7 +617,7 @@ Don't loosen any of this when adapting the files.
 
 ## Upkeep
 
-- Keep the cost record's `reviewer` string (`claude-pr-review@v4.9`) equal to the version above (a test checks).
+- Keep the cost record's `reviewer` string (`claude-pr-review@v4.10`) equal to the version above (a test checks).
 - Run `tests/` after any change to `collect.py`, `publish.py` or `reviewer/`.
 - Claude Code's version is `reviewer/package.json`'s, bumped by Dependabot's `npm` entry. Check a bump PR with a
   replay (`replay/replay.py`) before it merges: the flags in `reviewer/run.sh` are the CLI's, and a version can drop one
