@@ -100,6 +100,6 @@ a draft or not, per the repo's conventions. **(user)** merges.
 
 Tell the user, after the merge:
 - Claude Code asks once to approve a project MCP server from `.mcp.json`; that approval is theirs.
-- The redirect hook is global and already part of `/setup-claude`: with `.build-kit.json` committed, direct
-  `xcodebuild`, `gradlew` and `swiftlint` builds, tests and lints are sent to `build.py`. Running `/setup-claude`
+- The redirect hook is global and already part of `/setup-toolkit`: with `.build-kit.json` committed, direct
+  `xcodebuild`, `gradlew` and `swiftlint` builds, tests and lints are sent to `build.py`. Running `/setup-toolkit`
   again wires it if this machine predates it.

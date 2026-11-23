@@ -1,15 +1,15 @@
 #!/bin/bash
-# Removes what this repo installed on this machine, so /setup-claude can start from nothing. Dry run by default.
+# Removes what this repo installed on this machine, so /setup-toolkit can start from nothing. Dry run by default.
 #   bash tools/cleanup-claude/cleanup.sh [--apply] [--purge-ask] [--keep-ambiguous] [--remove-guard-hook] [--include-security] [--verbose]
 #   --apply             do it (without it, nothing is changed: the report is the dry run)
 #   --purge-ask         also remove the items classed ASK (user-authored or history: the ETA log)
 #   --keep-ambiguous    leave permission allow entries, plugins and autoMode context lines the template also lists,
-#                       and a promptCacheTtl or subagentPromptCacheTtl of "1h" (promptCacheTtl is the /setup-claude default)
+#                       and a promptCacheTtl or subagentPromptCacheTtl of "1h" (promptCacheTtl is the /setup-toolkit default)
 #   --remove-guard-hook also remove the github MCP guard hook (kept by default: without it a still-registered server
 #                       runs unguarded; /cleanup-claude asks the user before passing this)
 #   --include-security  also remove the security entries the template lists: permission ask and deny, deniedMcpServers,
 #                       ENABLE_CLAUDEAI_MCP_SERVERS, enableAllProjectMcpServers, autoMode soft_deny, and the guard hook
-#                       (kept by default; /setup-claude puts them back). --include-deny is the same flag, old name
+#                       (kept by default; /setup-toolkit puts them back). --include-deny is the same flag, old name
 #   --verbose           list every settings value path that goes (paths only, never values)
 # Never touched: login, Keychain items, transcripts, session registry, CLAUDE.md, settings backups, the checkout.
 # Never run for you: sudo, `claude mcp remove`, Keychain deletes. Those are printed as commands.
@@ -20,7 +20,7 @@
 set -u
 umask 077
 ROOT=$(cd "$(dirname "$0")/../.." && pwd -P) || exit 2
-TEMPLATE="$ROOT/.claude/skills/setup-claude/templates/safe-permissions.json"
+TEMPLATE="$ROOT/.claude/skills/setup-toolkit/templates/safe-permissions.json"
 
 APPLY=0 PURGE=0 KEEP_AMB=0 SEC=0 RMGUARD=0 VERBOSE=0 KEPT_ROOT_GUARD=0
 usage() { sed -n '2,15p' "$0" >&2; exit 2; }
@@ -165,7 +165,7 @@ fi
 
 # ---- 2. settings.json: toolkit-managed keys only
 echo "== settings"
-# /setup-claude wrote the template's autoMode lines rendered from ~/.claude/install.conf, so match against the same
+# /setup-toolkit wrote the template's autoMode lines rendered from ~/.claude/install.conf, so match against the same
 # render (tools/install-copies.sh automode --for-cleanup: every placeholder filled, for matching only). No settings
 # file, or an unusable one: the raw template.
 RTEMPLATE=$TEMPLATE
@@ -219,7 +219,7 @@ def toolkit_cmd:
     .env |= with_entries(select(.key as $k | ((tl.env | has($k)) and ($sec == 1 or (sec_env | index($k) | not))) | not)) | prune("env")
   else . end)
 | rm_eq("attribution") | rm_eq("autoCompactWindow")
-# The cache TTL keys are not enforced like the keys above: /setup-claude adds promptCacheTtl "1h" only when absent and
+# The cache TTL keys are not enforced like the keys above: /setup-toolkit adds promptCacheTtl "1h" only when absent and
 # keeps a live value. The value alone marks them, so they are ambiguous like an allow entry the user may have set
 # themselves.
 | (if $amb == 1 then
@@ -444,7 +444,7 @@ done
 echo "== runtime state"
 remove_path "$HOME_DIR/.local/state/claude-statusline" "statusline readings"
 remove_path "$HOME_DIR/.local/state/claude-update-check" "update-check state"
-# The install-time settings /setup-claude wrote. Keys another installer added to the file go with it.
+# The install-time settings /setup-toolkit wrote. Keys another installer added to the file go with it.
 CONF="$HOME_DIR/.claude/install.conf"
 if [ ! -e "$CONF" ] && [ ! -L "$CONF" ]; then :
 elif [ -L "$CONF" ]; then

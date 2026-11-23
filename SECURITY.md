@@ -18,7 +18,7 @@ smallest steps that reproduce it.
 ## Scope
 
 The hooks in `hooks/`, the GitHub MCP guard in `tools/github-mcp/`, the workspace lock and the permission template
-that `/setup-claude` installs are security controls. In scope:
+that `/setup-toolkit` installs are security controls. In scope:
 
 - a guard hook that can be bypassed, or that fails open where it should deny
 - a secret that gets past the secret scan or the output redaction

@@ -156,12 +156,12 @@ expect_re "install.conf ok" "$OUT" '^ok +install\.conf$'
 expect_re "a clean main is ok" "$OUT" '^ok +github-mcp checkout is on a clean main$'
 expect_re "github-mcp binary MISSING" "$OUT" '^MISSING +github-mcp server binary \(tools/github-mcp/bin/github-mcp-server\)  -> tools/github-mcp/README\.md, Install$'
 expect_re "github MCP server MISSING" "$OUT" '^MISSING +github MCP server \(not registered in ~/\.claude\.json\)  -> claude mcp add --scope user github -- '"$R"'/tools/github-mcp/launch$'
-expect_re "github MCP guard hook MISSING" "$OUT" '^MISSING +github MCP guard hook \(none in ~/\.claude/settings\.json\)  -> /setup-claude$'
+expect_re "github MCP guard hook MISSING" "$OUT" '^MISSING +github MCP guard hook \(none in ~/\.claude/settings\.json\)  -> /setup-toolkit$'
 expect_re "a .zshrc that does not load the helpers is MISSING" "$OUT" '^MISSING +~/\.zshrc does not load the zsh helpers  -> add: source ~/\.claude/tools/shell-init\.zsh$'
 expect_re "UNLINKED agent" "$OUT" '^UNLINKED +\.claude/agents/a\.md'
 expect_re "UNLINKED shell-init.zsh" "$OUT" '^UNLINKED +\.claude/tools/shell-init\.zsh'
 expect_has "links summary" "$OUT" "links     0 linked, 7 unlinked, 0 conflicting"
-expect_re "a hook no settings file runs is MISSING" "$OUT" '^MISSING +hooks/h\.sh is not wired in ~/\.claude/settings\.json, so it does not run  -> /setup-claude$'
+expect_re "a hook no settings file runs is MISSING" "$OUT" '^MISSING +hooks/h\.sh is not wired in ~/\.claude/settings\.json, so it does not run  -> /setup-toolkit$'
 expect_has "count of items needing attention" "$OUT" "12 need attention"
 expect_not "no root-owned folder is mentioned" "$OUT" "libexec"
 
@@ -255,7 +255,7 @@ setup_current
 jq -n --arg c "/bin/bash -p '$R/tools/github-mcp/guard.sh' || exit 2" '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "command", command: $c}]}]}}' > "$H/.claude/settings.json"
 ic status
 expect_rc "status exits 1 for a hook no entry runs" 1
-expect_re "an unwired hook is MISSING" "$OUT" '^MISSING +hooks/h\.sh is not wired in ~/\.claude/settings\.json, so it does not run  -> /setup-claude$'
+expect_re "an unwired hook is MISSING" "$OUT" '^MISSING +hooks/h\.sh is not wired in ~/\.claude/settings\.json, so it does not run  -> /setup-toolkit$'
 expect_has "its link still counts as linked" "$OUT" "links     7 linked, 0 unlinked, 0 conflicting"
 expect_not "an unwired hook is not all current" "$OUT" "all current"
 jq -n '{hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: "/old/place/hooks/h.sh"}]}]}}' > "$H/.claude/settings.json"
@@ -310,7 +310,7 @@ ic status
 expect_rc "status exits 1 for a non-plain checkout path" 1
 expect_re "the path is named as the cause" "$OUT" '^STALE +github-mcp checkout path \(.*with space/repo has characters other than'
 expect_not "no claude mcp add hint" "$OUT" "claude mcp add"
-expect_not "no guard-hook line sending the user to /setup-claude" "$OUT" "github MCP guard hook"
+expect_not "no guard-hook line sending the user to /setup-toolkit" "$OUT" "github MCP guard hook"
 
 case_start "status 2e: an http github server is STALE, not unregistered"
 new_case
@@ -377,7 +377,7 @@ jq -n '{hooks: {PreToolUse: [{matcher: "^mcp__github__.*$", hooks: [{type: "comm
 ic status
 expect_rc "status exits 1 when they point elsewhere" 1
 expect_re "a server registered elsewhere is STALE" "$OUT" '^STALE +github MCP server \(registered at /elsewhere/launch\)'
-expect_re "a hook elsewhere is STALE" "$OUT" '^STALE +github MCP guard hook \(points at /elsewhere/tools/github-mcp/guard\.sh\)  -> /setup-claude$'
+expect_re "a hook elsewhere is STALE" "$OUT" '^STALE +github MCP guard hook \(points at /elsewhere/tools/github-mcp/guard\.sh\)  -> /setup-toolkit$'
 jq -n '{mcpServers: {other: {command: "x"}}}' > "$H/.claude.json"
 ic status
 expect_re "another server name does not count" "$OUT" '^MISSING +github MCP server'
@@ -492,7 +492,7 @@ wire_mcp
 printf 'source ~/.claude/tools/shell-init.zsh\n' > "$H/.zshrc"
 ic status
 expect_rc "status exits 1 without the settings file" 1
-expect_re "install.conf MISSING" "$OUT" '^MISSING +install\.conf \(the install-time settings\)  -> /setup-claude$'
+expect_re "install.conf MISSING" "$OUT" '^MISSING +install\.conf \(the install-time settings\)  -> /setup-toolkit$'
 expect_has "only the settings line needs attention" "$OUT" "1 need attention"
 
 case_start "settings 2: an invalid value is STALE, with the reason"
@@ -553,9 +553,9 @@ done
 
 case_start "settings 3: automode follows the write owners in install.conf"
 new_case
-mkdir -p "$R/.claude/skills/setup-claude/templates"
+mkdir -p "$R/.claude/skills/setup-toolkit/templates"
 printf '%s\n' '{"autoMode": {"_note": "x <username>", "environment": ["$defaults", "User <username>", "Host <host>", "Router <router.ip>", "Plain"], "soft_deny": ["$defaults", "Deploys to <host> or <router.ip>"]}}' \
-  > "$R/.claude/skills/setup-claude/templates/safe-permissions.json"
+  > "$R/.claude/skills/setup-toolkit/templates/safe-permissions.json"
 full_conf() {  # full_conf <owners> <github_username>
   printf '%s\n' "github_write_owners=$1" 'github_keychain_account=example-user' "github_username=$2" 'lan_host=nas.lan' 'router_ip=10.0.0.1' > "$H/.claude/install.conf"
 }
@@ -597,7 +597,7 @@ ic automode
 expect_rc "automode refuses an invalid settings file" 1
 
 case_start "this repository: the autoMode template holds no unfillable placeholder"
-TPL="$(cd "$(dirname "$SCRIPT_SRC")/.." && pwd -P)/.claude/skills/setup-claude/templates/safe-permissions.json"
+TPL="$(cd "$(dirname "$SCRIPT_SRC")/.." && pwd -P)/.claude/skills/setup-toolkit/templates/safe-permissions.json"
 ENTRIES=$(jq -r '.autoMode | to_entries[] | select(.key | startswith("_") | not) | .value[]? | strings' "$TPL" 2>&1)
 expect_true "the template lists autoMode entries" test -n "$ENTRIES"
 LEFT=$(printf '%s\n' "$ENTRIES" | sed -e 's/<username>//g' -e 's/<host>//g' -e 's/<router\.ip>//g' | grep -E -e '\[[A-Z ]+\]' -e '<[A-Za-z][^>]*>' -e '\[[^]]*[Ff][Ii][Ll][Ll][^]]*\]')

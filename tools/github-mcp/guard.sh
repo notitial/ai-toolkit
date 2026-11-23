@@ -134,7 +134,7 @@ fi
 READ_TOOLS=" get_me pull_request_read list_pull_requests search_pull_requests issue_read list_issues search_issues get_file_contents get_commit list_commits list_branches actions_get actions_list get_job_logs list_label projects_list projects_get "
 WRITE_TOOLS=" create_pull_request add_issue_comment add_reply_to_pull_request_comment actions_run_trigger update_pull_request issue_write sub_issue_write label_write projects_write "
 # Owners whose repos the write tools may target (lowercase JSON array): the github_write_owners install setting,
-# read from ~/.claude/install.conf at call time (/setup-claude writes it; the template denies edits of that file and
+# read from ~/.claude/install.conf at call time (/setup-toolkit writes it; the template denies edits of that file and
 # asks on a shell command that names it). Only plain lowercase owner names are accepted. A missing or invalid
 # setting leaves an empty list, so every owner-bearing write is denied. The repo name must be a plain GitHub name.
 WRITE_OWNERS='[]'

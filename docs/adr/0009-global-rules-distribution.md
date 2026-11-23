@@ -53,3 +53,4 @@ the same tests they failed in ADR 0006.
   of deleting it, so the user removes it once.
 - The audit-tooling skill must audit `rules/*.md` as its own category — project-rule checks
   (e.g., `paths` frontmatter present) do not apply to global rules.
+- Amended 2026-11-23: the skills `/setup-claude` and `/update-claude` are now `/setup-toolkit` and `/update-toolkit`, with no aliases. The text above keeps the original names.

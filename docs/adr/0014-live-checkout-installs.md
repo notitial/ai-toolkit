@@ -70,3 +70,4 @@ well-meaning session that forgets the rules, not a hijacked agent that works aro
   the launcher refuses to start.
 - **Cleanup keeps the guard.** A plain `/cleanup-claude` keeps the guard hook and asks before removing it, since a
   `github` server that stays registered would run unguarded; `--include-security` counts as the user's yes.
+- Amended 2026-11-23: the skills `/setup-claude` and `/update-claude` are now `/setup-toolkit` and `/update-toolkit`, with no aliases. The text above keeps the original names.

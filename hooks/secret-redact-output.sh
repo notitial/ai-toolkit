@@ -1,7 +1,7 @@
 #!/bin/bash
 # PostToolUse hook: redacts token-shaped values in the OUTPUT of Bash, Read, Grep and MCP tool calls before the model
 # sees it. Configured in ~/.claude/settings.json for PostToolUse on Bash|Read|Grep|mcp__.* (the setup skill's template:
-# .claude/skills/setup-claude/templates/safe-permissions.json).
+# .claude/skills/setup-toolkit/templates/safe-permissions.json).
 #
 # Why: secret-detector.sh scans what the model writes, but a command, a file read or an MCP tool can still print a
 # credential, and the output lands in the model's context and the transcript. This hook replaces matching values with

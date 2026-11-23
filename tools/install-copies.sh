@@ -2,17 +2,17 @@
 # What the toolkit installs outside the checkout, and whether it is current. Never writes anything.
 #
 #   bash tools/install-copies.sh status            one line per piece; exit 1 if any needs attention
-#   bash tools/install-copies.sh roster            what /setup-claude links: the agents, hooks, rules and skills
+#   bash tools/install-copies.sh roster            what /setup-toolkit links: the agents, hooks, rules and skills
 #                                                  committed at HEAD, one repo path per line (never an untracked file)
 #   bash tools/install-copies.sh automode [--valued | --for-cleanup]   the setup template's autoMode lists, filled in
-#   bash tools/install-copies.sh order <file>      a settings.json in /setup-claude's fixed order (see cmd_order); prints
+#   bash tools/install-copies.sh order <file>      a settings.json in /setup-toolkit's fixed order (see cmd_order); prints
 #                                                  the JSON, writes nothing, drops no key and no entry
 #   bash tools/install-copies.sh accounts          the valid lines of ~/.claude/accounts.conf as name<TAB>kind<TAB>service,
 #                                                  one per line; tools/accounts.zsh reads the launchers' accounts from this
 #                                                  (the one parser), a bad line goes to stderr and is left out
 #
-# Pieces `status` checks (/setup-claude Step 8b, and the `ait-status` zsh helper):
-#   install.conf   ~/.claude/install.conf, the install-time settings /setup-claude writes, one key=value line each,
+# Pieces `status` checks (/setup-toolkit Step 8b, and the `ait-status` zsh helper):
+#   install.conf   ~/.claude/install.conf, the install-time settings /setup-toolkit writes, one key=value line each,
 #                  never sourced. Required: github_write_owners, github_keychain_account; optional:
 #                  github_username, github_projects, lan_host, router_ip. Any other well-formed key (lowercase letters and _) is
 #                  skipped, so a file another installer added its own keys to still reads; `status` lists them.
@@ -26,7 +26,7 @@
 #                  without -w or -g, so a secret is never read.
 #   links          every agent, hook, rule, global skill and tool script with no link under ~/.claude, or a wrong one;
 #                  a hook or the lock script that is not executable, since those run by their path; a hook no entry
-#                  in ~/.claude/settings.json runs (presence only: /setup-claude compares events and matchers).
+#                  in ~/.claude/settings.json runs (presence only: /setup-toolkit compares events and matchers).
 # Tests: bash tools/test-install-copies.sh. The ICOPIES_* overrides are honoured only when ICOPIES_TESTING=1.
 
 set -u
@@ -124,8 +124,8 @@ status_install_conf() {
   read_conf
   case $? in
     0) line ok "install.conf${CONF_SKIPPED:+ (skipped, not used here: $CONF_SKIPPED)}" ;;
-    1) line MISSING "install.conf (the install-time settings)" "/setup-claude" ;;
-    *) line STALE "install.conf ($CONF_ERR)" "/setup-claude" ;;
+    1) line MISSING "install.conf (the install-time settings)" "/setup-toolkit" ;;
+    *) line STALE "install.conf ($CONF_ERR)" "/setup-toolkit" ;;
   esac
 }
 
@@ -252,11 +252,11 @@ BIN_REL=tools/github-mcp/bin/github-mcp-server
 # point here (a copy elsewhere, or the old root-owned folder, is stale).
 status_github_mcp() {
   local br dirty want cfg have cmds nproj pin got
-  # /setup-claude skips the guard hook for a path with other characters, and the launcher refuses one: name that cause
-  # instead of sending the user to /setup-claude or to `claude mcp add`, which cannot fix it.
+  # /setup-toolkit skips the guard hook for a path with other characters, and the launcher refuses one: name that cause
+  # instead of sending the user to /setup-toolkit or to `claude mcp add`, which cannot fix it.
   case $ROOT in
     *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._+-]*)
-      line STALE "github-mcp checkout path ($ROOT has characters other than letters, digits and / . _ + -: /setup-claude writes no guard hook and the launcher refuses to start)" "move the checkout to a plain path, then run /setup-claude"
+      line STALE "github-mcp checkout path ($ROOT has characters other than letters, digits and / . _ + -: /setup-toolkit writes no guard hook and the launcher refuses to start)" "move the checkout to a plain path, then run /setup-toolkit"
       return ;;
   esac
   br=$(g symbolic-ref -q HEAD 2>/dev/null)
@@ -312,9 +312,9 @@ status_github_mcp() {
   if printf '%s\n' "$cmds" | grep -Fxq -- "$want"; then
     line ok "github MCP guard hook points at this checkout"
   elif [ -z "$cmds" ]; then
-    line MISSING "github MCP guard hook (none in ~/.claude/settings.json)" "/setup-claude"
+    line MISSING "github MCP guard hook (none in ~/.claude/settings.json)" "/setup-toolkit"
   else
-    line STALE "github MCP guard hook (points at $(printf '%s' "$cmds" | head -n 1))" "/setup-claude"
+    line STALE "github MCP guard hook (points at $(printf '%s' "$cmds" | head -n 1))" "/setup-toolkit"
   fi
 }
 
@@ -334,10 +334,10 @@ check_link() {
     LINK_OK=$((LINK_OK + 1))
   elif [ ! -e "$2" ] && [ ! -L "$2" ]; then
     LINK_NEW=$((LINK_NEW + 1))
-    line UNLINKED "${2#$HOME_DIR/}" "/setup-claude"
+    line UNLINKED "${2#$HOME_DIR/}" "/setup-toolkit"
   else
     LINK_CONFLICT=$((LINK_CONFLICT + 1))
-    line CONFLICT "${2#$HOME_DIR/} (not a link to $1)" "/setup-claude reports it; resolve by hand"
+    line CONFLICT "${2#$HOME_DIR/} (not a link to $1)" "/setup-toolkit reports it; resolve by hand"
   fi
 }
 
@@ -347,7 +347,7 @@ check_link() {
 check_exec() {
   [ -e "$ROOT/$1" ] || return 0
   case $(g ls-tree HEAD -- "$1" 2>/dev/null) in
-    100644\ *) line STALE "$1 is committed without the executable bit, so it does not run from a clean checkout" "commit it as 100755 in a PR, then pull and run /setup-claude" ;;
+    100644\ *) line STALE "$1 is committed without the executable bit, so it does not run from a clean checkout" "commit it as 100755 in a PR, then pull and run /setup-toolkit" ;;
     *) [ -x "$ROOT/$1" ] || line STALE "$1 is not executable in this checkout, so it does not run" "chmod 755 $1" ;;
   esac
 }
@@ -362,16 +362,16 @@ check_wired() {
   case $1 in
     hooks/protected-paths-guard.sh|hooks/secret-detector.sh|hooks/destructive-blocker.sh|hooks/git-mcp-guard.sh|hooks/git-mcp-redirect.sh|hooks/gh-block.sh)
       if printf '%s\n' "$2" | grep -Fxq -e "\$HOME/.claude/$1"; then
-        line STALE "$1 runs as the bare path, which lets a call through when the guard cannot start" "/setup-claude (command drift)"
+        line STALE "$1 runs as the bare path, which lets a call through when the guard cannot start" "/setup-toolkit (command drift)"
         return 0
       fi
       ;;
     *) printf '%s\n' "$2" | grep -Fxq -e "\$HOME/.claude/$1" && return 0 ;;
   esac
-  line MISSING "$1 is not wired in ~/.claude/settings.json, so it does not run" "/setup-claude"
+  line MISSING "$1 is not wired in ~/.claude/settings.json, so it does not run" "/setup-toolkit"
 }
 
-# roster: what /setup-claude links, one repo path per line: the agents, hooks, rules and skills committed at HEAD (a
+# roster: what /setup-toolkit links, one repo path per line: the agents, hooks, rules and skills committed at HEAD (a
 # skill as skills/<name>). A file that is only on disk (untracked, or on another branch) is never listed, so it is never
 # linked into ~/.claude.
 # It fails (exit 1, nothing on stdout) when HEAD cannot be read or holds none of them, so a caller never takes a broken
@@ -438,14 +438,14 @@ cmd_status() {
 # an unset one is dropped, so no placeholder is ever printed. No settings file: every such entry is dropped. A
 # <username> entry widens what the classifier trusts, so it is kept only while github_username is among the
 # github_write_owners of install.conf (what the guard reads); otherwise it is dropped and the reason goes to stderr.
-# --valued: only the entries that carry an install.conf value (the ones /setup-claude adds only on the user's go).
+# --valued: only the entries that carry an install.conf value (the ones /setup-toolkit adds only on the user's go).
 # --for-cleanup: every placeholder filled without the guard check, to match lines for removal, never to add any.
 # Exit 1 on an invalid settings file, 2 on an unknown option.
 cmd_automode() {
-  local tpl="$ROOT/.claude/skills/setup-claude/templates/safe-permissions.json" mode=${1:-} u
+  local tpl="$ROOT/.claude/skills/setup-toolkit/templates/safe-permissions.json" mode=${1:-} u
   case $mode in '' | --valued | --for-cleanup) ;; *) fail "automode: unknown option $mode"; return 2 ;; esac
   read_conf
-  [ $? = 2 ] && { fail "install settings invalid ($CONF_ERR); run /setup-claude"; return 1; }
+  [ $? = 2 ] && { fail "install settings invalid ($CONF_ERR); run /setup-toolkit"; return 1; }
   command -v jq >/dev/null 2>&1 || { fail "automode needs jq"; return 1; }
   u=$CONF_GITHUB_USERNAME
   if [ -n "$u" ] && [ "$mode" != --for-cleanup ]; then

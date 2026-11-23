@@ -13,7 +13,7 @@ wraps this script.
 
 ## Install
 
-`/setup-claude` symlinks this script to a stable, machine-independent path. It runs by that path, so it
+`/setup-toolkit` symlinks this script to a stable, machine-independent path. It runs by that path, so it
 is committed `100755`, and `tools/install-copies.sh status` reports it if it is not executable:
 
 ```
@@ -37,7 +37,7 @@ A call to the script should then run without a prompt; if a `status` call still 
 **not** use `Bash(*/.claude/tools/workspace-lock.sh *)` as an allow entry, anywhere: its leading wildcard
 auto-approves any command that names that path as an argument (a downloader or interpreter call, a script planted
 under `/tmp`), and in user settings it does so in every repo. It is safe only as the `permissions.ask` entry that
-`/setup-claude` installs. A literal `$HOME` rule did not match in a live test. The absolute entry, in turn, matches
+`/setup-toolkit` installs. A literal `$HOME` rule did not match in a live test. The absolute entry, in turn, matches
 a call spelled `$HOME/.claude/tools/workspace-lock.sh` or with the absolute path, and does not match one spelled
 `~/.claude/tools/workspace-lock.sh` (that call prompts): spell every call `$HOME/...`, as the protocol says. Checked
 live with `claude -p` and `--setting-sources project,local --settings '{"permissions":{"allow":[...]}}'`, one call per

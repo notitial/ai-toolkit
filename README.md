@@ -11,11 +11,11 @@ A documentation-first knowledge base of AI-assisted development patterns, plus t
 ## What This Is
 
 Patterns, methodologies and lessons distilled from real projects, organized by topic and written for both humans and AI agents.
-Alongside the docs, the repo ships the working setup they describe, and `/setup-claude` installs it into `~/.claude/`.
+Alongside the docs, the repo ships the working setup they describe, and `/setup-toolkit` installs it into `~/.claude/`.
 
 ## Getting Started
 
-Prerequisites (`/setup-claude` checks them first and stops with these hints if one is missing):
+Prerequisites (`/setup-toolkit` checks them first and stops with these hints if one is missing):
 
 | Tool | Needed by | Install (macOS) |
 |------|-----------|-----------------|
@@ -23,7 +23,7 @@ Prerequisites (`/setup-claude` checks them first and stops with these hints if o
 | `node` | the git MCP server (`tools/git-mcp/server.js`) | `brew install node` |
 
 1. Clone this repo (https or ssh)
-2. Open it in Claude Code and run `/setup-claude`, which is idempotent, so safe to repeat
+2. Open it in Claude Code and run `/setup-toolkit`, which is idempotent, so safe to repeat
 3. Restart Claude Code
 
 Then run `/audit-claude` in any project to evaluate its AI configuration.
@@ -41,7 +41,7 @@ Then run `/audit-claude` in any project to evaluate its AI configuration.
 | [Tool scripts](tools/README.md) | workspace-lock.sh; shell-init.zsh (loads the `ait` zsh helpers and the account launchers; your `~/.zshrc` sources it) | `~/.claude/tools/` |
 | [Permissions](docs/05-permissions-and-safety.md) | Safe defaults, hook wiring, plugin config | `~/.claude/settings.json` |
 
-The guarded GitHub MCP setup ([tools/github-mcp/](tools/github-mcp/README.md)) is optional and not installed by `/setup-claude`: it runs from the live checkout, so a merge and a fast-forward pull are the install.
+The guarded GitHub MCP setup ([tools/github-mcp/](tools/github-mcp/README.md)) is optional and not installed by `/setup-toolkit`: it runs from the live checkout, so a merge and a fast-forward pull are the install.
 
 ## Where to Go Next
 

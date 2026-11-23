@@ -124,3 +124,4 @@ Until the last stage merges, the code still uses typed slugs; the text above des
     model.
 - The protocol is [rules/workspace-lock.md](../../rules/workspace-lock.md); the script reference is
   [tools/workspace-lock/README.md](../../tools/workspace-lock/README.md).
+- Amended 2026-11-23: the skills `/setup-claude` and `/update-claude` are now `/setup-toolkit` and `/update-toolkit`, with no aliases. The text above keeps the original names.

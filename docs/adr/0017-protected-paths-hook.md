@@ -88,3 +88,4 @@ base install.
   a command with hundreds of operands); the test suite runs several hundred cases in about 15 s.
 - Settings changes through `/setup-claude` take one extra step from the user. That is deliberate: the file holds the
   hooks and permissions that this hook and every other control run under.
+- Amended 2026-11-23: the skills `/setup-claude` and `/update-claude` are now `/setup-toolkit` and `/update-toolkit`, with no aliases. The text above keeps the original names.

@@ -7,7 +7,7 @@ convention works: `tools/claude-review/README.md`, "REVIEW.md".
 ## What this repo is
 
 Markdown knowledge base (`docs/`) plus working shell and Python in `hooks/` and `tools/`. The hooks in `hooks/` are
-live: `/setup-claude` symlinks `~/.claude/hooks/*` to them, so a merged change runs on the next tool call. Most risk
+live: `/setup-toolkit` symlinks `~/.claude/hooks/*` to them, so a merged change runs on the next tool call. Most risk
 sits in the guards (`hooks/*-guard.sh`, `secret-detector.sh`, `destructive-blocker.sh`, `gh-block.sh`,
 `git-mcp-*.sh`), in `tools/github-mcp/` and in the review workflow (`tools/claude-review/`,
 `.github/workflows/claude-review-kit.yml`, called by `.github/workflows/claude-review.yml`).

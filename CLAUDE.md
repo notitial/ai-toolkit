@@ -15,10 +15,10 @@ Outside the directories in that list, do not search for `package.json`, `Makefil
 ## Document Structure
 
 - `docs/` — Numbered knowledge base (01–18, no gaps) in reading order; each stands alone but builds on earlier ones. Organized in six groups: Foundations (01–05), Setting up a repo (06–07), Context (08–09), Quality (10–11), Orchestration (12–16), Specialized (17–18). See `docs/README.md` for the full index.
-- `agents/` — Global agent definitions (symlinked to `~/.claude/agents/` via `/setup-claude`).
-- `hooks/` — Global hook scripts (symlinked to `~/.claude/hooks/` via `/setup-claude`).
-- `rules/` — Global always-on rule files (symlinked to `~/.claude/rules/` via `/setup-claude`; no frontmatter — distinct from project-scoped `.claude/rules/`; see ADR 0009).
-- `skills/` — Global Claude Code skills, symlinked via `/setup-claude`. The README install table is the roster of global installs.
+- `agents/` — Global agent definitions (symlinked to `~/.claude/agents/` via `/setup-toolkit`).
+- `hooks/` — Global hook scripts (symlinked to `~/.claude/hooks/` via `/setup-toolkit`).
+- `rules/` — Global always-on rule files (symlinked to `~/.claude/rules/` via `/setup-toolkit`; no frontmatter — distinct from project-scoped `.claude/rules/`; see ADR 0009).
+- `skills/` — Global Claude Code skills, symlinked via `/setup-toolkit`. The README install table is the roster of global installs.
 - `tools/` — Reusable tooling (scripts and their tests).
 - `.archive/` — Gitignored working area (session artifacts, handovers, audits) plus archived source material. Do not modify archived source subfolders; new work goes in new subfolders.
 
@@ -49,14 +49,14 @@ Outside the directories in that list, do not search for `package.json`, `Makefil
 
 ## Where agents edit
 
-The live checkout is what `/setup-claude` links into `~/.claude` (hooks, rules, skills, agents, the status line, the tool scripts) and what the github MCP launcher and guard run from, so a branch or half-done edit there goes live on the next tool call, MCP start or window reload. It stays on `main` and moves only with `git pull --ff-only` after a merge: the merge plus that pull is the install.
+The live checkout is what `/setup-toolkit` links into `~/.claude` (hooks, rules, skills, agents, the status line, the tool scripts) and what the github MCP launcher and guard run from, so a branch or half-done edit there goes live on the next tool call, MCP start or window reload. It stays on `main` and moves only with `git pull --ff-only` after a merge: the merge plus that pull is the install.
 
 - Code changes go in a plain clone under `/tmp`, such as `/tmp/ai-toolkit-<task>`, never a worktree. Git MCP calls carry `path` set to that clone. Never edit a tracked file in the live checkout.
 - Clone from the GitHub URL, never from the live checkout's folder: a clone of the folder has that path as its `origin`, and its push would write into the live checkout. The protected-paths guard denies such a push.
 - `.archive/` (STATE.md, handoffs) stays in the live checkout: it is gitignored, so a clone has none.
 - `/tmp` is wiped on reboot: push the branch before stopping or handing over.
 - A long-lived session may still run in the live folder, since the tool that tracks it keys it to the folder it started in; it edits in its clone.
-- `/setup-claude` backs this with deny rules on the `~/.claude` link paths (hooks, rules, agents, skills, tools, statusline.sh). It writes no deny on the live checkout's own paths: a shell write (`sed -i`, a redirect, `git checkout` in the live checkout) is not an Edit, so no permission rule would stop it. `hooks/protected-paths-guard.sh` does: it hard-denies file-tool, git MCP and simple Bash writes to any folder holding an untracked `.protected-checkout` file (this checkout, once the user has made it with `touch`) and to `~/.claude/settings*.json`, and it never asks. It reads no script or interpreter program, so the clone discipline stays the control for those (ADR 0017).
+- `/setup-toolkit` backs this with deny rules on the `~/.claude` link paths (hooks, rules, agents, skills, tools, statusline.sh). It writes no deny on the live checkout's own paths: a shell write (`sed -i`, a redirect, `git checkout` in the live checkout) is not an Edit, so no permission rule would stop it. `hooks/protected-paths-guard.sh` does: it hard-denies file-tool, git MCP and simple Bash writes to any folder holding an untracked `.protected-checkout` file (this checkout, once the user has made it with `touch`) and to `~/.claude/settings*.json`, and it never asks. It reads no script or interpreter program, so the clone discipline stays the control for those (ADR 0017).
 
 ## Patterns
 

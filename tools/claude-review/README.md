@@ -253,7 +253,7 @@ own verifier (duplication on `opus`, because it blocks; simplification and no ca
 
 ## Adding it to a repo
 
-The `/add-claude-review` skill (installed by `/setup-claude`) writes the reusable kit's caller below from the target repo.
+The `/add-claude-review` skill (installed by `/setup-toolkit`) writes the reusable kit's caller below from the target repo.
 
 ### The reusable kit
 
