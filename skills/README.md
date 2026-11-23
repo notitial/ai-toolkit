@@ -38,7 +38,7 @@ Reports where the current task stands and a grounded ETA, backed by a global lea
 
 ### [/review-page](review-page/SKILL.md)
 
-Builds one throwaway local HTML page that shows two or more real options as rendered previews side by side (each in its own frame at a phone, tablet or laptop width, light or dark), with a recommendation, Pick buttons, notes and one fixed JSON block to paste back. The kit and example live in [review-page/page.html](review-page/page.html); a session copies it under `.archive/review/`, replaces only the spec block and opens it in Chrome. The page is never published, has no tests and is deleted freely. Also starts from plain phrases such as "show me the options side by side".
+Builds one throwaway local HTML page that shows two or more real options as rendered previews side by side (up to four per row, each in its own frame at a phone, tablet or laptop width, light or dark, scaled to fit or shown at 100%), with a recommendation, Pick buttons, notes, a "Your picks" list and one fixed JSON block to paste back. The kit and example live in [review-page/page.html](review-page/page.html); a session copies it under `.archive/review/`, replaces only the spec block and opens it in Chrome. The page is never published, has no tests and is deleted freely. Also starts from plain phrases such as "show me the options side by side", "UI drafts to pick from" or "mockups before a build"; a brief for a UI choice names the skill and never describes a layout.
 
 ## Multi-session and orchestration skills
 

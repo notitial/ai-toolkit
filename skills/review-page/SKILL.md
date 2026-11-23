@@ -1,5 +1,5 @@
 ---
-description: "Build one local review page that shows two or more real options as rendered previews side by side, with a recommendation, Pick buttons, notes and one JSON block to paste back. Run /review-page, or use it when asked for a 'review page', an 'options page' or to 'show me the options side by side' for a screen, layout or flow the person should see before deciding."
+description: "Build one local review page that shows two or more real options as rendered previews side by side, with a recommendation, Pick buttons, notes and one JSON block to paste back. Run /review-page, or use it whenever the person should look at UI before it is built or changed: drafts to pick from, versions to compare, mockups before a build, a 'review page', an 'options page', 'show me the options side by side' for a screen, layout or flow."
 disable-model-invocation: false
 ---
 
@@ -15,6 +15,7 @@ The page is made for one session and one decision. It has no tests; nobody maint
 
 - Two or more real options the person should see: screens, layouts, flows, wording in context.
 - Not for a yes/no that fits one chat question, and not for a choice with nothing visual to compare.
+- A brief or plan for a UI choice names `/review-page` and never describes a layout ("side by side"): the kit owns the layout, and a hand-written page drifts from it.
 
 ## Steps
 
@@ -68,10 +69,19 @@ Screenshots go in as `<img>` inside `html`. Never invent a look in place of the 
 
 ## What the page does
 
-- Toolbar: Theme (Device, Light, Dark), Width (Phone 390x780, Tablet 768x1024, Laptop 1280x800), the spec's own controls, and an answered count. Light and dark apply to the page and to every frame.
-- Frames sit side by side, up to three per row on Phone, two on Tablet and three on Laptop, scaled down to fit the column; an option with several frames counts each one. The caption under each preview shows its `cap`, the real width and the scale ("After a wrong password: 1280 px, shown at 30%"); a `src` caption also shows the URL.
+- Toolbar: Theme (Device, Light, Dark), Width (Phone 390x780, Tablet 768x1024, Laptop 1280x800), Zoom (Fit, 100%), the spec's own controls, and an answered count. Light and dark apply to the page and to every frame; Width switches every frame at once.
+- Frames sit side by side, up to four per row on Phone and Laptop and two on Tablet; an option with several frames counts each one. Fit scales each frame down to its column; 100% shows it at its real width and scrolls sideways inside the column. The caption under each preview shows its `cap`, the real width and the scale ("After a wrong password: 1280 px, shown at 30%"); a `src` caption also shows the URL.
+- "Your picks" above the notes lists every question with its pick so far.
 - In a window about phone width (420 px or less) the previews run edge to edge with no panel padding.
-- Picks, notes and controls are saved per file path in `localStorage` and survive a reload. Reset clears them after a confirm.
+- Picks, notes, controls and the zoom are saved per file path in `localStorage` and survive a reload. Reset clears them after a confirm.
+
+## Before it reaches the person
+
+The author, and the lead who passes the page on, check it. The one who sends the page must have opened it themselves.
+
+- Screenshot it headless at 1440 px wide, once in Phone and once in Laptop mode, and read both: `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --screenshot=<out.png> --window-size=1440,3000 file://<page>`. The window is tall so the option columns are in the shot. A fresh page opens in Phone; for Laptop screenshot a scratch copy with the default in `dflt` changed (`width: 1280`), never the page you send.
+- In those shots confirm the versions of each question sit in columns, each a full device frame (not stacked, not cropped), and the previews show the app's real tokens, components and icons, and whole screens.
+- Then open the page in Chrome (`open -a "Google Chrome" <page>`), a real window, because headless cannot click: confirm the Width buttons switch every frame, Light and Dark both work, and Zoom changes Fit to 100%.
 
 ## Limits
 
