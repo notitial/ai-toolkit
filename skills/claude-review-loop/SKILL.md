@@ -41,7 +41,8 @@ denies a post, give the user the `gh` command in a markdown code block instead.
    the fixed ones. Wait until no review is running before you post (GitHub keeps one waiting run per PR, so an early
    request can replace another). The comment starts its own run, on the `issue_comment` event: wait for that run,
    not the checks of the last push, then handle any thread it keeps open. List the findings and their outcome in the
-   handover.
+   handover. Extra paid runs (this comment, or a full `@claude review`) are two per PR on top of the automatic review,
+   which does not count; never post one before the guard's ask has been answered.
 6. A full `@claude review` (a whole re-review, about the cost of the first) only when the user asks. A PR that
    changes the caller runs its own copy: an install or upgrade PR goes without `[skip ci]`, its own first review is
    the live test, and a `@claude review` comment runs nothing on it until the merge (the README's Quirks).

@@ -7,7 +7,9 @@
 #   update-check.sh [--update <cmd>] --toggle [<checkout>]             turn the notices off, or back on
 # <checkout> defaults to the repo this script lives in (its link resolved); another repo's setup passes its own, and
 # --update names that repo's update command (default /update-claude). The GitHub owner and name come from the
-# checkout's origin URL, so no repo is written into the script.
+# checkout's origin URL, so no repo is written into the script. With no --update and no checkout (this repo's own wiring)
+# the reminder names the /skip-update and /disable-update skills; with either, it prints this script's --skip and
+# --toggle commands instead, since the script then serves another repo, which has no such skills here.
 #
 # Why: the install is a live checkout (ADR 0014), so an update is a fast-forward pull, and nothing tells a machine
 # that a release exists. What it does: the local version is the highest plain version tag merged into HEAD; the
@@ -25,13 +27,13 @@
 # exits 0, and no output means nothing to say. bash 3.2.
 
 export PATH="$PATH:/usr/bin:/bin"
-UPDATE_CMD=/update-claude MODE=hook DIR=""
+UPDATE_CMD=/update-claude MODE=hook DIR="" OWN=1  # OWN: no --update and no checkout given
 while [ $# -gt 0 ]; do
   case $1 in
-    --update) [ $# -ge 2 ] || exit 0; UPDATE_CMD=$2; shift ;;
+    --update) [ $# -ge 2 ] || exit 0; UPDATE_CMD=$2; OWN=0; shift ;;
     --skip) MODE=skip ;;
     --toggle) MODE=toggle ;;
-    *) DIR=$1 ;;
+    *) DIR=$1; OWN=0 ;;
   esac
   shift
 done
@@ -57,6 +59,14 @@ case $url in *github.com*) ;; *) quit "This checkout has no github.com origin." 
 slug=$(printf '%s' "$url" | sed -E 's#^(https?://|ssh://)?([^@/]+@)?github\.com[A-Za-z0-9-]*[:/]+##; s#/*$##; s#\.git$##')
 printf '%s' "$slug" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || quit "Cannot read the GitHub repo from the origin URL."
 name=${slug#*/}
+
+if [ "$OWN" = 1 ]; then
+  skip_cmd="/skip-update there"; off_cmd=/disable-update; again="/disable-update again"
+else
+  self=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/${BASH_SOURCE[0]##*/}
+  q_self=$(printf '%q' "$self"); q_dir=$(printf '%q' "$DIR")  # paste-safe: a path may hold a space
+  skip_cmd="bash $q_self --skip $q_dir"; off_cmd="bash $q_self --toggle $q_dir"; again="the same command again"
+fi
 
 ver_ok() { printf '%s' "$1" | grep -Eq '^v?[0-9]+(\.[0-9]+)*$'; }
 newer() {  # newer <a> <b>: a is a later version than b
@@ -101,7 +111,7 @@ case $MODE in
   toggle)
     if [ "$disabled" = true ]; then disabled=false; word=on; other=off; else disabled=true; word=off; other=on; fi
     save || quit "Could not write $SF."
-    printf '%s\n' "Update notifications for $name are $word. Run /disable-update again to turn them $other."
+    printf '%s\n' "Update notifications for $name are $word. Run $again to turn them $other."
     exit 0 ;;
 esac
 
@@ -121,6 +131,6 @@ fi
 
 [ -n "$latest" ] && newer "$latest" "$loc" || exit 0
 if [ -n "$skipped" ] && ! newer "$latest" "$skipped"; then exit 0; fi
-msg="Update available for \"$name\" ($shown->${latest#v}). Run $UPDATE_CMD in the checkout to install it, /skip-update there to skip it or /disable-update to turn these notices off."
+msg="Update available for \"$name\" ($shown->${latest#v}). Run $UPDATE_CMD in the checkout to install it, $skip_cmd to skip it or $off_cmd to turn these notices off."
 jq -nc --arg m "$msg" '{systemMessage: $m}' 2>/dev/null
 exit 0

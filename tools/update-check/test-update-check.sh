@@ -47,6 +47,16 @@ hook() {  # hook <stdin> [args...]: sets OUT and ST
   OUT=$(printf '%s' "$in" | HOME="$H" PATH="$T/bin:$PATH" CURL_LOG="$T/curl.log" CURL_BODY="$T/body" CURL_FAIL="$T/fail" \
     "${HOOK_SHELL:-/bin/bash}" "$HOOK" "$@" 2>/dev/null); ST=$?
 }
+# No-argument runs go through a link to a copy of the hook inside the "checkout", as ai-toolkit's own wiring does.
+mkdir -p "$T/repo/hooks" "$T/links"; cp "$HOOK" "$T/repo/hooks/update-check.sh"
+ln -s "$T/repo/hooks/update-check.sh" "$T/links/update-check.sh"
+own() {  # own <stdin> [args...]: like hook, but with no checkout and no --update argument
+  local in=$1; shift
+  OUT=$(printf '%s' "$in" | HOME="$H" PATH="$T/bin:$PATH" CURL_LOG="$T/curl.log" CURL_BODY="$T/body" CURL_FAIL="$T/fail" \
+    "${HOOK_SHELL:-/bin/bash}" "$T/links/update-check.sh" "$@" 2>/dev/null); ST=$?
+}
+SELF=$(cd -P "$(dirname "$HOOK")" && pwd -P)/$(basename "$HOOK")  # how the script names itself when given arguments
+REPOP=$(cd -P "$T/repo" && pwd -P)
 body() { printf '{"tag_name":"%s"}' "$1" > "$T/body"; }
 fetches() { [ -f "$T/curl.log" ] && wc -l < "$T/curl.log" | tr -d ' ' || echo 0; }
 msg() { printf '%s' "$OUT" | jq -r '.systemMessage // empty' 2>/dev/null; }
@@ -61,14 +71,21 @@ t() {  # t <label> <condition>
 NOW=$(date +%s)
 DAY=86400
 
-# First run: fetches once, reminds, caches.
+# With no arguments the text names ai-toolkit's own skills; it is this exact text, nothing else.
+reset; body v1.2.2
+own "$STARTUP"
+t "default reminder names the skills"       '[ "$(msg)" = "Update available for \"widget\" (1.2.0->1.2.2). Run /update-claude in the checkout to install it, /skip-update there to skip it or /disable-update to turn these notices off." ]'
+own "" --toggle
+t "default toggle names the skill"          '[ "$OUT" = "Update notifications for widget are off. Run /disable-update again to turn them on." ]'
+
+# First run: fetches once, reminds, caches. With a checkout argument the text names the script's own commands.
 reset; body v1.2.2
 hook "$STARTUP" "$T/repo"
 t "first run exits 0"                       '[ "$ST" = 0 ]'
 t "first run fetches once"                  '[ "$(fetches)" = 1 ]'
 t "first run asks the repo of the origin"   'grep -q "repos/acme/widget/releases/latest" "$T/curl.log"'
 t "first run sends no identity header"      '! grep -qi "user\|token\|authorization" "$T/curl.log"'
-t "message text"                            '[ "$(msg)" = "Update available for \"widget\" (1.2.0->1.2.2). Run /update-claude in the checkout to install it, /skip-update there to skip it or /disable-update to turn these notices off." ]'
+t "message text"                            '[ "$(msg)" = "Update available for \"widget\" (1.2.0->1.2.2). Run /update-claude in the checkout to install it, bash $SELF --skip $REPOP to skip it or bash $SELF --toggle $REPOP to turn these notices off." ]'
 t "state caches the latest and the time"    '[ "$(jq -r .latest "$SF")" = v1.2.2 ] && [ "$(jq -r .checked "$SF")" -ge "$NOW" ]'
 t "state file is private"                   '[ "$(ls -l "$SF" | cut -c1-10)" = -rw------- ]'
 
@@ -107,13 +124,25 @@ t "skip with no cache at all"               '[ "$OUT" = "Nothing to skip: widget
 # Disable and enable.
 reset; body v1.2.2
 hook "" --toggle "$T/repo"
-t "toggle turns the notices off"            '[ "$OUT" = "Update notifications for widget are off. Run /disable-update again to turn them on." ]'
+t "toggle turns the notices off"            '[ "$OUT" = "Update notifications for widget are off. Run the same command again to turn them on." ]'
 hook "$STARTUP" "$T/repo"
 t "disabled: silent and no fetch"           '[ -z "$OUT" ] && [ "$(fetches)" = 0 ]'
 hook "" --toggle "$T/repo"
-t "toggle again turns them on"              '[ "$OUT" = "Update notifications for widget are on. Run /disable-update again to turn them off." ]'
+t "toggle again turns them on"              '[ "$OUT" = "Update notifications for widget are on. Run the same command again to turn them off." ]'
 hook "$STARTUP" "$T/repo"
 t "enabled again: reminds"                  '[ -n "$(msg)" ]'
+
+# The printed commands work as printed.
+# Both the script and the checkout sit in folders with a space, so the printed paths must be escaped.
+mkdir "$T/my dir"; cp "$HOOK" "$T/my dir/update-check.sh"; mkrepo "$T/my repo" https://github.com/acme/widget.git v1.2.0
+reset; body v1.2.2; HOOK_SAVE=$HOOK; HOOK="$T/my dir/update-check.sh"; hook "$STARTUP" "$T/my repo"; HOOK=$HOOK_SAVE
+text=$(msg)
+cmd=$(printf '%s' "$text" | sed -n 's/.*install it, \(bash .*\) to skip it or .*/\1/p')
+OUT=$(HOME="$H" PATH="$T/bin:$PATH" CURL_LOG="$T/curl.log" CURL_BODY="$T/body" CURL_FAIL="$T/fail" /bin/bash -c "$cmd" 2>&1)
+t "the printed --skip command skips the release" '[ -n "$cmd" ] && [ "$OUT" = "Skipped widget 1.2.2. You'"'"'ll hear about the next release." ] && [ "$(jq -r .skipped "$SF")" = v1.2.2 ]'
+cmd=$(printf '%s' "$text" | sed -n 's/.*to skip it or \(bash .*\) to turn these.*/\1/p')
+OUT=$(HOME="$H" PATH="$T/bin:$PATH" CURL_LOG="$T/curl.log" CURL_BODY="$T/body" CURL_FAIL="$T/fail" /bin/bash -c "$cmd" 2>&1)
+t "the printed --toggle command turns the notices off" '[ -n "$cmd" ] && printf %s "$OUT" | grep -q "are off" && [ "$(jq -r .disabled "$SF")" = true ]'
 
 # The other repo's own update command.
 reset; body v1.2.2; hook "$STARTUP" --update /update-manager "$T/repo"
@@ -172,8 +201,6 @@ chmod 755 "$H/.local/state"
 
 # The default checkout is the repo of the script, found through a link.
 reset; body v1.2.2
-mkdir -p "$T/repo/hooks" "$T/links"; cp "$HOOK" "$T/repo/hooks/update-check.sh"
-ln -s "$T/repo/hooks/update-check.sh" "$T/links/update-check.sh"
 OUT=$(printf '%s' "$STARTUP" | HOME="$H" PATH="$T/bin:$PATH" CURL_LOG="$T/curl.log" CURL_BODY="$T/body" CURL_FAIL="$T/fail" \
   "${HOOK_SHELL:-/bin/bash}" "$T/links/update-check.sh" 2>/dev/null)
 t "no argument: the script's own repo, through a link" 'printf %s "$OUT" | jq -r .systemMessage | grep -q "(1.2.0->1.2.2)"'
