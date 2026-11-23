@@ -58,8 +58,9 @@
 #             four jobs (see Runners). Private repos only (a public repo ignores it): a repo variable, or an org
 #             variable visible to private repos only. To go back to GitHub-hosted, delete it
 #   secret    CLAUDE_REVIEW_APP_KEY        a private key of that App (one per repo)
-#   secret    CLAUDE_REVIEW_CREDENTIAL     the Claude credential, review-only: an API key (sk-ant-api...) or the
-#             subscription token from `claude setup-token` (sk-ant-oat...); its prefix decides which one it is
+#   secret    CLAUDE_REVIEW_CREDENTIAL     the Claude credential, review-only: an API key (any sk-ant- prefix but
+#             sk-ant-oat: sk-ant-api..., sk-ant-usr...) or the subscription token from `claude setup-token`
+#             (sk-ant-oat...); its prefix decides which one it is
 #
 # issue_comment runs always use the caller from the default branch. Which copy of this file runs is the caller's `uses:` ref: a pinned SHA, or, for a repo that calls its own
 # copy by a local `./` path, the caller's own commit. No step executes anything from the PR checkout: the review command and the
@@ -459,15 +460,16 @@ jobs:
           CLAUDE_REVIEW_CREDENTIAL: ${{ secrets.CLAUDE_REVIEW_CREDENTIAL }}
         run: |
           set -o pipefail
-          # The one secret holds either credential; its prefix says which Claude variable it is. Only that one is
+          # The one secret holds either credential; its prefix says which Claude variable it is: sk-ant-oat is the OAuth
+          # token, any other sk-ant- prefix is an API key (Console keys are sk-ant-api, sk-ant-usr, ...). Only that one is
           # set (a shell variable, not exported: env -i below passes it by hand), and the message never holds the value.
           cred=$(printf '%s' "$CLAUDE_REVIEW_CREDENTIAL" | tr -d '[:space:]')
           unset CLAUDE_REVIEW_CREDENTIAL ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN
           case "$cred" in
             sk-ant-oat*) CLAUDE_CODE_OAUTH_TOKEN="$cred" ;;
-            sk-ant-api*) ANTHROPIC_API_KEY="$cred" ;;
+            sk-ant-?*) ANTHROPIC_API_KEY="$cred" ;;
             *)
-              echo "::error::The secret CLAUDE_REVIEW_CREDENTIAL is missing or not a Claude credential: it must start with sk-ant-oat (OAuth token) or sk-ant-api (API key)"
+              echo "::error::The secret CLAUDE_REVIEW_CREDENTIAL is missing or not a Claude credential: it must start with sk-ant-oat (OAuth token) or another sk-ant- prefix (API key)"
               exit 1 ;;
           esac
           unset cred
@@ -564,7 +566,7 @@ jobs:
                  mode: $mode,
                  event: $event,
                  head_sha: ($head | if test("^[0-9a-f]{40}$") then . else null end),
-                 reviewer: "claude-pr-review@v4.9",
+                 reviewer: "claude-pr-review@v4.10",
                  claude_code: $version,
                  total_cost_usd: ((.total_cost_usd | numbers) // null),
                  duration_ms: ((.duration_ms | numbers) // null),

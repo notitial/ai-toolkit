@@ -131,11 +131,17 @@ as orientation, and is not a rule source when the PR changes it). Claude's envir
   `--permission-mode default`: the first live run of the third step, which is the PR's own review, is the test.
 - Amended 2026-11-23: one review-only Claude secret, `CLAUDE_REVIEW_CREDENTIAL`, replaces `ANTHROPIC_API_KEY` and
   `CLAUDE_CODE_OAUTH_TOKEN`. The `review` step trims it and sets the variable its prefix names (`sk-ant-oat` the OAuth
-  token, `sk-ant-api` the API key); an empty value or another prefix fails with a message that names the secret and
-  the two prefixes, never the value. Why: the two generic names are the ones other tools in a repo or org read, so a
+  token, any other `sk-ant-` prefix the API key; see the v4.10 amendment below); an empty value or one that does not
+  start with `sk-ant-` fails with a message that names the secret and the two kinds, never the value. Why: the two
+  generic names are the ones other tools in a repo or org read, so a
   secret set for the review was also one that production could pick up, and a caller had to choose a name and a mode.
   Cost: a breaking change (kit v4.9). A clean break, not a deprecation window: a window would keep the generic names
   declared, which was the problem. A caller that still passes either old name fails at start-up; its fix is one line,
   `CLAUDE_REVIEW_CREDENTIAL: ${{ secrets.CLAUDE_REVIEW_CREDENTIAL }}` in place of the two. Rollout: callers run
   `@main`, so set the secret first (repo or org level), merge the kit, then land each caller's one-line PR; callers are
   red in between.
+- Amended 2026-11-23 (kit v4.10): the API-key arm takes any `sk-ant-` value but `sk-ant-oat`. v4.9 took only
+  `sk-ant-api`, so a Console key that starts `sk-ant-usr` was rejected. No list of key prefixes, which would go stale the
+  next time Anthropic adds one, and a wrong or mistyped key fails at the API with a 401. Cost: a value of another
+  `sk-ant-` kind (an Admin key, say) now reaches Claude's environment instead of stopping at the kit; the value only
+  ever goes to Anthropic, and the run fails at the API.
