@@ -1,5 +1,6 @@
 ---
 description: "Update this machine to the newest ai-toolkit: fast-forward the checkout, show what changed, then run /setup-claude. Run from the ai-toolkit repo, usually when the session-start reminder announced a release."
+disable-model-invocation: true
 ---
 
 # Update Claude

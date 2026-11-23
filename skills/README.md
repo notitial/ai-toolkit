@@ -56,7 +56,7 @@ Installed globally alongside the skills above; they work together across a featu
 
 These live in [.claude/skills/](../.claude/skills/) and are available only within this repo:
 
-- **[update-claude](../.claude/skills/update-claude/SKILL.md)** — `/update-claude`: fast-forwards the checkout to the newest release, shows the commits it brought, then runs `/setup-claude`; ends on a fixed two-line closing ([ADR 0019](../docs/adr/0019-release-update-check.md))
+- **[update-claude](../.claude/skills/update-claude/SKILL.md)** — `/update-claude`: fast-forwards the checkout to the newest release, shows the commits it brought, then runs `/setup-claude`; ends on one of three fixed closings (done, something left, stopped) ([ADR 0019](../docs/adr/0019-release-update-check.md))
 - **[skip-update](../.claude/skills/skip-update/SKILL.md)** — `/skip-update`: skips the release the session-start reminder announced, until a newer one appears
 - **[disable-update](../.claude/skills/disable-update/SKILL.md)** — `/disable-update`: turns the session-start update reminder off for this checkout; run again to turn it back on
 - **[setup-claude](../.claude/skills/setup-claude/SKILL.md)** — `/setup-claude`: bootstraps the global Claude Code environment from this repo. Installs agents, hooks, skills, rules, the statusline and tool scripts as symlinks, merges permissions into `settings.json`, and checks the registration of the git MCP server, which runs from the checkout (you register it with `claude mcp add --scope user`). Run from this repo
