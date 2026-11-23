@@ -1,5 +1,5 @@
 ---
-description: "Add the automatic Claude PR review to the current repo: writes the thin caller `.github/workflows/claude-review.yml` that calls ai-toolkit's reusable review kit at `@main`. Asks for the runner labels or the SELF_HOSTED_REVIEW variable, the auth mode, the secret name and the reviewer App; checks the caller against the kit README's shape and opens the PR. Also moves a SHA-pinned caller to `@main` and reconfigures an existing caller. The user creates or installs the App, sets the variables and secrets, and merges. Run from the target repo."
+description: "Add the automatic Claude PR review to the current repo: writes the thin caller `.github/workflows/claude-review.yml` that calls ai-toolkit's reusable review kit at `@main`. Asks for the runner labels or the SELF_HOSTED_REVIEW variable and the reviewer App; checks the caller against the kit README's shape and opens the PR. Also moves a SHA-pinned caller to `@main` and reconfigures an existing caller. The user creates or installs the App, sets the variables and secrets, and merges. Run from the target repo."
 disable-model-invocation: true
 ---
 
@@ -46,7 +46,8 @@ back.
   - no file: an **install**;
   - a workflow whose only job has a `uses:` line naming `claude-review-kit.yml`: a **caller**. This run
     reconfigures it (a SHA in its `uses:` becomes `@main`; note the version in that line's comment, or `unknown`),
-    and Step 3 prefills from its `with:` and `secrets:`;
+    Step 3 prefills from its `with:`, and a `secrets:` that passes `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`
+    is replaced by the one `CLAUDE_REVIEW_CREDENTIAL` line (Step 4);
   - anything else (a workflow that is not a caller of the kit): report what is there and ask the user before going on.
 - **Variables and secret names the repo can see:** `gh variable list -R <owner/repo>` and
   `gh secret list -R <owner/repo>` (names only).
@@ -57,7 +58,6 @@ back.
   - `SELF_HOSTED_REVIEW`, at repo or org scope, sets the runners of all four jobs. On a public repo, any
     `SELF_HOSTED_REVIEW` it can see (its own, or an org one whose visibility is not private repositories only) is a
     finding: report it. A `CLAUDE_REVIEW_KEY_RUNS_ON` is no longer read by the kit: report it.
-  - Grep the repo's other workflows and config for `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN`.
 - **The runner rule.** Does the repo or its owner's docs require self-hosted runners for private repos? Read the
   repo's CLAUDE.md and any runner doc it points to. If they do, the repo needs the variable (Step 3, item 2).
 - **The repo's `.claude/settings.json`.** The review loads it (`--setting-sources project`, hooks off), so its
@@ -88,17 +88,9 @@ upgrading.
      queue on a hosted runner that never starts, and no review is posted.
    - If Step 2 found it at org scope with private visibility, it already applies: nothing to set.
    - Reconfiguring: prefill from the variables. Offer deleting the variable to go back to hosted runners.
-3. **Auth mode:** a Claude Console API key, or a subscription OAuth token from `claude setup-token`. Both are tested;
-   the README says what each means for cost and limits.
-4. **Secret name**, in a second question once the mode is known.
-   - Default by mode: `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`.
-   - If Step 2 found that name already used for anything else, in the repo or as an org secret the repo can see (for
-     example a production runtime key), warn, and offer a dedicated name by mode: `CLAUDE_REVIEW_API_KEY` or
-     `CLAUDE_REVIEW_OAUTH_TOKEN`. The review must never share a secret with anything else.
-   - The caller maps it to the kit's name, so the kit needs no change.
-5. **Reviewer App:** the owner's existing one (ask for its slug and Client ID; neither is secret), or a new one the
+3. **Reviewer App:** the owner's existing one (ask for its slug and Client ID; neither is secret), or a new one the
    user creates (README prerequisite 3). One App per owner serves all its repos.
-6. **Verdict events**, the inputs `changes-event` and `approve-event`. A `COMMENT` value found in Step 2 (a
+4. **Verdict events**, the inputs `changes-event` and `approve-event`. A `COMMENT` value found in Step 2 (a
    caller's `with:`) is kept, and this question only asks whether to change it. With no
    prefill, ask only if Step 2 found required reviews: set both to `COMMENT`, or scope the required reviews to
    people. Default: `COMMENT`.
@@ -106,7 +98,7 @@ upgrading.
 Restate the plan and wait for the user's go. The plan names:
 
 - the repo, and whether this is an install or a reconfiguration;
-- the `runs-on` labels or the `SELF_HOSTED_REVIEW` labels (and, for the variable, its cost), the auth mode, the secret name and the App;
+- the `runs-on` labels or the `SELF_HOSTED_REVIEW` labels (and, for the variable, its cost), and the App;
 - the branch, and the workflow file, which needs the user's live go where the repo requires one;
 - on a SHA-pinned caller moved to `@main`: the old version (from the pin's comment, or `unknown`) and the new one (the README's **Version** line), and that the review's behaviour changes to
   the new one (for example how a fixed issue that comes back is reported);
@@ -126,16 +118,17 @@ Restate the plan and wait for the user's go. The plan names:
    - `permissions: {}` at the top, and the job's ceiling exactly as the README's;
    - `uses: <kit owner/name>/.github/workflows/claude-review-kit.yml@main`;
    - a `with:` block only for an input that differs from the kit's default: `runs-on` as a JSON string such as
-     `'["self-hosted","<label>"]'` (only without `SELF_HOSTED_REVIEW`, which overrides it), and `changes-event` and `approve-event` whenever Step 3, item 6 holds a value,
+     `'["self-hosted","<label>"]'` (only without `SELF_HOSTED_REVIEW`, which overrides it), and `changes-event` and `approve-event` whenever Step 3, item 4 holds a value,
      prefilled or chosen;
-   - `secrets:` with `CLAUDE_REVIEW_APP_KEY: ${{ secrets.CLAUDE_REVIEW_APP_KEY }}` and the one credential for the chosen
-     mode: `ANTHROPIC_API_KEY: ${{ secrets.<NAME> }}` or `CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.<NAME> }}`. Never
-     `secrets: inherit`, and never a secret the kit does not declare (the call fails).
+   - `secrets:` with `CLAUDE_REVIEW_APP_KEY: ${{ secrets.CLAUDE_REVIEW_APP_KEY }}` and
+     `CLAUDE_REVIEW_CREDENTIAL: ${{ secrets.CLAUDE_REVIEW_CREDENTIAL }}`, which holds an API key or an OAuth token (the
+     kit tells them apart by prefix). Never `secrets: inherit`, and never a secret the kit does not declare (the call
+     fails), the old `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` included.
 3. Verify:
    - the file has one job and no `steps:`;
    - the top level is `permissions: {}`, and the job's permissions equal the README's ceiling;
    - `uses:` ends in `@main`;
-   - `grep -n 'secrets\.'` shows `CLAUDE_REVIEW_APP_KEY` and `<NAME>` once each, and nothing else;
+   - `grep -n 'secrets\.'` shows `CLAUDE_REVIEW_APP_KEY` and `CLAUDE_REVIEW_CREDENTIAL` once each, and nothing else;
    - every value Step 2 prefilled is in the caller, unless the user changed it in Step 3: the `runs-on` labels and
      any `COMMENT` event;
    - on a repo that forbids hosted runners, `SELF_HOSTED_REVIEW` is set or Step 5 sets it, so no job is left on a
@@ -159,13 +152,20 @@ the PR is marked ready: the PR runs its own caller, and without them the review 
   Without it, a PR that falls behind `main` has no Update branch button, and the review can hit a missing
   `refs/pull/<N>/head` until the branch is updated.
 - Set the variables and secrets, skipping any that Step 2 showed are already set for this review. The key is read
-  from the `.pem` file and the Claude secret is prompted, so no value reaches shell history:
+  from the `.pem` file and the Claude secret is prompted, so no value reaches shell history. The Claude secret is
+  review-only: never paste a key that production runs on:
 
 ```bash
 gh variable set CLAUDE_REVIEW_APP_CLIENT_ID -R <owner/repo> --body <Client ID>
 gh variable set CLAUDE_REVIEW_APP_LOGIN -R <owner/repo> --body <app slug>
 gh secret set CLAUDE_REVIEW_APP_KEY -R <owner/repo> < <path to the .pem>
-gh secret set <NAME> -R <owner/repo>
+gh secret set CLAUDE_REVIEW_CREDENTIAL -R <owner/repo>
+```
+
+- For every private repo of an org at once, set the Claude secret on the org instead of the repo (the prompt hides the value):
+
+```bash
+gh secret set CLAUDE_REVIEW_CREDENTIAL --org <org> --visibility private
 ```
 
 - Only if Step 3, item 2 chose `SELF_HOSTED_REVIEW` and Step 2 did not find it already set: set it, with the labels
@@ -196,7 +196,7 @@ gh variable set SELF_HOSTED_REVIEW -R <owner/repo> --body '["<label>","<label>"]
    - the review posts as the App, with the one credential mapped.
 
    Report each against its pass criterion, with run ids and the job summary's cost lines. If a run shows an auth or
-   rate-limit error, stop and report; never switch auth mode to work around it.
+   rate-limit error, stop and report; never swap the credential to work around it.
 6. **On an install, the follow-up round can't run yet.** A comment run uses the
    caller on the default branch, which has none until the merge. Answer the first review's
    findings by fixing or replying, have the fixes reviewed locally, and say so in the handover; a `@claude review`
