@@ -28,3 +28,4 @@ The skill approach has a unique advantage: Claude Code is both the installer and
 - The skill only touches `~/.claude/` — it never modifies project-level files
 - Adding a new skill to the repo is automatic — the glob pattern discovers it on next run
 - Amended by [ADR 0014](0014-live-checkout-installs.md) (2026-11-06): `/setup-claude` links only the artifacts committed at `HEAD` (`bash tools/install-copies.sh roster`), not every matching file on disk.
+- Amended 2026-11-23: the skills `/setup-claude` and `/update-claude` are now `/setup-toolkit` and `/update-toolkit`, with no aliases. The text above keeps the original names.

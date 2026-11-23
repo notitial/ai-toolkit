@@ -1,7 +1,7 @@
 # zsh helpers for the toolkit. ~/.zshrc loads them through tools/shell-init.zsh:
 #   source ~/.claude/tools/shell-init.zsh
 #   ait          cd to the checkout
-#   ait-status   everything /setup-claude checks (bash tools/install-copies.sh status)
+#   ait-status   everything /setup-toolkit checks (bash tools/install-copies.sh status)
 #   ghm-status   the github MCP lines of ait-status: install.conf (the launcher and the guard read it), the checkout
 #                on a clean main, the server binary, the server registration and the guard hook, all pointing here
 #   ghm-test     the github MCP suites of this (live) checkout, i.e. of main; to test a branch, run

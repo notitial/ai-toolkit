@@ -50,3 +50,4 @@ is wired by `/setup-claude`.
 - What the kit does not cover (archive, simulator control, instrumented tests) has no route while the hook denies
   direct `xcodebuild` and build-like Gradle tasks in an opted-in project; `clean` and read-only queries pass, and the
   rest needs the user.
+- Amended 2026-11-23: the skills `/setup-claude` and `/update-claude` are now `/setup-toolkit` and `/update-toolkit`, with no aliases. The text above keeps the original names.

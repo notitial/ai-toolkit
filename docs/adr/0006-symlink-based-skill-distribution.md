@@ -39,3 +39,4 @@ Config templates (`safe-permissions.json`, `global-claude-md.md`) are NOT symlin
 - Repo structure mirrors the install target: `agents/` → `~/.claude/agents/`, `hooks/` → `~/.claude/hooks/`, `skills/` → `~/.claude/skills/`
 - Extended by [ADR 0009](0009-global-rules-distribution.md): `rules/` → `~/.claude/rules/` added as a fourth 1:1 artifact class (with a byte-match auto-replace conflict policy specific to that step)
 - Amended by [ADR 0014](0014-live-checkout-installs.md) (2026-11-06): `/setup-claude` links only the artifacts committed at `HEAD` (`bash tools/install-copies.sh roster`), not every matching file on disk.
+- Amended 2026-11-23: the skills `/setup-claude` and `/update-claude` are now `/setup-toolkit` and `/update-toolkit`, with no aliases. The text above keeps the original names.

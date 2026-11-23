@@ -1,6 +1,6 @@
 # The one line ~/.zshrc needs to load the toolkit's zsh helpers:
 #   source ~/.claude/tools/shell-init.zsh
-# /setup-claude links that path to this file, and the helpers are read from beside it in the checkout. Add a new
+# /setup-toolkit links that path to this file, and the helpers are read from beside it in the checkout. Add a new
 # helper as one more line below.
 # Tests: bash tools/test-ait.sh
 

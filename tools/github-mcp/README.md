@@ -5,13 +5,13 @@ stdio in every session (user scope). macOS on Apple silicon only: the launcher r
 the install fetches the Darwin arm64 build.
 
 It relies on the toolkit's tooling: the zsh helpers `ghm-status` and `ghm-test` (`tools/ait.zsh`) and the
-install-time settings file `~/.claude/install.conf`, which `/setup-claude` writes and the guard and launcher read when they
+install-time settings file `~/.claude/install.conf`, which `/setup-toolkit` writes and the guard and launcher read when they
 run (`github_write_owners`, `github_keychain_account`, and the optional `github_projects`).
 
 | File | What it is |
 |---|---|
 | `launch` | The launcher, run from this checkout: `claude mcp add --scope user github -- <checkout>/tools/github-mcp/launch` |
-| `guard.sh` | The PreToolUse guard for the tools of the `github` MCP server, run from this checkout through the hook entry `/setup-claude` writes |
+| `guard.sh` | The PreToolUse guard for the tools of the `github` MCP server, run from this checkout through the hook entry `/setup-toolkit` writes |
 | `bin/github-mcp-server` | The pinned server binary, downloaded by hand (see Install); not tracked (`.gitignore`) |
 | `server.sha256` | The binary's hash, one `shasum -a 256` line (`<64 hex>  github-mcp-server`), tracked and reviewed with the code; the launcher runs the binary only if it matches |
 | `test-guard.sh` | Tests for both, including a check that the guard's tool list equals the launcher's |
@@ -25,7 +25,7 @@ tracked file changed, `HEAD` on `origin/main`, and the files they run equal to t
 reads the token. It refuses to start; the guard denies every call, reads included. The guard's hook command is
 `/bin/bash -p '<checkout>/tools/github-mcp/guard.sh' || exit 2`, so a guard that cannot start blocks the call. Both
 scripts clear the git and developer environment and call git and the system tools by absolute path. The guard is
-deliberately not in `hooks/`, which `/setup-claude` symlinks into `~/.claude/hooks`.
+deliberately not in `hooks/`, which `/setup-toolkit` symlinks into `~/.claude/hooks`.
 
 ## Layers
 
@@ -78,7 +78,7 @@ deliberately not in `hooks/`, which `/setup-claude` symlinks into `~/.claude/hoo
      setting, future ones included (an owner wildcard). The repo name must be a plain GitHub name (letters, digits,
      `.`, `_`, `-`; not empty, not only dots, 100 characters at most); any other owner is denied.
      The owner list is read from the `github_write_owners` setting in `~/.claude/install.conf` (written by
-     `/setup-claude`) on every call: only plain lowercase owner names are accepted, and a missing or invalid setting
+     `/setup-toolkit`) on every call: only plain lowercase owner names are accepted, and a missing or invalid setting
      leaves no owner, so every write is denied. The template denies Edit and Write on that file and asks on any shell
      command that names it; a shell write is not an Edit (see Residuals). The wildcard widens what an agent can open a PR in, comment on or re-run: a new repo under a write owner, private
      ones included, is covered from its first day. Merge, repo settings and rulesets stay denied (they are not
@@ -109,7 +109,7 @@ deliberately not in `hooks/`, which `/setup-claude` symlinks into `~/.claude/hoo
      denies. Adding or updating one item and posting a status update are allowed in the Projects of the
      `github_projects` install setting (`<owner>/<number>` entries, space-separated, read from `~/.claude/install.conf`
      on every call like the owners; an entry counts only while its owner is a write owner; to add it to an install
-     whose `install.conf` is already `ok`, ask `/setup-claude` to redo its install-time settings step). A Project not
+     whose `install.conf` is already `ok`, ask `/setup-toolkit` to redo its install-time settings step). A Project not
      listed, a bulk update (`update_project_items`, the only method that takes an `items` list, each entry an item
      reference; the server caps it at 50), item and view deletes, view and iteration-field changes,
      creating a Project and `@claude` in the text ask. A missing or invalid setting lists no Project, so every Project
@@ -151,7 +151,7 @@ v2.0.3 has no tool for Actions variables or secret names; its `secret_protection
 ## Install (you, in your own terminal)
 
 Download, verify the checksum and the build attestation, and put the binary in the live checkout's `bin/` folder
-(`<checkout>` is the checkout `/setup-claude` links from; the folder is not tracked, and there is no `sudo`). Then
+(`<checkout>` is the checkout `/setup-toolkit` links from; the folder is not tracked, and there is no `sudo`). Then
 record its hash, in a `/tmp` clone, through a PR like any other change:
 
 ```
@@ -171,7 +171,7 @@ anything, whether the checkout is on a clean `main` with `HEAD` on `origin/main`
 the guard hook point at the checkout.
 
 Wire it: merge the template's rules, the guard's hook entry (its path is filled in from the checkout),
-`deniedMcpServers` and `enableAllProjectMcpServers` into `~/.claude/settings.json` (`/setup-claude`). Then register the
+`deniedMcpServers` and `enableAllProjectMcpServers` into `~/.claude/settings.json` (`/setup-toolkit`). Then register the
 server for every session, from your own terminal (agents may not run `claude mcp add`):
 
 ```

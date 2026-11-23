@@ -1,8 +1,8 @@
 ---
-description: "Set up or update global Claude Code configuration — CLAUDE.md, permissions, plugins, MCP servers, skills, agents, and hooks. Run from the ai-toolkit repo to apply best practices globally. An agent runs it only when the person asks for the setup, or from /update-claude."
+description: "Set up or update global Claude Code configuration — CLAUDE.md, permissions, plugins, MCP servers, skills, agents, and hooks. Run from the ai-toolkit repo to apply best practices globally. An agent runs it only when the person asks for the setup, or from /update-toolkit."
 ---
 
-# Setup Claude
+# Setup Toolkit
 
 Configure the global Claude Code environment from this repo's templates and skills. Idempotent — safe to run repeatedly. Each section reports what changed.
 
@@ -19,13 +19,13 @@ Read Step 10 before the first run if you rely on other values for any of them.
 
 **Prompt cache TTL.** Step 10 adds `promptCacheTtl: "1h"` when your settings have no such key, and keeps any value you set. It never asks about or writes `subagentPromptCacheTtl`.
 
-**`/setup-claude check`:** read-only. Run only `bash tools/install-copies.sh status` (resolve the path from this skill's location: `../../../tools/install-copies.sh`), show its output, and stop. It lists the install-time settings, the github MCP guard, the `~/.zshrc` line, every unlinked or conflicting link against `main`, any hook or lock script that is not executable, and any hook `settings.json` does not run, and changes nothing.
+**`/setup-toolkit check`:** read-only. Run only `bash tools/install-copies.sh status` (resolve the path from this skill's location: `../../../tools/install-copies.sh`), show its output, and stop. It lists the install-time settings, the github MCP guard, the `~/.zshrc` line, every unlinked or conflicting link against `main`, any hook or lock script that is not executable, and any hook `settings.json` does not run, and changes nothing.
 
 ## Step 0: Check prerequisites
 
 Check each tool with `command -v <tool>`, except gh: any Bash command naming gh is blocked for agents
 (`hooks/gh-block.sh`). If any is missing, **stop**: print the missing rows with their install hint and ask the user
-to re-run `/setup-claude` once they are installed. Install nothing yourself. For gh, give the user
+to re-run `/setup-toolkit` once they are installed. Install nothing yourself. For gh, give the user
 `gh auth status` (never `--show-token`) in a markdown code block and ask for its output: if gh is missing or not logged in, **warn** and
 continue.
 
@@ -85,7 +85,7 @@ For each listed hook:
 - **Existing symlink pointing to the correct target:** Skip.
 - **Existing symlink pointing elsewhere or existing file:** Report conflict. Do not overwrite without user confirmation.
 
-Verify each symlink resolves and the target script is executable. Hooks run by their path, so a hook without the bit does not start, and its control is off with nothing blocking. Never `chmod` it here: the bit has to come from a commit. Report it (`DRIFT: <script> not executable` in Step 10's drift assertion); the fix is a PR that commits it as `100755`, then a pull and another `/setup-claude`. When the commit has the bit and only this checkout lost it, `status` prints that smaller fix instead, for the user to run.
+Verify each symlink resolves and the target script is executable. Hooks run by their path, so a hook without the bit does not start, and its control is off with nothing blocking. Never `chmod` it here: the bit has to come from a commit. Report it (`DRIFT: <script> not executable` in Step 10's drift assertion); the fix is a PR that commits it as `100755`, then a pull and another `/setup-toolkit`. When the commit has the bit and only this checkout lost it, `status` prints that smaller fix instead, for the user to run.
 
 ### Protected checkout
 
@@ -101,7 +101,7 @@ When it is missing, give the user this command to run themselves (a `!` line in 
 touch <this checkout>/.protected-checkout
 ```
 
-Other folders can be protected the same way, one `touch` each (a repository's own `.gitignore` should list the marker, as this one does; a state folder that is no repository needs nothing). `/setup-claude check` does not report the marker; a full run does. Without the marker the settings-file protection still stands and nothing else here is guarded: report `Protected checkout: marker MISSING` in Step 11, as a warning, not a failure.
+Other folders can be protected the same way, one `touch` each (a repository's own `.gitignore` should list the marker, as this one does; a state folder that is no repository needs nothing). `/setup-toolkit check` does not report the marker; a full run does. Without the marker the settings-file protection still stands and nothing else here is guarded: report `Protected checkout: marker MISSING` in Step 11, as a warning, not a failure.
 
 ## Step 4: Install global skills
 
@@ -430,7 +430,7 @@ confirm that the command prompts.
 
 Read the `hooks` object from `templates/safe-permissions.json`. This defines PreToolUse, PostToolUse, PostToolUseFailure and SessionStart hooks that reference the scripts installed in Step 3.
 
-- **Skip a hook that is not executable, in both cases below.** Leave out any template entry whose script fails Step 3's executable check, since every tool call would log a hook error and the script still would not run. Name it in the report as a control that is off; the next `/setup-claude` after the fix wires it. A hook already wired stays wired, since the merge never removes an entry: report it the same way.
+- **Skip a hook that is not executable, in both cases below.** Leave out any template entry whose script fails Step 3's executable check, since every tool call would log a hook error and the script still would not run. Name it in the report as a control that is off; the next `/setup-toolkit` after the fix wires it. A hook already wired stays wired, since the merge never removes an entry: report it the same way.
 - **If `~/.claude/settings.json` has no `hooks` key:** Add the `hooks` object from the template, leaving out its `_comment` keys.
 - **If it already has `hooks`:** Merge — add any hook entries from the template that are not already present, matching on the **(event key, `matcher`, script path) triple**. Do not remove existing custom hooks.
 - **The github guard's command holds the placeholder `<checkout>`:** fill it with the live checkout's real path before the merge or the comparison (see **GitHub MCP guard** below), and never write the placeholder to the live file.

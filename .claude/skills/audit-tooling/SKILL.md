@@ -1,5 +1,5 @@
 ---
-description: "Audit the ai-toolkit repo's own configuration artifacts — agent templates, hook scripts, skills, rules, permissions, MCP config, and CLAUDE.md. Use when someone asks to check the repo's tooling health, validate templates, verify hooks work, or audit the setup-claude pipeline. Does NOT audit docs/ — use /audit-practices for that."
+description: "Audit the ai-toolkit repo's own configuration artifacts — agent templates, hook scripts, skills, rules, permissions, MCP config, and CLAUDE.md. Use when someone asks to check the repo's tooling health, validate templates, verify hooks work, or audit the setup-toolkit pipeline. Does NOT audit docs/ — use /audit-practices for that."
 disable-model-invocation: true
 ---
 
@@ -15,7 +15,7 @@ This skill audits artifacts in six categories:
 2. **Hook scripts** — `hooks/*.sh`
 3. **Skills** — `.claude/skills/*/SKILL.md` and `skills/*/SKILL.md`
 4. **Rules** — `.claude/rules/*.md` (project-scoped) and `rules/*.md` (global always-on — a distinct artifact class, see Category 4b)
-5. **Permissions template** — `.claude/skills/setup-claude/templates/safe-permissions.json`
+5. **Permissions template** — `.claude/skills/setup-toolkit/templates/safe-permissions.json`
 6. **Project CLAUDE.md** — root `CLAUDE.md`
 
 ## Input
@@ -29,8 +29,8 @@ Use Glob to find all artifacts:
 ```
 agents/*.md
 hooks/*.sh
-.claude/skills/setup-claude/templates/safe-permissions.json
-.claude/skills/setup-claude/templates/global-claude-md.md
+.claude/skills/setup-toolkit/templates/safe-permissions.json
+.claude/skills/setup-toolkit/templates/global-claude-md.md
 .claude/skills/*/SKILL.md
 skills/*/SKILL.md
 .claude/rules/*.md
@@ -147,9 +147,9 @@ Check the root `CLAUDE.md` against doc 01 criteria:
 
 | # | Check | How to verify |
 |---|-------|---------------|
-| 7.1 | setup-claude discovery covers all artifact dirs | Its discovery steps (the `bash tools/install-copies.sh roster` lines) cover `agents/`, `hooks/`, `skills/` and `rules/` — no artifact directory is missed. Judge on those lines alone |
+| 7.1 | setup-toolkit discovery covers all artifact dirs | Its discovery steps (the `bash tools/install-copies.sh roster` lines) cover `agents/`, `hooks/`, `skills/` and `rules/` — no artifact directory is missed. Judge on those lines alone |
 | 7.2 | README install table matches filesystem | Compare the README "What Gets Installed" rows against `ls agents/ hooks/ skills/ rules/` (ignore `skills/README.md`) — the table is the repo's only enumerated roster (CLAUDE.md convention); FLAG any drift in either direction |
-| 7.3 | Report step stays discovery-based | setup-claude's Report step (Step 11) contains no hardcoded artifact rosters — one row per discovered artifact |
+| 7.3 | Report step stays discovery-based | setup-toolkit's Report step (Step 11) contains no hardcoded artifact rosters — one row per discovered artifact |
 
 ## Step 3: Produce the report
 

@@ -69,7 +69,7 @@ Two conventions run through the steps:
         entry: 'runs-on:.*\b(ubuntu|macos|windows)-'
         files: ^\.github/workflows/(?!claude-review\.yml$).*\.ya?ml$
   ```
-- The agent-side layer is global, not per repo: `hooks/secret-detector.sh` blocks a secret in an edit or a commit, and `hooks/secret-redact-output.sh` redacts one in tool output (both installed by `/setup-claude`).
+- The agent-side layer is global, not per repo: `hooks/secret-detector.sh` blocks a secret in an edit or a commit, and `hooks/secret-redact-output.sh` redacts one in tool output (both installed by `/setup-toolkit`).
 
 ### 5. PR title check
 

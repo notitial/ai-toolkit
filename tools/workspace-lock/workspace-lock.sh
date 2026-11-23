@@ -24,7 +24,7 @@
 # the reported state from `lock.d` (present → held, absent → free).
 #
 # See docs/adr/0012-overnight-orchestrator-lock.md.
-# Canonical install (via /setup-claude): ~/.claude/tools/workspace-lock.sh — invoke as
+# Canonical install (via /setup-toolkit): ~/.claude/tools/workspace-lock.sh — invoke as
 #   $HOME/.claude/tools/workspace-lock.sh <sub> …   (allowlist Bash($HOME/.claude/tools/workspace-lock.sh *))
 #
 # Subcommands: acquire | release | status | heartbeat | clear

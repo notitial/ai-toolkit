@@ -341,7 +341,7 @@ case "$reason" in
 esac
 
 # The template's hook matcher: every tool of the github server, nothing else.
-TEMPLATE="$HERE/../../.claude/skills/setup-claude/templates/safe-permissions.json"
+TEMPLATE="$HERE/../../.claude/skills/setup-toolkit/templates/safe-permissions.json"
 matcher=$(jq -r '.hooks.PreToolUse[] | select(.hooks[0].command == "/bin/bash -p '"'"'<checkout>/tools/github-mcp/guard.sh'"'"' || exit 2") | .matcher' "$TEMPLATE")
 if [ "$matcher" = '^mcp__github__.*$' ]; then
   PASS=$((PASS + 1))
@@ -713,7 +713,7 @@ rm -f "$TMP"/out-*
 (cd / && "$LC/.archive/x/launch") > /dev/null 2> "$TMP/out-stderr"
 lcheck "a launcher copy two folders below the root: refuses to start" '[ $? -ne 0 ] && [ ! -e "$TMP/out-vars" ]'
 rm -rf "$LC/.archive"
-# A checkout path with a space gets no guard hook from /setup-claude, so the launcher refuses to start from it.
+# A checkout path with a space gets no guard hook from /setup-toolkit, so the launcher refuses to start from it.
 mkdir -p "$TMP/with space"
 cp -R "$LC" "$TMP/with space/lc"
 rm -f "$TMP"/out-*

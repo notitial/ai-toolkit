@@ -5,7 +5,7 @@
 # Also keeps this account's latest rate-limit windows in a small readings file, so a chat with no live
 # reading still shows the newest one another chat saw (see below).
 #
-# Installed to ~/.claude/statusline.sh via symlink from /setup-claude.
+# Installed to ~/.claude/statusline.sh via symlink from /setup-toolkit.
 # Configured in ~/.claude/settings.json as:
 #   "statusLine": { "type": "command", "command": "bash $HOME/.claude/statusline.sh" }
 

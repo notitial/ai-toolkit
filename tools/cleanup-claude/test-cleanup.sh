@@ -7,7 +7,7 @@ set -u
 HERE=$(cd "$(dirname "$0")" && pwd -P)
 ROOT=$(cd "$HERE/../.." && pwd -P)
 CLEAN="$HERE/cleanup.sh"
-TEMPLATE="$ROOT/.claude/skills/setup-claude/templates/safe-permissions.json"
+TEMPLATE="$ROOT/.claude/skills/setup-toolkit/templates/safe-permissions.json"
 command -v jq >/dev/null 2>&1 || { echo "SKIP: needs jq"; exit 0; }
 
 PASS=0 FAIL=0
@@ -232,7 +232,7 @@ run --apply --remove-guard-hook
 chmod 700 "$C"
 check "root guard: a settings file that could not be written keeps the folder" '! grep -q "sudo rm -r" "$T/out" && grep -q "^KEEP .*names the root-owned guard hook and was not written" "$T/out"'
 
-# ---- the roster /setup-claude and install-copies.sh link, all removed
+# ---- the roster /setup-toolkit and install-copies.sh link, all removed
 N=$((N + 1)); H="$T/h$N"; R="$H/.claude"; mkdir -p "$R/agents" "$R/hooks" "$R/rules" "$R/skills" "$R/tools"
 for f in "$ROOT"/agents/*.md; do ln -s "$f" "$R/agents/${f##*/}"; done
 for f in "$ROOT"/hooks/*.sh; do ln -s "$f" "$R/hooks/${f##*/}"; done

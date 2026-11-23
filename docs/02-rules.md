@@ -65,7 +65,7 @@ The problem: a docs-only editing session still loaded localization policy, code-
 
 **Practical guidelines:**
 
-- Aim for 3–4 always-on project rules maximum; the global rules `/setup-claude` installs count separately. These should cover truly global concerns: security gates, command restrictions, and project identity.
+- Aim for 3–4 always-on project rules maximum; the global rules `/setup-toolkit` installs count separately. These should cover truly global concerns: security gates, command restrictions, and project identity.
 - Move code-style enforcement, naming conventions, and domain-specific policy to pattern-scoped rules.
 - Audit your always-on baseline periodically. If a rule does not apply to at least 80% of sessions, it should not be always-on.
 

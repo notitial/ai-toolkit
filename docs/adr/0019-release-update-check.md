@@ -59,3 +59,4 @@ a possible install.
 - The request is unauthenticated, so a private repo answers 404 and never notifies; a repo that reuses the script
   must be public.
 - Cutting releases stays a manual, outward-facing step for the owner.
+- Amended 2026-11-23: the skills `/setup-claude` and `/update-claude` are now `/setup-toolkit` and `/update-toolkit`, with no aliases. The text above keeps the original names.

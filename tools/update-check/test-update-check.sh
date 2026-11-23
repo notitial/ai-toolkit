@@ -74,7 +74,7 @@ DAY=86400
 # With no arguments the text names ai-toolkit's own skills; it is this exact text, nothing else.
 reset; body v1.2.2
 own "$STARTUP"
-t "default reminder names the skills"       '[ "$(msg)" = "Update available for \"widget\" (1.2.0->1.2.2). Run /update-claude in the checkout to install it, /skip-update there to skip it or /disable-update to turn these notices off." ]'
+t "default reminder names the skills"       '[ "$(msg)" = "Update available for \"widget\" (1.2.0->1.2.2). Run /update-toolkit in the checkout to install it, /skip-update there to skip it or /disable-update to turn these notices off." ]'
 own "" --toggle
 t "default toggle names the skill"          '[ "$OUT" = "Update notifications for widget are off. Run /disable-update again to turn them on." ]'
 
@@ -85,7 +85,7 @@ t "first run exits 0"                       '[ "$ST" = 0 ]'
 t "first run fetches once"                  '[ "$(fetches)" = 1 ]'
 t "first run asks the repo of the origin"   'grep -q "repos/acme/widget/releases/latest" "$T/curl.log"'
 t "first run sends no identity header"      '! grep -qi "user\|token\|authorization" "$T/curl.log"'
-t "message text"                            '[ "$(msg)" = "Update available for \"widget\" (1.2.0->1.2.2). Run /update-claude in the checkout to install it, bash $SELF --skip $REPOP to skip it or bash $SELF --toggle $REPOP to turn these notices off." ]'
+t "message text"                            '[ "$(msg)" = "Update available for \"widget\" (1.2.0->1.2.2). Run /update-toolkit in the checkout to install it, bash $SELF --skip $REPOP to skip it or bash $SELF --toggle $REPOP to turn these notices off." ]'
 t "state caches the latest and the time"    '[ "$(jq -r .latest "$SF")" = v1.2.2 ] && [ "$(jq -r .checked "$SF")" -ge "$NOW" ]'
 t "state file is private"                   '[ "$(ls -l "$SF" | cut -c1-10)" = -rw------- ]'
 

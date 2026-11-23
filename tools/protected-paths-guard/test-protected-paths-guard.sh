@@ -836,7 +836,7 @@ else
 fi
 
 # ---- the settings command is fail-closed: a guard that cannot run blocks (exit 2), a deny or pass still exits 0 ----
-TPL="$HERE/../../.claude/skills/setup-claude/templates/safe-permissions.json"
+TPL="$HERE/../../.claude/skills/setup-toolkit/templates/safe-permissions.json"
 CMD=$(jq -r '[.hooks.PreToolUse[]?.hooks[]?.command | select(type == "string" and test("protected-paths-guard[.]sh"))] | first // empty' "$TPL" 2>/dev/null)
 mkhome() {  # mkhome <name> <install: link|nolib|crash|none>: a HOME whose hooks/protected-paths-guard.sh links to the guard (nolib: a copy with no lib beside it), a crashing stub, or absent
   mkdir -p "$T/$1/.claude/hooks"

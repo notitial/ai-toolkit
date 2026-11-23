@@ -6,7 +6,7 @@
 #   update-check.sh [--update <cmd>] --skip [<checkout>]               skip the newest known release
 #   update-check.sh [--update <cmd>] --toggle [<checkout>]             turn the notices off, or back on
 # <checkout> defaults to the repo this script lives in (its link resolved); another repo's setup passes its own, and
-# --update names that repo's update command (default /update-claude). The GitHub owner and name come from the
+# --update names that repo's update command (default /update-toolkit). The GitHub owner and name come from the
 # checkout's origin URL, so no repo is written into the script. With no --update and no checkout (this repo's own wiring)
 # the reminder names the /skip-update and /disable-update skills; with either, it prints this script's --skip and
 # --toggle commands instead, since the script then serves another repo, which has no such skills here.
@@ -20,14 +20,14 @@
 # than the skipped one. It sends nothing about the user or the machine.
 #
 # A checkout with no release tag (every install made before the first release) counts as version none, so the first
-# release is announced to it too; /update-claude then brings the tag. Known gaps: tags must be plain numeric
+# release is announced to it too; /update-toolkit then brings the tag. Known gaps: tags must be plain numeric
 # versions (v1.2.3); anything else is ignored. Only github.com origins (an ssh
 # alias like github.com-work works; a port in the URL does not). A private repo answers the unauthenticated request
 # with 404, so it never notifies. A checkout that is ahead of its last release tag is compared by that tag. Fails open: no set -e, every hook path
 # exits 0, and no output means nothing to say. bash 3.2.
 
 export PATH="$PATH:/usr/bin:/bin"
-UPDATE_CMD=/update-claude MODE=hook DIR="" OWN=1  # OWN: no --update and no checkout given
+UPDATE_CMD=/update-toolkit MODE=hook DIR="" OWN=1  # OWN: no --update and no checkout given
 while [ $# -gt 0 ]; do
   case $1 in
     --update) [ $# -ge 2 ] || exit 0; UPDATE_CMD=$2; OWN=0; shift ;;
