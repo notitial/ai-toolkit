@@ -133,12 +133,14 @@ hook "$STARTUP" "$T/repo"
 t "enabled again: reminds"                  '[ -n "$(msg)" ]'
 
 # The printed commands work as printed.
-reset; body v1.2.2; hook "$STARTUP" "$T/repo"
+# Both the script and the checkout sit in folders with a space, so the printed paths must be escaped.
+mkdir "$T/my dir"; cp "$HOOK" "$T/my dir/update-check.sh"; mkrepo "$T/my repo" https://github.com/acme/widget.git v1.2.0
+reset; body v1.2.2; HOOK_SAVE=$HOOK; HOOK="$T/my dir/update-check.sh"; hook "$STARTUP" "$T/my repo"; HOOK=$HOOK_SAVE
 text=$(msg)
-cmd=$(printf '%s' "$text" | sed -n 's/.*\(bash [^ ]* --skip [^ ]*\) to skip it.*/\1/p')
+cmd=$(printf '%s' "$text" | sed -n 's/.*install it, \(bash .*\) to skip it or .*/\1/p')
 OUT=$(HOME="$H" PATH="$T/bin:$PATH" CURL_LOG="$T/curl.log" CURL_BODY="$T/body" CURL_FAIL="$T/fail" /bin/bash -c "$cmd" 2>&1)
 t "the printed --skip command skips the release" '[ -n "$cmd" ] && [ "$OUT" = "Skipped widget 1.2.2. You'"'"'ll hear about the next release." ] && [ "$(jq -r .skipped "$SF")" = v1.2.2 ]'
-cmd=$(printf '%s' "$text" | sed -n 's/.*to skip it or \(bash [^ ]* --toggle [^ ]*\) to turn.*/\1/p')
+cmd=$(printf '%s' "$text" | sed -n 's/.*to skip it or \(bash .*\) to turn these.*/\1/p')
 OUT=$(HOME="$H" PATH="$T/bin:$PATH" CURL_LOG="$T/curl.log" CURL_BODY="$T/body" CURL_FAIL="$T/fail" /bin/bash -c "$cmd" 2>&1)
 t "the printed --toggle command turns the notices off" '[ -n "$cmd" ] && printf %s "$OUT" | grep -q "are off" && [ "$(jq -r .disabled "$SF")" = true ]'
 

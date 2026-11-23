@@ -64,7 +64,8 @@ if [ "$OWN" = 1 ]; then
   skip_cmd="/skip-update there"; off_cmd=/disable-update; again="/disable-update again"
 else
   self=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/${BASH_SOURCE[0]##*/}
-  skip_cmd="bash $self --skip $DIR"; off_cmd="bash $self --toggle $DIR"; again="the same command again"
+  q_self=$(printf '%q' "$self"); q_dir=$(printf '%q' "$DIR")  # paste-safe: a path may hold a space
+  skip_cmd="bash $q_self --skip $q_dir"; off_cmd="bash $q_self --toggle $q_dir"; again="the same command again"
 fi
 
 ver_ok() { printf '%s' "$1" | grep -Eq '^v?[0-9]+(\.[0-9]+)*$'; }
