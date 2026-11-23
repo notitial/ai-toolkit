@@ -1,7 +1,7 @@
 # 18. The Review Kit as a Reusable Workflow
 
 **Status:** accepted
-**Date:** 2026-11-19 · **Amended:** 2026-11-20 (callers use `@main`; one runner variable)
+**Date:** 2026-11-19 · **Amended:** 2026-11-20 (callers use `@main`; one runner variable), 2026-11-23 (one review-only credential secret)
 
 ## Context
 
@@ -31,8 +31,9 @@ is a caller of about 30 lines that owns three things:
   can only narrow it, never widen it. Every kit job declares its own `permissions:` (`appcheck` none, `preflight` and
   `review` read-only, `publish` `contents: write` and `pull-requests: write`), so each job holds exactly what it
   held as a vendored copy. A test fails a kit job that declares none, since it would inherit the whole ceiling.
-- **The credentials**, mapped by name: the App key, and the Claude API key and OAuth token. Never `secrets: inherit`.
-  The kit declares all three optional, so a missing one still reaches the kit's own "Missing: secret ..." check.
+- **The credentials**, mapped by name: the App key and the Claude credential `CLAUDE_REVIEW_CREDENTIAL` (amended
+  2026-11-23, below). Never `secrets: inherit`. The kit declares both optional, so a missing one reaches the kit's
+  own check ("Missing: secret ..." for the App key, the `review` step's error for the credential).
   The `CLAUDE_REVIEW_*` variables stay repository variables: a called workflow reads the caller's `vars`.
 
 The kit's inputs are `runs-on` (a JSON array, for `preflight` and `review`, default `["ubuntu-latest"]`),
@@ -119,7 +120,7 @@ as orientation, and is not a rule source when the PR changes it). Claude's envir
   the workflow's own `permissions:` are applied, and that a Dependabot run's token is read-only by default and the
   `permissions:` key raises it. Neither is documented as a start-up failure, which comes from a called job asking
   for more than its caller grants. The kit still skips both in `preflight`.
-- Unverified until a live run: that the three credentials reach the called workflow (GitHub documents that `vars` come
+- Unverified until a live run: that the credentials reach the called workflow (GitHub documents that `vars` come
   from the caller's repository); whether a called job that asks for write passes start-up in a fork run, where the
   caller's write is adjusted down (the docs do not say which level the check sees).
 - Seen on a live run (the review of the PR that moved the scripts): in `publish`, `job.workflow_repository` and
@@ -128,3 +129,13 @@ as orientation, and is not a rule source when the PR changes it). Claude's envir
   yet seen: a call from another repository, where the value is the kit's commit and a local call
   cannot tell it from the caller's own, and where `review` and `publish` of one `@main` run should log the same SHA; and Claude reading the command from the kit's file (a plain prompt that names it, instead of a slash command) under
   `--permission-mode default`: the first live run of the third step, which is the PR's own review, is the test.
+- Amended 2026-11-23: one review-only Claude secret, `CLAUDE_REVIEW_CREDENTIAL`, replaces `ANTHROPIC_API_KEY` and
+  `CLAUDE_CODE_OAUTH_TOKEN`. The `review` step trims it and sets the variable its prefix names (`sk-ant-oat` the OAuth
+  token, `sk-ant-api` the API key); an empty value or another prefix fails with a message that names the secret and
+  the two prefixes, never the value. Why: the two generic names are the ones other tools in a repo or org read, so a
+  secret set for the review was also one that production could pick up, and a caller had to choose a name and a mode.
+  Cost: a breaking change (kit v4.9). A clean break, not a deprecation window: a window would keep the generic names
+  declared, which was the problem. A caller that still passes either old name fails at start-up; its fix is one line,
+  `CLAUDE_REVIEW_CREDENTIAL: ${{ secrets.CLAUDE_REVIEW_CREDENTIAL }}` in place of the two. Rollout: callers run
+  `@main`, so set the secret first (repo or org level), merge the kit, then land each caller's one-line PR; callers are
+  red in between.
