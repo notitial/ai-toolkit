@@ -23,13 +23,14 @@ The page is made for one session and one decision. It has no tests; nobody maint
 2. Copy the kit: `cp ~/.claude/skills/review-page/page.html .archive/review/<topic>-YYYY-MM-DD.html` (`mkdir -p` first; `-r2`, `-r3` for a later round). Each round is a new file holding only what is still open.
 3. Replace the example spec with one Edit: only the text between `SPEC START` and `SPEC END`. Never edit the kit part; that drifts the export. Start from the app's real markup and stylesheets (below).
 4. Open it: `open -a "Google Chrome" <absolute path>`. If that is blocked, give the person the bare absolute path.
-5. Tell the person what to do in one line: pick, add notes, press "Copy the JSON", paste it back.
+5. Tell the person what to do in one line: pick, add notes, press "Copy the JSON" in the footer, paste it back.
 
 ## The spec
 
 ```js
 window.REVIEW = {
-  title: '', intro: ['one or two short paragraphs'],
+  title: '', intro: ['what is being decided', 'what to do'],
+  theme: { font: 'Georgia, serif', light: { '--bg': '#fbf7f2', '--acc': '#b4410f' }, dark: { '--bg': '#1a1512' } },
   preview: { css: ['../../app/dist/styles.css'], head: '' },
   controls: [{ id: 'signal', label: 'Signal', values: [['good', 'Good'], ['down', 'Down']] }],
   seed: { back: 'yes' },
@@ -48,6 +49,8 @@ window.REVIEW = {
 ```
 
 - A section with `opts` is a choice. Without `opts` it is a yes/no item (`rec` is `yes` or `no`), or, with `noPick: true`, a display-only section: no question, no notes, not counted as answered, and not in the export. `rec` and `why` give the visible recommendation; every question gets one, with its cost. Never pre-pick an option.
+- `intro` is two short lines: what is being decided and what to do. Nothing else goes above the questions.
+- `theme` is optional and styles the page chrome (bar, cards, buttons, footer), never the previews. `light` and `dark` set the kit variables `--bg --fg --mut --card --line --acc --accfg` for that mode (the page's resolved theme); a variable left out keeps the kit value, and `font` is a CSS `font-family` list. Copy the app's own tokens so the page matches the app. An unknown key or variable shows an error banner. With no `theme` the kit look is unchanged.
 - `sub` is an optional short description under a section's title: what is being decided, not the recommendation.
 - A preview is one frame. An option has exactly one of: `html` (a string, or a function of the controls), `src` (a URL, or a function), or `frames`, a list of captioned frames `{ cap, html | src }` for the same option in several states (3-day and 4-day week, folded and opened). A yes/no or display-only section may carry `frames` too. With no preview, the page shows a dashed "No preview for this option" box.
 - `seed` carries picks over from an earlier round, as `{ sectionId: 'B' | 'yes' | 'no' }`. They start as picked and appear in `picks`; the person can change or clear them, and Reset restores them. A bad seed id or value shows an error banner. Say in the intro that a pick was carried over.
@@ -69,9 +72,10 @@ Screenshots go in as `<img>` inside `html`. Never invent a look in place of the 
 
 ## What the page does
 
-- Toolbar: Theme (Device, Light, Dark), Width (Phone 390x780, Tablet 768x1024, Laptop 1280x800), Zoom (Fit, 100%), the spec's own controls, and an answered count. Light and dark apply to the page and to every frame; Width switches every frame at once.
+- Toolbar: Theme (Device, Light, Dark), Width (Phone 390x780, Tablet 768x1024, Laptop 1280x800), Zoom (Fit, 100%), and the spec's own controls. Light and dark apply to the page and to every frame; Width switches every frame at once.
 - Frames sit side by side, up to four per row on Phone and Laptop and two on Tablet; an option with several frames counts each one. Fit scales each frame down to its column; 100% shows it at its real width and scrolls sideways inside the column. The caption under each preview shows its `cap`, the real width and the scale ("After a wrong password: 1280 px, shown at 30%"); a `src` caption also shows the URL.
 - "Your picks" above the notes lists every question with its pick so far.
+- A footer is pinned to the bottom of the window at every width: the answered count, "Copy the JSON", "Download as file" (saves the same JSON as `<page>.json`) and "Reset page". The page keeps bottom padding of its height, so it covers nothing. The JSON itself sits in a box at the end of the page.
 - In a window about phone width (420 px or less) the previews run edge to edge with no panel padding.
 - Picks, notes, controls and the zoom are saved per file path in `localStorage` and survive a reload. Reset clears them after a confirm.
 
@@ -82,6 +86,8 @@ The author, and the lead who passes the page on, check it. The one who sends the
 - Screenshot it headless at 1440 px wide, once in Phone and once in Laptop mode, and read both: `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --screenshot=<out.png> --window-size=1440,3000 file://<page>`. The window is tall so the option columns are in the shot. A fresh page opens in Phone; for Laptop screenshot a scratch copy with the default in `dflt` changed (`width: 1280`), never the page you send.
 - In those shots confirm the versions of each question sit in columns, each a full device frame (not stacked, not cropped), and the previews show the app's real tokens, components and icons, and whole screens.
 - Then open the page in Chrome (`open -a "Google Chrome" <page>`), a real window, because headless cannot click: confirm the Width buttons switch every frame, Light and Dark both work, and Zoom changes Fit to 100%.
+- Scroll to the end: the footer stays in view, covers no section, and its buttons copy and download.
+- With a `theme`, check Light and Dark both: the chrome should match the app, with readable text on every button.
 
 ## Limits
 
@@ -99,7 +105,7 @@ State these to the person when one applies.
 
 ## The export
 
-"Copy the JSON" gives one object, always these six keys in this order:
+"Copy the JSON" and "Download as file" give one object, always these six keys in this order:
 
 ```json
 {

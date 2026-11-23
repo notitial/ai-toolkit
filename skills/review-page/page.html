@@ -12,8 +12,8 @@
   :root { color-scheme: light; --bg: #f6f6f4; --fg: #1c1c1c; --mut: #5c5c5c; --card: #fff; --line: #d4d4cf; --acc: #0b57d0; --accfg: #fff; --warn: #8a4b00; --warnbg: #fff1d6; }
   [data-theme=dark] { color-scheme: dark; --bg: #151515; --fg: #ececec; --mut: #a8a8a8; --card: #1f1f1f; --line: #3a3a3a; --acc: #8ab4f8; --accfg: #10203a; --warn: #ffcf85; --warnbg: #3a2a0a; }
   * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  html { scroll-behavior: smooth; scroll-padding-bottom: var(--dock, 0px); }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; font-family: var(--font, system-ui, -apple-system, "Segoe UI", sans-serif); padding-bottom: var(--dock, 0px); }
   button, textarea { font: inherit; color: inherit; }
   button { cursor: pointer; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; min-height: 36px; }
   button[aria-pressed=true] { background: var(--acc); color: var(--accfg); border-color: var(--acc); font-weight: 600; }
@@ -21,14 +21,13 @@
   textarea { width: 100%; min-height: 64px; padding: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 
-  #bar { position: sticky; top: 0; z-index: 10; background: var(--card); border-bottom: 1px solid var(--line); padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; }
+  #bar { position: sticky; top: 0; z-index: 10; background: var(--card); border-bottom: 1px solid var(--line); padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
   #bar .groups { display: contents; }
   .grp { display: flex; align-items: center; gap: 4px; }
   .grp .lbl { color: var(--mut); font-size: 14px; margin-right: 4px; }
   .grp button { border-radius: 0; margin-left: -1px; }
   .grp button:first-of-type { border-radius: 8px 0 0 8px; margin-left: 0; }
   .grp button:last-of-type { border-radius: 0 8px 8px 0; }
-  #count { margin-left: auto; color: var(--mut); font-variant-numeric: tabular-nums; }
   #fold { display: none; }
   @media (max-width: 640px) {
     #fold { display: inline-block; }
@@ -74,14 +73,18 @@
   .banner { background: var(--warnbg); color: var(--warn); border: 1px solid var(--warn); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; }
   .picks { margin: 8px 0 24px; padding-left: 20px; }
   #out textarea { font: 13px/1.4 ui-monospace, Menlo, monospace; min-height: 220px; }
-  #out .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
-  #out .row .reset { margin-left: auto; }
-  @media (max-width: 640px) { #out .row button { flex: 1 1 100%; } #out .row .reset { margin-left: 0; } }
+  #dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: var(--card); border-top: 1px solid var(--line); padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  #dock:empty { display: none; }
+  #dock .info { display: flex; gap: 12px; align-items: baseline; margin-right: 4px; }
+  #count { color: var(--mut); font-variant-numeric: tabular-nums; }
+  #dock .reset { margin-left: auto; }
+  @media (max-width: 640px) { #dock { padding: 8px 12px; } #dock .info { flex: 1 1 100%; margin: 0; } #dock button { flex: 1 1 auto; padding: 6px; font-size: 13px; white-space: nowrap; } #dock .reset { margin-left: 0; } }
 </style>
 </head>
 <body>
 <div id="bar" role="toolbar" aria-label="Page controls"></div>
 <main id="app"></main>
+<div id="dock" role="region" aria-label="Export"></div>
 
 <script>
   // Spec errors are shown by the kit below instead of leaving a blank page.
@@ -106,10 +109,16 @@ const card = (c, inner) => `<style>
 
 window.REVIEW = {
   title: 'Example: which sign-in screen?',
+  // Two short lines: what is decided and what to do. Nothing more.
   intro: [
-    'This is the example spec. Each preview below is real HTML in its own frame, at the width chosen in the toolbar, so its media queries and its light or dark rules run for real.',
-    'Pick an option, write notes, then copy the JSON at the bottom and paste it back into the chat. Question 2 starts with Yes carried over from an earlier round; change it freely.'
+    'Example spec. Question 2 starts with Yes carried over.',
+    'Pick, add notes, then press Copy the JSON in the footer.'
   ],
+  // Optional app theme for the page chrome (not the previews): the kit variables per mode, and a font. Leave it out and
+  // the kit keeps its own look. Allowed keys: --bg --fg --mut --card --line --acc --accfg. A mode may set only some.
+  // theme: { font: 'Georgia, serif',
+  //   light: { '--bg': '#fbf7f2', '--acc': '#b4410f', '--accfg': '#fff' },
+  //   dark: { '--bg': '#1a1512', '--acc': '#f0a070', '--accfg': '#2a1608' } },
   // Picks carried over from an earlier round, as { section id: option letter, or yes / no }. Reset restores them.
   seed: { back: 'yes' },
   // Linked stylesheets (relative to this file) and one raw head string. Tokens written here are "proposed", not the app's own.
@@ -157,8 +166,9 @@ window.REVIEW = {
   const HEIGHT = { 390: 780, 768: 1024, 1280: 800 };
   const PER_ROW = { 390: 4, 768: 2, 1280: 4 };
   const MIN_COL = 260, GAP = 16;
+  const THEME_KEYS = ['--bg', '--fg', '--mut', '--card', '--line', '--acc', '--accfg'];
   const R = window.REVIEW;
-  const app = document.getElementById('app'), bar = document.getElementById('bar');
+  const app = document.getElementById('app'), bar = document.getElementById('bar'), dock = document.getElementById('dock');
 
   const h = (tag, attrs, ...kids) => {
     const e = document.createElement(tag);
@@ -189,6 +199,11 @@ window.REVIEW = {
     (s.opts || []).forEach((o) => { if (o.k === 'note') problems.push('"note" is reserved; rename option in ' + s.id); });
   });
   ctls.forEach((c) => { if (c.id === 'theme' || c.id === 'width') problems.push('Control id "' + c.id + '" is reserved'); });
+  const th = (R && R.theme) || {};
+  Object.keys(th).forEach((m) => {
+    if (!['light', 'dark', 'font'].includes(m)) problems.push('Bad theme key: ' + m);
+    else if (m !== 'font') Object.keys(th[m] && typeof th[m] === 'object' ? th[m] : { [m + ' is not an object']: 1 }).forEach((k) => { if (!THEME_KEYS.includes(k)) problems.push('Bad theme key in theme.' + m + ': ' + k); });
+  });
   Object.keys((R && R.seed) || {}).forEach((id) => { if (!okPick(id, R.seed[id])) problems.push('Bad seed: ' + id); });
   if (problems.length) { problems.forEach(banner); return; }
 
@@ -238,8 +253,15 @@ window.REVIEW = {
       (pv.css || []).map((u) => '<link rel="stylesheet" href="' + attr(u) + '">').join('') +
       '<style>:root{color-scheme:' + t + '}</style>' + (pv.head || '') + '</head><body>' + body + '</body></html>';
   }
-  function refresh() {
+  // The spec's optional app theme sets the kit variables on the page root; the kit palette is the fallback.
+  function applyTheme() {
     document.documentElement.dataset.theme = theme();
+    const t = R.theme || {}, set = t[theme()] || {}, st = document.documentElement.style;
+    THEME_KEYS.forEach((k) => (set[k] ? st.setProperty(k, set[k]) : st.removeProperty(k)));
+    if (t.font) st.setProperty('--font', t.font); else st.removeProperty('--font');
+  }
+  function refresh() {
+    applyTheme();
     const c = context();
     frames.forEach(({ f, o }) => {
       f.style.colorScheme = c.theme;
@@ -281,6 +303,8 @@ window.REVIEW = {
       p.nextSibling.textContent = (f.dataset.cap ? f.dataset.cap + ': ' : '') + w + ' px, shown at ' + Math.round(s * 100) + '%' + (f.dataset.url ? ' - ' + f.dataset.url : '');
     });
   }
+  // The footer is fixed: the page keeps bottom padding of its height so it covers nothing.
+  new ResizeObserver(() => document.documentElement.style.setProperty('--dock', dock.offsetHeight + 'px')).observe(dock);
   let lastW = 0, raf = 0;
   new ResizeObserver(() => {
     if (app.clientWidth === lastW) return;
@@ -316,7 +340,7 @@ window.REVIEW = {
 
   function sync() {
     const o = out(), n = asked.length - o.unanswered.length;
-    count.textContent = n + '/' + asked.length + ' answered';
+    count.textContent = n + ' of ' + asked.length + ' answered';
     heading.textContent = 'Paste this back into the chat (' + n + ' of ' + asked.length + ' answered)';
     json.value = JSON.stringify(o, null, 2);
     nav.querySelectorAll('a').forEach((a, i) => a.classList.toggle('done', !!S.picks[secs[i].id]));
@@ -386,7 +410,7 @@ window.REVIEW = {
   }
 
   function render() {
-    document.documentElement.dataset.theme = theme();
+    applyTheme();
     frames.length = 0;
     for (const k in pickBtns) delete pickBtns[k];
     app.replaceChildren();
@@ -395,7 +419,7 @@ window.REVIEW = {
       seg('Width', WIDTHS, () => S.ctl.width, ctl('width')),
       seg('Zoom', [['fit', 'Fit'], ['100', '100%']], () => S.zoom, (v) => { S.zoom = v; save(); layout(); }),
       ctls.map((c) => seg(c.label, c.values, () => S.ctl[c.id], ctl(c.id))));
-    bar.replaceChildren(h('button', { type: 'button', id: 'fold', 'aria-expanded': 'false', onclick: (e) => { bar.classList.toggle('open'); e.target.setAttribute('aria-expanded', String(bar.classList.contains('open'))); } }, 'Controls'), w, count);
+    bar.replaceChildren(h('button', { type: 'button', id: 'fold', 'aria-expanded': 'false', onclick: (e) => { bar.classList.toggle('open'); e.target.setAttribute('aria-expanded', String(bar.classList.contains('open'))); } }, 'Controls'), w);
     app.append(notice, h('h1', null, R.title || 'Review'), h('div', { class: 'intro' }, (R.intro || []).map((t) => h('p', null, t))));
     if (!secs.length) { app.append(h('p', null, 'This page has no questions.')); return; }
     let q = 0;
@@ -407,10 +431,11 @@ window.REVIEW = {
         h('h2', null, 'Notes on the whole page'),
         h('label', { class: 'n', for: 'general' }, 'Anything that does not belong to one question'),
         h('textarea', { id: 'general', placeholder: 'Anything about the page as a whole?', value: S.general, oninput: (e) => { S.general = e.target.value; change(); } }),
-        heading, json,
-        h('div', { class: 'row' },
-          h('button', { type: 'button', onclick: copy }, 'Copy the JSON'), copied,
-          h('button', { type: 'button', class: 'reset', onclick: reset }, 'Reset page'))));
+        heading, json));
+    dock.replaceChildren(h('div', { class: 'info' }, count, copied),
+      h('button', { type: 'button', onclick: copy }, 'Copy the JSON'),
+      h('button', { type: 'button', onclick: download }, 'Download as file'),
+      h('button', { type: 'button', class: 'reset', onclick: reset }, 'Reset page'));
     refresh();
   }
 
@@ -418,6 +443,15 @@ window.REVIEW = {
     const fallback = () => { json.focus(); json.select(); copied.textContent = 'Press Ctrl+C or Cmd+C'; };
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(json.value).then(() => { copied.textContent = 'Copied'; setTimeout(() => { copied.textContent = ''; }, 1500); }, fallback);
     else fallback();
+  }
+  function download() {
+    const a = h('a', { href: URL.createObjectURL(new Blob([json.value], { type: 'application/json' })), download: PAGE + '.json' });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    copied.textContent = 'Saved ' + PAGE + '.json';
+    setTimeout(() => { copied.textContent = ''; }, 2500);
   }
   function reset() {
     if (!confirm('Clear every pick, note and control on this page?')) return;
