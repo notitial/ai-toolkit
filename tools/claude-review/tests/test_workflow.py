@@ -161,10 +161,10 @@ class Workflow(unittest.TestCase):
         # Only the Claude credential is in the step's env, and `env -i` lets through nothing else.
         self.need_yaml()
         step = self.review_step("Run the Claude code review")
-        self.assertEqual(step["env"], {"ANTHROPIC_API_KEY": "${{ secrets.ANTHROPIC_API_KEY }}",
-                                       "CLAUDE_CODE_OAUTH_TOKEN": "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}"})
+        self.assertEqual(step["env"], {"CLAUDE_REVIEW_CREDENTIAL": "${{ secrets.CLAUDE_REVIEW_CREDENTIAL }}"})
         self.assertNotIn("github.token", json.dumps(step))
         self.assertIn("env -i ", step["run"])
+        self.assertNotRegex(step["run"], r"set -[a-z]*x|xtrace")   # a trace would print the credential
         for name in ("Set up Node", "Install Claude Code"):   # the install runs the package's own install script
             self.assertNotIn("secrets.", json.dumps(self.review_step(name)))
 
@@ -228,47 +228,79 @@ class Workflow(unittest.TestCase):
 
     RESULT = "echo '{\"type\":\"result\",\"subtype\":\"success\"}'\n"
 
+    # Fake credentials only. The prefixes are the ones the step tells apart.
+    OAUTH, APIKEY = "sk-ant-oat01-fake", "sk-ant-api03-fake"
+
     def test_run_step_gives_claude_only_the_allowed_environment(self):
         self.need_yaml()
-        out, seen, args, stream, mode = self.run_step(self.RESULT, ANTHROPIC_API_KEY="sk a*b", CLAUDE_CODE_OAUTH_TOKEN="")
+        out, seen, args, stream, mode = self.run_step(self.RESULT, CLAUDE_REVIEW_CREDENTIAL=self.APIKEY)
         self.assertEqual(out.returncode, 0, out.stderr)
         names = {line.split("=", 1)[0] for line in seen} - {"PWD", "SHLVL", "_", "OLDPWD"}   # set by bash itself
         self.assertEqual(names, {"PATH", "HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS",
-                                 "DISABLE_AUTOUPDATER", "ANTHROPIC_API_KEY"})   # no GITHUB_TOKEN, no empty credential
-        self.assertIn("ANTHROPIC_API_KEY=sk a*b", seen)   # one word: not split or globbed
+                                 "DISABLE_AUTOUPDATER", "ANTHROPIC_API_KEY"})   # no GITHUB_TOKEN, no secret under its own name
+        self.assertIn(f"ANTHROPIC_API_KEY={self.APIKEY}", seen)
         self.assertEqual(stream, '{"type":"result","subtype":"success"}\n')   # the transcript is in the file, not the log
         self.assertNotIn("result", out.stdout)
         self.assertEqual(mode, 0o700)
         self.assertRegex(args[1], r"^Follow the instructions in /\S+/claude-review-setup/claude-pr-review\.md\. In that file, "
                                   r"\$ARGUMENTS is: o/r/pull/7 --mode initial --checkout /work/pr --context /tmp/ctx$")
 
-    def test_run_step_passes_one_credential_when_both_are_set(self):
+    def test_the_prefix_decides_which_credential_variable_is_set(self):
         self.need_yaml()
-        out, seen, _, _, _ = self.run_step(self.RESULT, ANTHROPIC_API_KEY="key", CLAUDE_CODE_OAUTH_TOKEN="oauth")
-        self.assertEqual(out.returncode, 0, out.stderr)
-        self.assertIn("ANTHROPIC_API_KEY=key", seen)
-        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", {line.split("=", 1)[0] for line in seen})
+        for value, name, other in ((self.OAUTH, "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"),
+                                   (self.APIKEY, "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")):
+            with self.subTest(prefix=value[:10]):
+                out, seen, _, _, _ = self.run_step(self.RESULT, CLAUDE_REVIEW_CREDENTIAL=value)
+                self.assertEqual(out.returncode, 0, out.stderr)
+                self.assertIn(f"{name}={value}", seen)
+                self.assertNotIn(other, {line.split("=", 1)[0] for line in seen})
+                self.assertNotIn("CLAUDE_REVIEW_CREDENTIAL", {line.split("=", 1)[0] for line in seen})
+                self.assertNotIn(value, out.stdout + out.stderr)
 
-    def test_run_step_passes_whichever_credential_is_set_and_threads_in_comment_runs(self):
+    def test_whitespace_around_the_credential_is_trimmed(self):
         self.need_yaml()
-        out, seen, args, _, _ = self.run_step(self.RESULT, ANTHROPIC_API_KEY="", CLAUDE_CODE_OAUTH_TOKEN="oauth",
-                                              GITHUB_EVENT_NAME="issue_comment", REVIEW_MODE="followup")
+        for padded in (self.OAUTH + "\n", f"  {self.OAUTH}  \r\n", f"{self.OAUTH[:10]} \t{self.OAUTH[10:]}\n"):
+            with self.subTest(padded=repr(padded)):
+                out, seen, _, _, _ = self.run_step(self.RESULT, CLAUDE_REVIEW_CREDENTIAL=padded)
+                self.assertEqual(out.returncode, 0, out.stderr)
+                self.assertIn(f"CLAUDE_CODE_OAUTH_TOKEN={self.OAUTH}", seen)   # one clean word
+
+    def test_a_credential_in_the_runners_own_environment_does_not_reach_claude(self):
+        # Only the one the secret's prefix names enters Claude's environment, whatever else the runner process holds.
+        self.need_yaml()
+        runner_env = {"CLAUDE_REVIEW_CREDENTIAL": self.OAUTH}
+        runner_env["ANTHROPIC_API_KEY"] = self.APIKEY   # the other credential, already in the process
+        out, seen, _, _, _ = self.run_step(self.RESULT, **runner_env)
         self.assertEqual(out.returncode, 0, out.stderr)
-        self.assertIn("CLAUDE_CODE_OAUTH_TOKEN=oauth", seen)
         self.assertNotIn("ANTHROPIC_API_KEY", {line.split("=", 1)[0] for line in seen})
+
+    def test_run_step_threads_in_comment_runs(self):
+        self.need_yaml()
+        out, _, args, _, _ = self.run_step(self.RESULT, CLAUDE_REVIEW_CREDENTIAL=self.OAUTH,
+                                           GITHUB_EVENT_NAME="issue_comment", REVIEW_MODE="followup")
+        self.assertEqual(out.returncode, 0, out.stderr)
         self.assertTrue(args[1].endswith("--mode followup --checkout /work/pr --context /tmp/ctx --threads /tmp/ctx/threads.json"))
 
-    def test_run_step_fails_without_a_credential_and_when_claude_fails(self):
+    def test_run_step_fails_on_a_missing_or_unrecognised_credential_without_echoing_it(self):
         self.need_yaml()
-        out, seen, _, _, _ = self.run_step(self.RESULT, ANTHROPIC_API_KEY="", CLAUDE_CODE_OAUTH_TOKEN="")
-        self.assertNotEqual(out.returncode, 0)
-        self.assertIn("::error::No Claude credential", out.stdout)
-        self.assertIsNone(seen)   # claude never started
+        for value in ("", " \n", "token-junk-value-1234", "sk-ant-xyz-junk", "sk-ant-OAT01-upper", "prefix sk-ant-oat01-x"):
+            with self.subTest(value=value):
+                out, seen, _, _, _ = self.run_step(self.RESULT, CLAUDE_REVIEW_CREDENTIAL=value)
+                self.assertNotEqual(out.returncode, 0)
+                self.assertIn("::error::The secret CLAUDE_REVIEW_CREDENTIAL is missing or not a Claude credential", out.stdout)
+                self.assertIn("sk-ant-oat", out.stdout)
+                self.assertIn("sk-ant-api", out.stdout)
+                self.assertIsNone(seen)   # claude never started
+                for part in value.split():   # nothing past the fixed prefix, whole or in part
+                    self.assertNotIn(part[7:] if len(part) > 10 else part, out.stdout + out.stderr)
+
+    def test_run_step_fails_when_claude_fails_without_echoing_the_credential(self):
+        self.need_yaml()
         out, _, _, _, _ = self.run_step("echo '{\"type\":\"result\",\"subtype\":\"error_during_execution\"}'\nexit 1\n",
-                                        ANTHROPIC_API_KEY="sk-test")
+                                        CLAUDE_REVIEW_CREDENTIAL=self.APIKEY)
         self.assertNotEqual(out.returncode, 0)
         self.assertIn("::error::Claude exited with status 1 (result: error_during_execution)", out.stdout)
-        self.assertNotIn("sk-test", out.stdout + out.stderr)
+        self.assertNotIn(self.APIKEY, out.stdout + out.stderr)
 
     def test_run_sh_flags(self):
         # run.sh is the one place the review's flags live (replay.py runs it too): the tools Claude has, what it may read,
@@ -469,7 +501,7 @@ class Workflow(unittest.TestCase):
             self.assertEqual(spec["type"], "string", name)
         # Optional: a missing credential must reach appcheck's "Missing: ..." check, not fail the call.
         self.assertEqual({k: v.get("required") for k, v in call["secrets"].items()},
-                         {"CLAUDE_REVIEW_APP_KEY": False, "ANTHROPIC_API_KEY": False, "CLAUDE_CODE_OAUTH_TOKEN": False})
+                         {"CLAUDE_REVIEW_APP_KEY": False, "CLAUDE_REVIEW_CREDENTIAL": False})
         self.assertEqual(self.wf["permissions"], {})
 
     def test_every_kit_job_declares_permissions_inside_the_callers_ceiling(self):
@@ -482,7 +514,7 @@ class Workflow(unittest.TestCase):
                 for scope, level in spec["permissions"].items():
                     self.assertGreaterEqual(self.LEVEL[ceiling.get(scope, "none")], self.LEVEL[level], scope)
 
-    def test_the_kit_uses_only_the_three_declared_credentials(self):
+    def test_the_kit_uses_only_the_two_declared_secrets(self):
         self.need_yaml()
         declared = set(triggers(self.wf)["workflow_call"]["secrets"])
         self.assertEqual(set(re.findall(r"secrets\.(\w+)", self.text)), declared)
@@ -490,8 +522,7 @@ class Workflow(unittest.TestCase):
         for job, spec in self.wf["jobs"].items():
             dumped = json.dumps(spec)
             with self.subTest(job=job):   # the Claude credential only in `review`, the App key only in the key jobs
-                self.assertEqual("secrets.ANTHROPIC_API_KEY" in dumped or "secrets.CLAUDE_CODE_OAUTH_TOKEN" in dumped,
-                                 job == "review")
+                self.assertEqual("secrets.CLAUDE_REVIEW_CREDENTIAL" in dumped, job == "review")
                 self.assertEqual("secrets.CLAUDE_REVIEW_APP_KEY" in dumped, job in ("appcheck", "publish"))
 
 
@@ -519,7 +550,7 @@ class Caller(unittest.TestCase):
         job = self.wf["jobs"]["claude-review"]
         self.assertEqual(job["uses"], "./.github/workflows/claude-review-kit.yml")   # same commit as this caller
         self.assertEqual(set(job) - {"permissions", "uses", "secrets"}, set())   # no steps, no `with`: the kit's defaults
-        names = ("CLAUDE_REVIEW_APP_KEY", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")
+        names = ("CLAUDE_REVIEW_APP_KEY", "CLAUDE_REVIEW_CREDENTIAL")
         self.assertEqual(job["secrets"], {name: "${{ secrets.%s }}" % name for name in names})
 
 
