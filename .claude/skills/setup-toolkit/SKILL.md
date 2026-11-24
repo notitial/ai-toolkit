@@ -8,696 +8,267 @@ Configure the global Claude Code environment from this repo's templates and skil
 
 **macOS only.** The steps assume macOS: Homebrew install hints, `/usr/bin/jq` and the login keychain.
 
-**What it overwrites.** Most of the settings merge only adds and never removes. Four settings are enforced instead: added when missing and overwritten when different, and every change is reported (Step 10):
+**What it overwrites.** Most of the settings merge only adds and never removes. Four settings are enforced instead: added when missing and overwritten when different, and every change is reported (Step 6):
 
 - `env`: the session-quality survey and the `/feedback` upload off, and claude.ai's cloud MCP connectors off;
 - `attribution`: no commit trailer, PR footer or session link;
 - `autoCompactWindow`: 500000;
 - `enableAllProjectMcpServers`: `false`.
 
-Read Step 10 before the first run if you rely on other values for any of them.
+Read Step 6 before the first run if you rely on other values for any of them.
 
-**Prompt cache TTL.** Step 10 adds `promptCacheTtl: "1h"` when your settings have no such key, and keeps any value you set. It never asks about or writes `subagentPromptCacheTtl`.
+**Prompt cache TTL.** Step 6 adds `promptCacheTtl: "1h"` when your settings have no such key, and keeps any value you set. It never asks about or writes `subagentPromptCacheTtl`.
 
 **`/setup-toolkit check`:** read-only. Run only `bash tools/install-copies.sh status` (resolve the path from this skill's location: `../../../tools/install-copies.sh`), show its output, and stop. It lists the install-time settings, the github MCP guard, the `~/.zshrc` line, every unlinked or conflicting link against `main`, any hook or lock script that is not executable, and any hook `settings.json` does not run, and changes nothing.
 
-## Step 0: Check prerequisites
+## How the run talks to you
 
-Check each tool with `command -v <tool>`, except gh: any Bash command naming gh is blocked for agents
-(`hooks/gh-block.sh`). If any is missing, **stop**: print the missing rows with their install hint and ask the user
-to re-run `/setup-toolkit` once they are installed. Install nothing yourself. For gh, give the user
-`gh auth status` (never `--show-token`) in a markdown code block and ask for its output: if gh is missing or not logged in, **warn** and
-continue.
+The run asks once up front, builds every change into files it may write, and hands the person one pasted block. The person's go is that block, informed by the change list in the final message.
 
-| Tool | Needed by | Install (macOS) |
-|------|-----------|-----------------|
-| `jq` | every hook parses its input with it | recent macOS ships `/usr/bin/jq`; otherwise `brew install jq` (it must then be on the PATH Claude Code starts with: the guards fall back to `/usr/bin` only) |
-| `node` | the git MCP server (`tools/git-mcp/server.js`) | `brew install node` |
-| `gh` | the user's own commands (agents are blocked from it); a missing login only warns | `brew install gh`, then `gh auth login`, answering **No** to "Authenticate Git with your GitHub credentials?" |
+1. **Round 1: one question dialog**, holding only the questions that apply (Step 4 and Step 5 say when). A machine that is already set up (install.conf present, `~/.claude/CLAUDE.md` present) gets none and the run is silent until the final message.
+2. **No questions in between.** The steps below link, stage and report. The agent never asks a go per item, never says "on their go" for a merge or a repair, and never hands over a `!` line: a command for the person goes in the final block.
+3. **Round 2, only when one of these turns up**, all in one dialog:
+   - "Limit" was chosen in round 1 with no valid owner name (a fresh machine's one way to get a second round);
+   - an `autoMode` list without `"$defaults"` (Step 6): *Replace with the template's list, backup kept (Recommended)* or *Leave it, reported as DRIFT*;
+   - a per-model `autoCompactWindow` override (Step 6): *Remove it (Recommended)* or *Keep it*;
+   - a `settings.json` of unexpected structure: *Stop and show it (Recommended)* or *Continue*.
+4. **The final message** (Step 7): the summary table, then the staged settings changes in full, then one block of plain terminal commands, then the restart line.
+
+The agent never writes `~/.claude/install.conf` or the live `~/.claude/settings.json` (denied, and `hooks/protected-paths-guard.sh` hard-denies the settings files), never runs `claude mcp add` or `remove`, never edits a shell rc file, and never touches the GitHub token. Those are the person's, as lines of the block.
+
+## Step 0: Prerequisites
+
+Check each tool with `command -v <tool>`, except gh: any Bash command naming gh is blocked for agents (`hooks/gh-block.sh`), so its state is unknowable here.
+
+- **`jq` missing: stop.** It parses every hook's input and is needed to stage the settings. Print `brew install jq` in a block and ask for a re-run. Recent macOS ships `/usr/bin/jq`; otherwise it must be on the PATH Claude Code starts with (the guards fall back to `/usr/bin` only).
+- **`node` missing:** not a stop. The block's first line is `brew install node` (the git MCP server, `tools/git-mcp/server.js`, needs it).
+- **`brew` or `claude` missing from the terminal's PATH:** one report line each with the fix (brew.sh; the Claude Code install). Not a stop.
+- **gh:** the report always says "the GitHub lines need gh installed and logged in (`brew install gh`, then `gh auth login`, answering **No** to 'Authenticate Git with your GitHub credentials?'); the chain stops at its first link if not".
+- **`uname -s` and `uname -m`:** the GitHub MCP install is offered only on Darwin arm64, the one build the README fetches. On anything else, say so in the report and offer nothing.
+- **The checkout path** (this repo's root, `cd -P <root> && pwd -P`) must be plain: letters, digits and `/ . _ - +`. Anything else: **stop** and say to move the checkout, since a quote or glob character would break every path in the block. A path under a temp folder (`/tmp`, `/private/tmp`, `/var/folders`, `/private/var/folders`) is a throwaway clone, not the live checkout: **stop** too and say to run the setup from the live checkout. Linking `~/.claude` or registering the token-bearing github server at a folder an agent may edit, with no protected marker and no guard, is never right.
 
 ## Step 1: Read current state
 
-Read these files to understand what's already configured:
+Read these to understand what is already configured:
 
-- `~/.claude/CLAUDE.md` (may not exist)
-- `~/.claude/settings.json` (may not exist)
-- `~/.claude.json` (user-scope MCP server config; may not exist)
-- This skill's templates:
-  - `templates/global-claude-md.md` — the CLAUDE.md checklist
-  - `templates/safe-permissions.json` — permissions, plugins, hooks config, and migration rules
-- Repo root artifacts (resolve from this skill's location via `../../../`):
-  - `agents/*.md` — global agent definitions
-  - `hooks/*.sh` — global hook scripts
-  - `rules/*.md` — global always-on rule files (no frontmatter — distinct from project-scoped `.claude/rules/`)
-  - `tools/statusline.sh` — status line script
-  - `tools/workspace-lock/workspace-lock.sh` — workspace lock script
-  - `tools/shell-init.zsh` — `~/.zshrc` sources it through its `~/.claude/tools/` link; it loads the `ait` zsh helpers (`tools/ait.zsh`)
-  - `tools/install-copies.sh` — the status of what is installed outside the checkout (Step 8b)
+- `~/.claude/CLAUDE.md`, `~/.claude/settings.json` and `~/.claude.json` (each may not exist; `~/.claude.json` is the user-scope MCP config)
+- This skill's `templates/` (`global-claude-md.md`: the checklist and the starter; `safe-permissions.json`: permissions, plugins, hooks config and migration rules)
+- Repo root artifacts, resolved from this skill's location via `../../../`: `agents/*.md`, `hooks/*.sh`, `rules/*.md`, `tools/statusline.sh`, `tools/workspace-lock/workspace-lock.sh`, `tools/shell-init.zsh`, `tools/install-copies.sh`
+- `bash tools/install-copies.sh roster` (the agents, hooks, rules and skills committed at `HEAD`; an untracked file is never linked) and `bash tools/install-copies.sh status`; keep both outputs for the report
 
-## Step 2: Install global agents
+## Step 2: Link
 
-List the committed agent definitions: the `agents/<name>.md` lines of `bash tools/install-copies.sh roster` (it lists only files
-committed at `HEAD`, so an untracked file in the checkout is never linked into `~/.claude`).
+Link every roster entry and the tool scripts, with no question asked:
 
-For each listed agent:
+| Source (repo) | Link (under `~/.claude`) | Needs the exec bit |
+|---|---|---|
+| each `agents/<name>.md` of the roster | `agents/<name>.md` | no |
+| each `hooks/<name>.sh` of the roster | `hooks/<name>.sh` | yes |
+| each `skills/<name>` of the roster | `skills/<name>` | no |
+| each `rules/<name>.md` of the roster | `rules/<name>.md` | no |
+| `tools/statusline.sh` | `statusline.sh` | no (run as `bash <path>`) |
+| `tools/workspace-lock/workspace-lock.sh` | `tools/workspace-lock.sh` | yes |
+| `tools/shell-init.zsh` | `tools/shell-init.zsh` | no (sourced; it loads the `ait` zsh helpers) |
 
-- **No existing symlink at `~/.claude/agents/<name>.md`:** Create it:
-  ```bash
-  mkdir -p ~/.claude/agents
-  ln -s <absolute-path-to-agents/name.md> ~/.claude/agents/<name>.md
-  ```
-- **Existing symlink pointing to the correct target:** Skip.
-- **Existing symlink pointing elsewhere or existing file:** Report conflict. Do not overwrite without user confirmation.
+**The one rule.** For each row: nothing at the link path: `mkdir -p` its folder and `ln -s <absolute source> <link>`; a symlink to the right target: skip; anything else: report a conflict and do not overwrite. The exception is Rules ([ADR 0009](../../../docs/adr/0009-global-rules-distribution.md): always-on rules, no frontmatter; do not add any): a plain file whose bytes equal the repo copy (`cmp -s`) is replaced by the symlink, since nothing divergent can be lost. A different plain file, a symlink elsewhere, a broken symlink or a directory is a conflict. There is no prune: a rule removed from `rules/` leaves its link, which is reported as a conflict, never deleted.
 
-Verify each symlink resolves to a readable file with valid YAML frontmatter (name, description, model, tools).
+**Verify.** Each link resolves to a readable file (an agent's frontmatter has name, description, model and tools; a skill has a `SKILL.md`). A row that needs the exec bit must be executable, because hooks and the lock script run by their path and a script without the bit fails open: its control is off with nothing blocking. Never `chmod` it. Report `DRIFT: <script> not executable` (Step 6's drift assertion); the fix is a PR that commits it as `100755`, then a pull and another run. When the commit has the bit and only this checkout lost it, `status` prints that smaller fix for the person.
 
-## Step 3: Install global hooks
+**The protected checkout.** `hooks/protected-paths-guard.sh` (wired in Step 6) denies every write to a folder that holds a `.protected-checkout` file, and to `~/.claude/settings*.json` whether or not any marker exists. This checkout is one such folder: its tracked files go live on the next tool call (CLAUDE.md, Where agents edit). The marker is untracked, and the hook denies the agent every write to an existing one, so the person makes it. Run `ls <checkout>/.protected-checkout`; when it is missing, the block gets `touch '<checkout>/.protected-checkout'` and the report says what it does: from then on the agent's Edit, Write and Bash writes here are denied and work goes in a clone under `/tmp`. Other folders can be protected the same way, one `touch` each. `check` does not report the marker; a full run does. Without it, report `Protected checkout: marker MISSING` as a warning, not a failure.
 
-List the committed hook scripts: the `hooks/<name>.sh` lines of `bash tools/install-copies.sh roster`.
+**The shell line.** Never edit `~/.zshrc`, `~/.bashrc` or `~/.zshenv`. When `status` shows the `~/.zshrc` line MISSING, the block gets the grep-guarded append of `source ~/.claude/tools/shell-init.zsh` (Step 7).
 
-For each listed hook:
+## Step 3: Git MCP server
 
-- **No existing symlink at `~/.claude/hooks/<name>.sh`:** Create it:
-  ```bash
-  mkdir -p ~/.claude/hooks
-  ln -s <absolute-path-to-hooks/name.sh> ~/.claude/hooks/<name>.sh
-  ```
-- **Existing symlink pointing to the correct target:** Skip.
-- **Existing symlink pointing elsewhere or existing file:** Report conflict. Do not overwrite without user confirmation.
+The toolkit's own server, `tools/git-mcp/server.js`: one node file with no dependencies, run from this checkout (`../../../tools/git-mcp/server.js`). It provides structured git tools that replace Bash git wildcards. Nothing is installed, pinned or downloaded, and a merge plus a pull is the update. Keep the name `git-mcp`: the permission rules and the hooks are keyed on it.
 
-Verify each symlink resolves and the target script is executable. Hooks run by their path, so a hook without the bit does not start, and its control is off with nothing blocking. Never `chmod` it here: the bit has to come from a commit. Report it (`DRIFT: <script> not executable` in Step 10's drift assertion); the fix is a PR that commits it as `100755`, then a pull and another `/setup-toolkit`. When the commit has the bit and only this checkout lost it, `status` prints that smaller fix instead, for the user to run.
+Assert the shape, not the key: a presence-only check is the defect Step 6's hook drift assertion exists to prevent, one section over. Run `claude mcp list 2>&1`, then `grep -A6 '"git-mcp"' ~/.claude.json` (the one user config this setup manages; `claude mcp add --scope user` writes it).
 
-### Protected checkout
+- **Absent:** the block gets `claude mcp add --scope user git-mcp -- node '<checkout>/tools/git-mcp/server.js'`.
+- **`"command": "node"` and this checkout's `tools/git-mcp/server.js` in `args`:** correct, skip.
+- **Anything else** (another program or path, `npx …`): the block gets `claude mcp remove --scope user git-mcp` on the line before the add. Report it as `Repaired`, never as "already installed".
 
-`hooks/protected-paths-guard.sh` (wired in Step 10) denies every write to a folder that holds a `.protected-checkout` file, and to `~/.claude/settings*.json` whether or not any marker exists. This checkout is one such folder: its tracked files go live on the next tool call (CLAUDE.md, Where agents edit). The marker is untracked (git-ignored) and the hook denies the agent every write to an existing one, so it cannot be removed or moved; the user makes it. Check, then report; do not create it for the user:
+`claude mcp add` and `remove` are denied to agents (the template's deny list): a server registered under another name would bypass every name-keyed MCP rule. Never get around the deny with `env …`, a full path or a wrapper. On a first run the line is only in the block, so the shape is checked by the second full run (Step 7). Changes take effect on restart; existing sessions keep their old server until then.
 
-```bash
-ls <this checkout>/.protected-checkout
-```
+## Step 4: Install settings and the GitHub MCP
 
-When it is missing, give the user this command to run themselves (a `!` line in this session works), with the checkout's real path filled in, and say what it does: from then on the agent's Edit, Write and Bash writes here are denied, and the work goes in a clone under `/tmp`:
+The github MCP launcher and guard are not copied anywhere: they run from this checkout, which stays on a clean `main` and moves only with a fast-forward pull after a merge (CLAUDE.md, Where agents edit). The logic that checks it lives in `tools/install-copies.sh` (tested by `tools/test-install-copies.sh`); do not re-implement it. Resolve the script as `check` does. Never set an `ICOPIES_*` variable (test hooks) and never change repo state (stash, checkout, pull, reset, `update-index`) to get past a gate.
 
-```bash
-touch <this checkout>/.protected-checkout
-```
+**install.conf.** This repository ships no owner's values: the github guard's write owners and the launcher's keychain account are read from `~/.claude/install.conf`, the person's own file (mode 600, one `key=value` line each, read by a strict reader in `tools/install-copies.sh`, never sourced). It stays a plain file the person may edit by hand; keys the reader does not use are skipped. Read the `install.conf` line of `status`:
 
-Other folders can be protected the same way, one `touch` each (a repository's own `.gitignore` should list the marker, as this one does; a state folder that is no repository needs nothing). `/setup-toolkit check` does not report the marker; a full run does. Without the marker the settings-file protection still stands and nothing else here is guarded: report `Protected checkout: marker MISSING` in Step 11, as a warning, not a failure.
+- **`ok`:** nothing to do. **`STALE`:** the skill does not rewrite it. Report the bad key `status` names; the person fixes that line, or deletes the file and runs the setup again.
+- **`MISSING`:** the block writes it (Step 7), with `github_write_owners` from the round-1 answer below and `github_keychain_account` from `id -un`, filled in. Check the account against `^[A-Za-z0-9._@-]+$` first: a login outside it would make the block write a STALE file, so leave the install.conf line out and report why. The report says: "keychain account `<name>`: create the token under this account (tools/github-mcp/README.md, Install, Token); another account is a hand edit of install.conf".
 
-## Step 4: Install global skills
+**Round-1 question: the GitHub MCP server and its write scope.** One question, asked only when install.conf is MISSING. Show only the options that apply: on Darwin arm64 with `status` showing the github binary or registration MISSING or STALE, all three; when the github MCP is already installed or the machine is not arm64, only two scope options, *All owners (Recommended)* (the first option's scope text, with no download or token costs) and *Limit to owners you name*, each writing install.conf only. Say in plain words what each costs:
 
-List the committed skills: the `skills/<name>` lines of `bash tools/install-copies.sh roster` (a folder whose `SKILL.md` is committed).
+- *Install, all owners (Recommended).* Agents can read PRs, issues, checks and job logs, and open draft PRs, comments, issues and labels, all through the guard; gh is blocked for agents, so without this server they cannot read PRs, issues or checks, or comment (plain git and the git MCP still work). Writes `github_write_owners=*`: draft PRs and comments go through without a prompt in any repo your token can write or comment on (your orgs, client orgs and a stranger's public repo), text an agent posts there is not shown to you first, and a prompt-injected agent could post outside your own repos. Merges, repo settings and rulesets stay impossible, and every prompt the guard has today still prompts. Costs: a classic token you make in the browser (scopes `repo` and `project`, renewed every 180 days) that reaches every repo you can, with merge and push power, so the guard is the fence; a verified binary download that needs gh logged in; a Keychain item you type once at a hidden prompt, which any program running as you can read; the checkout must stay on a clean `main` or the server and its guard switch off; macOS on Apple silicon only.
+- *Install, limit to owners you name.* The same install; writes to any owner not named are denied. The person types the owners, space-separated, in the option's notes or under Other. Check each name against `^[a-z0-9][a-z0-9-]*$` before the block is built; none valid triggers round 2.
+- *Skip.* No download and no token. install.conf is still written, since the reader needs both keys, with `github_write_owners=*` (the decided default; it stays in force if you install later, and a hand edit changes it). Ask for the GitHub MCP commands any time to install it.
 
-For each listed skill:
+**The GitHub MCP block.** On an Install answer, or when the person asks for the GitHub MCP commands later, add to the final message (Step 7):
 
-- **No existing symlink at `~/.claude/skills/<name>`:** Create it:
-  ```bash
-  mkdir -p ~/.claude/skills
-  ln -s <absolute-path-to-skills/name> ~/.claude/skills/<name>
-  ```
-- **Existing symlink pointing to the correct target:** Skip.
-- **Existing symlink pointing elsewhere or existing directory:** Report conflict. Do not overwrite.
+- One prose step before the block: open github.com/settings/tokens/new, make a classic token with scopes `repo` and `project` and an expiry of 180 days, and leave the page open. Do not copy the token yet: copying the block would overwrite the clipboard. Copy it only when the block's last command shows `password data for new item:`.
+- One more line at the end of the same block, a single `&&` chain joined to the settings `cp` line (Step 7), so a failure stops everything after it and nothing registers and no prompt appears unless every earlier link passed. Its links come from `tools/github-mcp/README.md`, Install, with `<checkout>` and the account filled in and the paths quoted as in the rest of the block (the account is `id -un` when install.conf is MISSING, otherwise the `github_keychain_account` value read from the existing file with the Read tool: the key is not secret); this skill names that section and does not restate the commands. In order: the download (its first command, `gh auth status >/dev/null`, is the gate: a logged-out gh stops here with gh's own message), the pin check, `claude mcp add` for `github` (preceded by `claude mcp remove --scope user github` when `status` shows a stale registration), and last the Keychain store command with the hidden prompt. No later line follows it, so no pasted text can be read as the token. The line ends with `; pbcopy </dev/null` after the store command, outside the `&&` chain, so the clipboard is cleared even when the prompt is cancelled; say in the message that the clipboard is cleared after the prompt. A link whose piece `status` shows as `ok` is left out. The store link is always kept: `-U` makes a re-run overwrite the item, and nothing can tell whether the item exists without touching the Keychain.
+- When the live `enabledPlugins` holds `github@claude-plugins-official`: `/plugin uninstall github@claude-plugins-official`, as a slash command in its own block.
+- Report lines: "After the restart, run `/mcp`. The `github` server should list 26 tools. If it fails, paste the store command again" (macOS may ask once to let the launcher read the Keychain item); "`claude mcp list` should show no `plugin:*:github`. An org-synced connector needs its admin"; and one the person cannot miss: "Prove the hosted-server URL block once, with the probe in tools/github-mcp/README.md, Install. If the probe is not shown as blocked, remove it and stop." The probe stays the README's step.
+- What is left if it does not finish: gh logged out stops the chain at the gate with nothing changed (the person runs `gh auth login`, then asks for the GitHub MCP commands); a cancelled or mistyped store prompt makes `/mcp` fail (the person asks again). Asked again, build the chain from the pieces `status` shows MISSING or STALE, plus the store link.
 
-Verify each symlink resolves to a readable SKILL.md.
+A later run with install.conf present never asks this question. A github piece `status` shows as MISSING is one report line: "not installed: ask for the GitHub MCP commands". Other `status` lines: a `checkout` line means the live checkout is not on a clean main (move the work into a `/tmp` clone and put the checkout back on `main`); the guard hook line is fixed by Step 6 (Hooks); `~/.zshrc` and Links are handled in Step 2; a hook or the lock script `STALE … executable bit` is reported with the fix it prints, never `chmod`ed and never wired. `MISSING hooks/<name>.sh is not wired` is fixed by Step 6 (Hooks), unless that hook also has an executable-bit line.
 
-### Project-local install (alternative to global)
-To make skills invocable in ONE project only, symlink into that project's `.claude/skills/`:
-`ln -s <relative-path-to>/ai-toolkit/skills/<name> <project>/.claude/skills/<name>`.
-Use this when a workspace's CLAUDE.md promises project-local skills — a global install also
-works but exposes the skills to every project.
+## Step 5: Global CLAUDE.md
 
-## Step 5: Install global rules
+`templates/global-claude-md.md` holds what a good global CLAUDE.md covers (required sections: Interaction Style, Code Changes, Communication) and a starter.
 
-List the committed global rule files: the `rules/<name>.md` lines of `bash tools/install-copies.sh roster` (see [ADR 0009](../../../docs/adr/0009-global-rules-distribution.md)).
+- **`~/.claude/CLAUDE.md` does not exist:** a round-1 question. *Install the starter (Recommended)*: write the starter template's markdown block to `~/.claude/CLAUDE.md` and tell the person to edit it. *Skip*: write nothing; the report lists the checklist.
+- **It exists:** no question. Evaluate it against the checklist and put it in the report: which sections are present and well covered, which are missing or thin, whether it exceeds the checklist's line target (35 lines with the optional orchestration sections, 30 without), and any suggestion.
 
-These are always-on rules with no frontmatter — a different artifact class from project-scoped `.claude/rules/*.md` (which activate on `paths` frontmatter). Do not add frontmatter to them.
+Never overwrite or modify an existing global CLAUDE.md.
 
-For each listed rule:
-
-- **No existing file or symlink at `~/.claude/rules/<name>.md`:** Create the symlink:
-  ```bash
-  mkdir -p ~/.claude/rules
-  ln -s <absolute-path-to-rules/name.md> ~/.claude/rules/<name>.md
-  ```
-- **Existing symlink pointing to the correct target:** Skip.
-- **Existing plain file (not a symlink):** Compare byte-for-byte: `cmp -s <existing> <repo-copy>`.
-  - Identical → replace the file with the symlink. This auto-replace is deliberately **more permissive** than Steps 2–4 (which never overwrite anything); it is safe because the byte-match precondition guarantees nothing divergent can be lost.
-  - Different → report conflict with a diff summary. Do not overwrite without user confirmation.
-- **Existing symlink pointing elsewhere:** Report conflict. Do not overwrite without user confirmation.
-- **Existing broken symlink (target does not exist) or existing directory:** Report conflict. Do not remove or overwrite without user confirmation.
-
-Verify each symlink resolves to a readable file.
-
-Note: there is no prune step — a rule removed from `rules/` leaves its symlink behind; report any dangling symlink in `~/.claude/rules/` as a conflict instead of deleting it.
-
-## Step 6: Install global MCP servers
-
-Install MCP servers at user scope so they are available across all projects.
-
-### Git MCP server
-
-The toolkit's own server, `tools/git-mcp/server.js`: one node file with no dependencies, run from this checkout (resolve from this skill's location: `../../../tools/git-mcp/server.js`). It provides structured git tools that replace Bash git wildcards: validated input and individual permission scoping. Nothing is installed, pinned or downloaded, and a merge plus a pull is the update.
-
-**Step 6a — check the registration.** Presence is not enough: assert the command.
-
-```bash
-claude mcp list 2>&1
-```
-
-- **Absent:** have the user add it, with the checkout's absolute path filled in: `claude mcp add --scope user git-mcp -- node <checkout>/tools/git-mcp/server.js`
-- **Present as `node <checkout>/tools/git-mcp/server.js`**, for this checkout: correct, skip.
-- **Present as anything else** (another program, another path, `npx …`): have the user replace it:
-  ```bash
-  claude mcp remove --scope user git-mcp
-  claude mcp add --scope user git-mcp -- node <checkout>/tools/git-mcp/server.js
-  ```
-  Report it as `Repaired`, never as "already installed".
-
-Keep the name `git-mcp`: the permission rules and the hooks are keyed on it.
-
-`claude mcp add` and `claude mcp remove` are denied to agents (the template's deny list): a server
-registered under another name would bypass every name-keyed MCP rule. Give the user the commands to run with the `!`
-prefix, then re-run `claude mcp list` to check. Never get around the deny with `env …`, a full path or a wrapper.
-
-A presence-only check is the exact defect Step 10's hook drift assertion exists to prevent, one section over: a stale entry passes a presence check while the thing it configures misbehaves. Assert the **shape**, not the key.
-
-**Step 6b — verify the one user config.** `claude mcp add --scope user` writes to `~/.claude.json`, the only user config this setup manages. Verify it afterwards:
-
-```bash
-grep -A6 '"git-mcp"' ~/.claude.json
-```
-
-It must show `"command": "node"` and the checkout's `tools/git-mcp/server.js` in `args`.
-
-**Changes take effect on restart**, and existing sessions keep their old server until then.
-
-## Step 7: Install status line
-
-The repo includes a custom status line script at `tools/statusline.sh` (resolve from this skill's location: `../../../tools/statusline.sh`).
-
-- **No existing symlink at `~/.claude/statusline.sh`:** Create it:
-  ```bash
-  ln -s <absolute-path-to-tools/statusline.sh> ~/.claude/statusline.sh
-  ```
-- **Existing symlink pointing to the correct target:** Skip.
-- **Existing symlink pointing elsewhere or existing file:** Report conflict. Do not overwrite without user confirmation.
-
-Verify the symlink resolves. The status line runs as `bash <path>`, so it needs no executable bit.
-
-The `statusLine` config in `~/.claude/settings.json` is handled in the settings-update step (Step 10) along with other settings.json entries. The template's `statusLine` object defines the command reference.
-
-## Step 8: Install tool scripts
-
-Some skills invoke helper scripts from the repo's `tools/` directory that must be reachable at a stable, machine-independent path. Install **named** tool scripts (not the whole `tools/` tree) into `~/.claude/tools/`.
-
-Scripts to install:
-
-- `tools/workspace-lock/workspace-lock.sh` → `~/.claude/tools/workspace-lock.sh`
-- `tools/shell-init.zsh` → `~/.claude/tools/shell-init.zsh` (`~/.zshrc` sources it; it loads the `ait` zsh helpers, `tools/ait.zsh`)
-
-For each:
-
-- **No existing symlink at `~/.claude/tools/<name>`:** Create it:
-  ```bash
-  mkdir -p ~/.claude/tools
-  ln -s <absolute-path-to-tools/workspace-lock/workspace-lock.sh> ~/.claude/tools/workspace-lock.sh
-  ```
-- **Existing symlink pointing to the correct target:** Skip.
-- **Existing symlink pointing elsewhere or existing file:** Report conflict. Do not overwrite without user confirmation.
-
-Verify the symlink resolves and the target script is **executable** — these scripts are invoked **directly** (e.g. `$HOME/.claude/tools/workspace-lock.sh …`), so the executable bit is load-bearing (unlike `statusline.sh`, which is invoked as `bash <path>`). Without it, report the `status` line and the fix it prints, and never `chmod` here: a script committed without the bit takes a PR that commits it as `100755`. `shell-init.zsh` is the exception: it is **sourced**, not run, so it needs no executable bit.
-
-**Never edit a shell rc file** (`~/.zshrc`, `~/.bashrc`, and `~/.zshenv` above all) to load them. If `~/.zshrc` does not already contain `source ~/.claude/tools/shell-init.zsh`, print that one line in the report for the user to add.
-
-## Step 8b: GitHub MCP wiring and install settings
-
-The github MCP launcher and guard are not copied anywhere: they run from this checkout, which stays on a clean `main` and moves only with a fast-forward pull after a merge (CLAUDE.md, Where agents edit). This step checks that the checkout is a clean main, that the pinned server binary in `tools/github-mcp/bin/` matches `tools/github-mcp/server.sha256`, and that the `github` MCP server and the guard hook point at this checkout. The logic lives in `tools/install-copies.sh` (tested by `tools/test-install-copies.sh`); do not re-implement it here.
-
-Resolve the script from this skill's location (`../../../tools/install-copies.sh`), as `check` does. Never set any `ICOPIES_*` variable (they are test hooks) and never change repo state (stash, checkout, pull, reset, `update-index`) to get past a gate.
-
-**Install-time settings (before anything installs).** This repository ships no owner's values: the github MCP guard's
-write owners and the launcher's keychain account are read from `~/.claude/install.conf`, the user's own file (mode 600,
-one `key=value` line each, read by a strict reader in `tools/install-copies.sh`, never sourced). The agent's Edit and
-Write tools are denied on it and every Bash command naming it asks (Step 10). When the `install.conf` line of
-`status` (item 1) is `MISSING` or `STALE`, or the user asks to change or add a setting (such as `github_projects`), do
-this before items 2-4 (keep the values already in the file unless the user changes them):
-
-- Ask the user for each value and offer no default (no value is anyone's name until the user types it):
-  `github_write_owners`, the GitHub owners whose repos the github MCP write tools may target, space-separated, each
-  `^[a-z0-9][a-z0-9-]*$` (this sets a security control's scope); `github_keychain_account`, the account of the
-  launcher's `mcp-github` keychain item, `^[A-Za-z0-9._@-]+$`. Then the optional ones, each skippable:
-  `github_projects`, the GitHub Projects the github MCP guard lets agents change without a prompt, space-separated
-  `<owner>/<number>` entries, each `^[a-z0-9][a-z0-9-]*/[1-9][0-9]{0,8}$` with an owner that is one of the write owners
-  (an entry under any other owner counts for nothing; unset, every Project write asks; this sets a security control's
-  scope); and the three that fill the auto
-  mode classifier's placeholders in Step 10 (an unset one drops the entries that name it): `github_username`, the
-  user's GitHub login, one of the write owners (its entries count only while `github_write_owners` lists it);
-  `lan_host`, the
-  self-hosted host's LAN name ending in `.lan`, `.local` or `.home.arpa`; `router_ip`, the router's private
-  (RFC 1918) address. A value that fails its check is asked again, never written.
-- Show the user the whole file and the autoMode entries it would fill: the template's entries naming `<username>`,
-  `<host>` or `<router.ip>`, with the values put in and those whose key is unset left out. Writing the file adds none
-  of them: Step 10 asks again before any reaches the live settings. Then write it only on their explicit go typed in
-  this session, with this command (each quoted line one checked `key=value`; add one quoted line per optional key the
-  user set, nothing else):
-
-  ```bash
-  (umask 077; d="$HOME/.claude"; f="$d/install.conf"; [ ! -L "$f" ] && t=$(mktemp "$d/install.conf.XXXXXX") && printf '%s\n' 'github_write_owners=<owners>' 'github_keychain_account=<account>' > "$t" && chmod 600 "$t" && mv -f "$t" "$f" && ls -l "$f")
-  ```
-- Run `status` again: the `install.conf` line must read `ok`. The guard reads the owners and the launcher reads the
-  account from this file when they run, so a change takes effect on the next github call (owners) or the next MCP
-  start (account).
-
-1. Run `bash tools/install-copies.sh status` and keep its output for the report.
-2. **Github MCP** `STALE` or `MISSING`: report the line and the fix it prints; do not try to fix it. The server binary is a download the user makes (`tools/github-mcp/README.md`, Install); registering the server is the user's own command (agents may not run `claude mcp add`); a `checkout` line means the live checkout is not on a clean main, so move the work into a `/tmp` clone and put the checkout back on `main`; the guard hook line is fixed by Step 10 (Hooks). When the status is `ok`, say nothing more.
-3. **`~/.zshrc`** `MISSING`: rc files are the user's; put the line it prints in the report (Step 8).
-4. **Links** `UNLINKED` or `CONFLICT`: those are handled by Steps 2-5, 7 and 8 (run them first); anything still listed after those steps is a conflict to report.
-5. **Hooks and the lock script**: `STALE <script> is committed without the executable bit` or `is not executable in this checkout`: report the line and the fix it prints; never `chmod` and do not wire the hook. `MISSING hooks/<name>.sh is not wired`: fixed by Step 10 (Hooks), unless that hook also has one of those `STALE` lines.
-
-## Step 9: Evaluate global CLAUDE.md
-
-Read the checklist in `templates/global-claude-md.md` for what a good global CLAUDE.md covers.
-
-- **If `~/.claude/CLAUDE.md` does not exist:** Show the user the starter template from the checklist. Ask them to review and customize before writing it.
-- **If it exists:** Evaluate it against the checklist (required sections: Interaction Style, Code Changes, Communication). Report:
-  - Which sections are present and well-covered
-  - Which sections are missing or thin
-  - Whether it exceeds the checklist's line target (35 lines with the optional orchestration sections, 30 without)
-  - Specific suggestions for improvement (if any)
-
-Present findings to the user. Only modify the file with explicit user approval.
-
-Do not silently overwrite the user's global CLAUDE.md.
-
-## Step 10: Update global permissions, plugins, hooks, and status line
+## Step 6: Permissions, plugins, hooks and status line
 
 Read `templates/safe-permissions.json` for:
-- `env` — global env-var policy keys to enforce (added if missing, overwritten if different)
-- `attribution` — commit/PR attribution policy to enforce (added if missing, overwritten if different)
-- `autoCompactWindow` — the machine-wide compaction window to enforce (see **Auto-compact window**)
-- `promptCacheTtl` — added when absent, a live value is kept (add-only; see **Prompt cache TTL**). `subagentPromptCacheTtl` is never written
-- `enableAllProjectMcpServers` — enforced `false` (added if missing, overwritten if different): each project `.mcp.json` server needs its own approval
-- `deniedMcpServers` — MCP servers that must never connect (additive like `permissions.deny`, deduped by the `serverUrl` string: add missing entries, never remove live ones, report live-only ones); today GitHub's hosted server by URL
-- `permissions.allow` — safe permissions to ensure are present
-- `permissions.deny` — deny entries to ensure are present (security controls)
-- `permissions.ask` — commands that always prompt (added if missing, never removed)
+
+- `env`, `attribution`, `autoCompactWindow`, `enableAllProjectMcpServers` — enforced (added if missing, overwritten if different)
+- `promptCacheTtl` — added when absent, a live value kept (see **Prompt cache TTL**); `subagentPromptCacheTtl` is never written
+- `deniedMcpServers` — MCP servers that must never connect (additive like `permissions.deny`, deduped by the `serverUrl` string; never remove live ones, report live-only ones); today GitHub's hosted server by URL
+- `permissions.allow`, `permissions.deny` (security controls), `permissions.ask` (commands that always prompt) — added if missing, never removed
 - `enabledPlugins` — plugins to ensure are enabled
-- `autoMode` and `skillOverrides` — auto mode classifier context and the skill switches (merged; see **Auto mode**)
-- `syncClaudeAiSkills`, `syncClaudeAiPlugins` — claude.ai sync switches, added when absent (see **Start context**)
-- `_migration.removeBashGit` — old Bash git permissions to remove (replaced by MCP git)
-- `_migration.removeOverbroad` — overbroad permissions to remove (e.g. `Bash(cat *)`, which bypasses the workspace read boundary; the Read tool covers it)
-- `_migration.removeReplacedDeny` — deny entries the template dropped because another control took over (today `Read(//**/.env*)`, replaced by the secret-detector hook); the one case where a live deny entry is removed
+- `autoMode` and `skillOverrides` — the classifier context and the skill switches (see **Auto mode**)
+- `syncClaudeAiSkills`, `syncClaudeAiPlugins` — added when absent (see **Start context**)
+- `_migration.removeBashGit`, `removeOverbroad`, `removeReplacedDeny` — entries to remove from the live file
 
-Read `~/.claude/settings.json` (or create `{}` if missing).
+Read `~/.claude/settings.json` (or start from `{}` if missing).
 
-**The agent does not write the live settings file.** `hooks/protected-paths-guard.sh` hard-denies the Edit, Write and Bash writes to `~/.claude/settings*.json` (a copy or a redirect included), so this step builds the result in a staged file and the user puts it in place (**Write settings.json** below). The backup below is not a `settings*.json` file and is still the agent's to make.
+**The agent does not write the live settings file.** `hooks/protected-paths-guard.sh` hard-denies the Edit, Write and Bash writes to `~/.claude/settings*.json` (a copy or a redirect included), so this step builds the result in a staged file and the person puts it in place with one `cp` from the final block. Every merge and repair below is applied in the staged file, and listed in the final message (**Change list**), which is what the person's go rests on.
 
-Template keys that start with `_` (`_comment`, `_env_comment`, `_migration` and the rest, at any depth) are notes for this skill: never write one to the live file, including inside a copied hook entry or the `statusLine` object. (`_migration` is still read for its remove lists below; it is never copied.)
+Template keys that start with `_` (`_comment`, `_env_comment`, `_migration` and the rest, at any depth) are notes for this skill: never write one to the live file, including inside a copied hook entry or the `statusLine` object. (`_migration` is still read for its remove lists below.)
 
-**Back it up before the first write in this step** (skip only when the file did not exist). The backup name must
-carry the date AND the time (`YYYYMMDD-HHMMSS`), the copy is created mode 600 (the file holds MCP server and env key
-names), and an existing backup is never overwritten (`cp -n`). Check the result with `ls -l` only; never open a
-backup. Report the path in the Step 10 report.
+**Back it up before building the staged file** (skip only when the file did not exist). The name carries the date AND the time (`YYYYMMDD-HHMMSS`), the copy is mode 600 (the file holds MCP server and env key names), an existing backup is never overwritten (`cp -n`). Check with `ls -l` only; never open a backup. Report the path.
 
 ```bash
 (umask 077; b="$HOME/.claude/settings.json.bak-$(date +%Y%m%d-%H%M%S)-settings"; cp -n "$HOME/.claude/settings.json" "$b" && chmod 600 "$b" && ls -l "$b")
 ```
 
-### Environment variables
+### Environment variables, attribution, auto-compact window
 
-Read the `env` object from `templates/safe-permissions.json`. These are **enforced** global-policy keys — unlike the additive `allow`/`enabledPlugins` merges:
-
-- **Key absent from live `env`:** add it with the template value (create the `env` object if the live settings has none).
-- **Key present with the template value:** skip.
-- **Key present with a different value:** overwrite to the template value and report the change.
-
-**Never remove or alter a live `env` key that is not in the template** (e.g. `CLAUDE_CODE_NO_FLICKER`) — preserve those exactly, the same as any other custom field.
-
-### Attribution
-
-Read the `attribution` object from `templates/safe-permissions.json`. **Enforced** exactly like `env` (overwrite, not additive), because it is the mechanical form of the global CLAUDE.md no-attribution rule — the harness re-applies the `Co-Authored-By` / "Generated with Claude Code" attribution by default even against that rule, and only this setting stops it:
-
-- **`attribution` absent from live settings:** add it with the template value.
-- **`attribution` present and identical:** skip.
-- **`attribution` present with any different value:** overwrite to the template value and report the change.
-
-`attribution.commit` and `attribution.pr` are **strings** (`""` suppresses the trailer/footer), and `sessionUrl` is a **boolean** (Claude Code v2.0.62+, deprecating `includeCoAuthoredBy`) — do not write booleans for `commit`/`pr`.
-
-### Auto-compact window
-
-Read the top-level `autoCompactWindow` from `templates/safe-permissions.json` (500000). **Enforced** like `env`:
-add it when absent, overwrite a different live value and report the change. It sets when every model compacts;
-without it, 1M-window models (Opus 5.x, Fable, Sonnet 5) compact near 967k, and every turn re-sends that context.
-
-**Per-model override check (run every time; fail loud):** a live `modelSettings.<model>.autoCompactWindow`, which
-is what `/autocompact` writes, beats the top-level key in the same file for that model, so the enforced value would
-silently not apply to it. Report each one as `DRIFT: modelSettings.<model>.autoCompactWindow = <value> overrides
-autoCompactWindow`, and remove that key only on the user's go, keeping the model's other keys (`effortLevel`).
-Delete an emptied `modelSettings.<model>` object.
-
-Not touched: the `CLAUDE_CODE_AUTO_COMPACT_WINDOW` env var beats this key, so a session that sets it keeps its own
-window. The status line's `used_percentage` counts
-against the model's full window, so it reads low at compaction time.
+- **`env`:** a key absent from the live `env` is added with the template value (create `env` if needed); present with the same value: skip; a different value: overwrite and report old and new. Never remove or alter a live `env` key that is not in the template (e.g. `CLAUDE_CODE_NO_FLICKER`).
+- **`attribution`:** the mechanical form of the global CLAUDE.md no-attribution rule (the harness re-applies `Co-Authored-By` / "Generated with Claude Code" by default, and only this setting stops it). Absent: add; identical: skip; different: overwrite, report old and new. `commit` and `pr` are **strings** (`""` suppresses the trailer or footer), `sessionUrl` a **boolean**.
+- **`autoCompactWindow`** (500000): enforced like `env`. It sets when every model compacts; without it 1M-window models (Opus 5.x, Fable, Sonnet 5) compact near 967k and every turn re-sends that context. **Per-model override check (every run; fail loud):** a live `modelSettings.<model>.autoCompactWindow`, which is what `/autocompact` writes, beats the top-level key for that model. Report each as `DRIFT: modelSettings.<model>.autoCompactWindow = <value> overrides autoCompactWindow`; round 2 asks whether to remove it (keeping the model's other keys such as `effortLevel`, and deleting an emptied `modelSettings.<model>`). Not touched: the `CLAUDE_CODE_AUTO_COMPACT_WINDOW` env var beats this key.
 
 ### Prompt cache TTL
 
-Read the top-level `promptCacheTtl` from `templates/safe-permissions.json` (`"1h"`). It sets how long the main
-conversation's prompt cache survives an idle gap (one hour keeps it warm through pauses of 5 to 60 minutes) and needs
-Claude Code v2.1.242 or later. It is **add-only**, not
-enforced like `autoCompactWindow`: an API-key user pays more to write a one-hour cache, so a deliberate `"5m"` must
-survive. Run `claude --version` first: on a version older than 2.1.242, skip this whole section (the override check
-too), report `Skipped` in Step 11, and leave any live key as it is.
+`promptCacheTtl` (`"1h"`) sets how long the main conversation's prompt cache survives an idle gap and needs Claude Code v2.1.242 or later. It is **add-only**, not enforced: an API-key user pays more to write a one-hour cache, so a deliberate `"5m"` must survive. Run `claude --version` first: on an older version skip this whole section, report `Skipped`, and leave any live key.
 
-- **Live `promptCacheTtl` absent:** add `"1h"`. Do not ask.
-- **Live `promptCacheTtl` present (any value):** keep it, report it as `Already set (<value>, left as is)`, never overwrite.
-- **`subagentPromptCacheTtl`: never ask about it, never write it, and it is not in the template.** Subagent requests
-  are mostly short-lived, so the longer cache write costs more than it saves. Report a live value only, as
-  `Already set (<value>, left as is)`.
-
-**Override check (every run; skipped with the section on an old version):** each variable beats the setting it names.
-Look for them in the live `env` object, and in the shell by testing that the name is set without printing it
-(`[ -n "${CLAUDE_CODE_PROMPT_CACHE_TTL:-}" ] && echo set`; never a bare `printenv`, which would print every secret in
-the shell):
-
-| Variable | Overrides |
-|----------|-----------|
-| `CLAUDE_CODE_PROMPT_CACHE_TTL` | `promptCacheTtl` |
-| `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` | `subagentPromptCacheTtl` |
-| `FORCE_PROMPT_CACHING_5M` | both keys, but only when it equals `1` |
-
-Report `NOTE: <variable> overrides <key>` (for `FORCE_PROMPT_CACHING_5M`, once per key) for a key that is live or about
-to be added; never print a value. The note names the key it applies to, so an override of the subagent key is reported
-without touching the main one.
+- Live key absent: add `"1h"`. Present, any value: keep it and report `Already set (<value>, left as is)`.
+- `subagentPromptCacheTtl`: never ask, never write, not in the template (subagent requests are mostly short-lived, so the longer write costs more than it saves). Report a live value only.
+- **Override check (every run):** a variable beats the key it names. Look in the live `env` object and test in the shell that the name is set without printing it (`[ -n "${CLAUDE_CODE_PROMPT_CACHE_TTL:-}" ] && echo set`; never a bare `printenv`): `CLAUDE_CODE_PROMPT_CACHE_TTL` overrides `promptCacheTtl`, `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` overrides `subagentPromptCacheTtl`, `FORCE_PROMPT_CACHING_5M` equal to `1` overrides both. Report `NOTE: <variable> overrides <key>` for a key that is live or about to be added; never print a value.
 
 ### Permissions
 
-**Add** any permission from the template's `allow` array that is not already present.
-
-**Remove (Bash→MCP migration):** Remove any permission listed in `_migration.removeBashGit` — these are Bash git wildcards replaced by MCP git tools:
-
-| Remove (Bash) | Replaced by (MCP) |
-|---|---|
-| `Bash(git status*)` | `mcp__git-mcp__git_status` |
-| `Bash(git diff*)` | `mcp__git-mcp__git_diff` |
-| `Bash(git log*)` | `mcp__git-mcp__git_log` |
-| `Bash(git show*)` | `mcp__git-mcp__git_show` |
-| `Bash(git remote -v*)` | `mcp__git-mcp__git_remote` (prompts — not auto-approved) |
-| `Bash(git tag*)` | `mcp__git-mcp__git_tag` |
-| `Bash(git stash list*)` | `mcp__git-mcp__git_stash` |
-| `Bash(git add *)` | `mcp__git-mcp__git_add` |
-| `Bash(git branch*)` | `mcp__git-mcp__git_branch` |
-
-**Remove (overbroad):** Remove any permission listed in `_migration.removeOverbroad` (currently `Bash(cat *)`).
-
-**Remove (replaced deny):** Remove any entry listed in `_migration.removeReplacedDeny` from the live `deny` array (currently `Read(//**/.env*)`: it denied the example files too; `hooks/secret-detector.sh` now guards `.env` names in Read, Grep, Write and Edit and passes `.env.example`, `.env.sample`, `.env.template` and `.env.dist`). Remove it only when the staged hooks section already has the secret-detector entry with the template's full matcher (the drift assertion under **Hooks** below; a stale live matcher is replaced by explicit diff first). If that matcher is not in the staged file, keep the deny entry and report `kept <entry>: secret-detector matcher not updated`: removing it then would leave `.env` unguarded. Report each one removed. This is the only exception to "never remove" in **Deny entries** below, and it covers exactly the listed strings.
-
-Only remove these specific listed patterns. Do not remove other non-git Bash permissions (`ls`, `wc`, `pwd`, `which`, `mkdir`).
-
-**Deny entries:** Read `permissions.deny` from the template. **Add** any entry not already present in the live `deny` array (create the array if absent). **Never remove** existing live `deny` entries, except those in `_migration.removeReplacedDeny` — they are security controls that may have been added outside this skill; report any live-only entries instead of touching them. `_deny_read_comment` in the template explains the secret-file rules.
-
-**Ask entries:** Read `permissions.ask` from the template (`caffeinate` and `pkill -x caffeinate`, which start and stop a keep-awake power assertion, the
-github MCP write tools, and edits to any `.mcp.json`; there is none for `~/.claude/settings*.json`, which
-`hooks/protected-paths-guard.sh` hard-denies before any rule runs). **Add** any entry not
-already present in the live `ask` array (create it if absent); **never remove** a live `ask` entry, and report
-live-only ones. An ask rule prompts even in auto mode and wins over a matching allow rule, so a live allow
-entry never suppresses the prompt. Prompts are invisible to the model: after adding an entry, ask the user to
-confirm that the command prompts.
+- **Add** every `allow` entry the live array lacks.
+- **Remove (Bash→MCP migration)** each `_migration.removeBashGit` entry: the Bash git wildcards `git status*`, `git diff*`, `git log*`, `git show*`, `git remote -v*`, `git tag*`, `git stash list*`, `git add *` and `git branch*`, replaced by the matching `mcp__git-mcp__git_*` tools (`git_remote` prompts; it is not auto-approved).
+- **Remove (overbroad)** each `_migration.removeOverbroad` entry (currently `Bash(cat *)`, which bypasses the workspace read boundary; the Read tool covers it). Do not remove other Bash permissions (`ls`, `wc`, `pwd`, `which`, `mkdir`).
+- **Remove (replaced deny)** each `_migration.removeReplacedDeny` entry from the live `deny` (currently `Read(//**/.env*)`: it denied the example files too; `hooks/secret-detector.sh` now guards `.env` names in Read, Grep, Write and Edit and passes `.env.example`, `.env.sample`, `.env.template` and `.env.dist`). Remove it only when the staged hooks section already has the secret-detector entry with the template's full matcher. Otherwise keep it and report `kept <entry>: secret-detector matcher not updated`: removing it then would leave `.env` unguarded. This is the one exception to "never remove" below, for exactly the listed strings.
+- **Deny entries:** add every template `deny` entry the live array lacks (create it if absent). **Never remove** a live `deny` entry (except the replaced one above): they are security controls that may have been added outside this skill. Report live-only entries. `_deny_read_comment` in the template explains the secret-file rules.
+- **Ask entries:** add every template `ask` entry the live array lacks (`caffeinate` and `pkill -x caffeinate`, the github MCP write tools, edits to any `.mcp.json`; none for `~/.claude/settings*.json`, which the hook denies before any rule runs). **Never remove** a live `ask` entry; report live-only ones. An ask rule prompts even in auto mode and wins over a matching allow. Prompts are invisible to the model, so the report carries one line: "the new ask entries prompt; confirm by running one".
 
 ### Plugins
 
-**Add** any plugin from the template's `enabledPlugins` that is not already present.
+Add every template `enabledPlugins` entry the live object lacks.
 
 ### Hooks
 
-Read the `hooks` object from `templates/safe-permissions.json`. This defines PreToolUse, PostToolUse, PostToolUseFailure and SessionStart hooks that reference the scripts installed in Step 3.
+Read the template's `hooks` object (PreToolUse, PostToolUse, PostToolUseFailure, SessionStart), which references the scripts linked in Step 2.
 
-- **Skip a hook that is not executable, in both cases below.** Leave out any template entry whose script fails Step 3's executable check, since every tool call would log a hook error and the script still would not run. Name it in the report as a control that is off; the next `/setup-toolkit` after the fix wires it. A hook already wired stays wired, since the merge never removes an entry: report it the same way.
-- **If `~/.claude/settings.json` has no `hooks` key:** Add the `hooks` object from the template, leaving out its `_comment` keys.
-- **If it already has `hooks`:** Merge — add any hook entries from the template that are not already present, matching on the **(event key, `matcher`, script path) triple**. Do not remove existing custom hooks.
-- **The github guard's command holds the placeholder `<checkout>`:** fill it with the live checkout's real path before the merge or the comparison (see **GitHub MCP guard** below), and never write the placeholder to the live file.
+- **Skip a hook that is not executable**, whether new or already wired (the merge never removes a wired one): a skipped script still logs a hook error on every tool call. Name it in the report as a control that is off; the next run after the fix wires it.
+- **No `hooks` key live:** add the template's `hooks` without its `_comment` keys. **A `hooks` key live:** merge, adding each template entry not present, matching on the **(event key, `matcher`, script path) triple**; never remove a custom hook.
+- **The event key is part of the identity.** One script may appear under several events with the same matcher (a script on both `PreToolUse` and `PostToolUse` at `"*"`). Keyed on (matcher, script) alone those collapse, and a live file with only the `PreToolUse` entry looks fully merged.
+- **The github guard's command holds the placeholder `<checkout>`:** fill it with the checkout's real path (Step 0) before the merge or comparison, and never write the placeholder to the live file.- **Changed-matcher caveat.** The merge keys on (matcher, script path), so a template entry whose matcher string changed since it was installed adds a duplicate or leaves the stale one. When the drift assertion reports a matcher mismatch, replace the live entry's matcher with the template's full string in the staged file (never duplicate the entry) and list old and new in the change list.
 
-**The event key is part of the identity, not a container.** One script may legitimately appear under
-several event keys with the *same* matcher — for example a script registered on both `PreToolUse`
-and `PostToolUse` at `"*"`. Keyed on (matcher, script) alone those template entries collapse into
-one, so a live settings file carrying only the `PreToolUse` entry looks fully merged and nothing is
-added.
+**Drift assertion (run every time, after the merge; fail loud; against the staged file until the person has run the copy, then against the live one).** For every hook script in the roster (`hooks/<name>.sh` lines), assert both:
 
-**Changed-matcher caveat (the additive merge cannot fix these):** because the merge keys on
-(matcher, script path), a template entry whose **matcher string changed** since it was installed
-does not match the live entry — the merge either adds a duplicate or silently leaves the live
-matcher stale. When the drift assertion below reports a matcher mismatch for a script, apply the
-change to live settings by **explicit diff**: replace the live entry's matcher with the template's
-full matcher string for that script (never duplicate the entry), show the user the before/after,
-and re-run the assertion.
+1. **Symlinked:** `~/.claude/hooks/<name>.sh` exists, resolves to the repo copy and is executable.
+2. **Matcher-wired with the exact template matcher under EVERY event the template registers it on:** for each event key where the template references `$HOME/.claude/hooks/<name>.sh`, the file has an entry under that same event key referencing that script, with a `matcher` byte-identical to the template's. Presence is not enough: a stale matcher (missing a newly guarded tool) leaves the control partially dead. Assert per event, not per script: a script on three events live on only one is worse than uninstalled.
 
-**Drift assertion (run every time, after the merge; fail loud; against the staged file until the user has run the copy, then against the live one):** for **every** hook script
-listed in Step 3 (the `hooks/<name>.sh` lines of `bash tools/install-copies.sh roster`: the committed scripts are the roster), assert BOTH:
+Report each failure in the summary: `DRIFT: <script> unsymlinked` / `not executable (this control is OFF until a PR commits it as 100755)` / `unwired on <event>` / `matcher differs on <event> — live: <live>, template: <template>`, and do not report the hooks section as "Already configured" while any assertion fails. A hook script in the repo with no template matcher entry is also a loud failure (roster and template out of step), and `status` reports it as not wired.
 
-1. **Symlinked** — `~/.claude/hooks/<name>.sh` exists, resolves to the repo copy, and is executable.
-2. **Matcher-wired with the exact template matcher, under EVERY event the template registers it
-   on** — for each event key where the template references `$HOME/.claude/hooks/<name>.sh`, live
-   `~/.claude/settings.json` must have an entry under **that same event key** referencing that
-   script, with a `matcher` string **byte-identical to the template's**. Comparing mere presence
-   is not enough — a stale matcher (e.g. missing a newly guarded tool) passes a presence check
-   while leaving the control partially dead.
+**The github MCP guard.** The template's github entry (matcher `^mcp__github__.*$`, every tool of the `github` server) runs `/bin/bash -p '<checkout>/tools/github-mcp/guard.sh' || exit 2` (`-p` keeps the shell from reading startup files; `|| exit 2` makes a guard that cannot start block the call). It is not a `hooks/*.sh` script and is never linked: it runs from the live checkout (`tools/github-mcp/README.md`) and denies every call unless that checkout is reviewed code: on `main`, no tracked file changed, `HEAD` on `origin/main`, the guard and launcher equal to their committed versions. Assert:
 
-   **Assert per event, not per script.** A script registered on three events that is live on only
-   one is *worse than uninstalled*, and it passes any per-script check.
+- the live entry's matcher and command are byte-identical to the template's with `<checkout>` filled in. The merge never updates either, so a live entry with an older matcher or another path (the old root-owned folder, another checkout) is `DRIFT: matcher differs` / `command differs`: replace it in place in the staged file (never add a second guard entry beside it) and list old and new;
+- the github lines of `status` are all `ok` (clean main with `HEAD` on `origin/main`, the binary matching `tools/github-mcp/server.sha256`, the server registered at this checkout with no arguments or environment and not also at project scope, the guard hook pointing at it). A `STALE github` or `MISSING github` line is a failure: report `DRIFT: github MCP guard missing` / `command differs`, and never edit or copy the guard.
 
-Report each failure explicitly in the Step 11 summary (`DRIFT: <script> unsymlinked` /
-`DRIFT: <script> not executable (this control is OFF until a PR commits it as 100755)` /
-`DRIFT: <script> unwired on <event>` / `DRIFT: <script> matcher differs on <event> — live:
-<live>, template: <template>`) and do not report the hooks section as "Already configured" while
-any assertion fails. A hook skipped by the merge because it is not executable reports `not executable`, not only
-`unwired`. A hook script that exists in the repo but has no template matcher entry is also a loud failure
-(roster/template desync), and `status` reports it as not wired.
-
-**GitHub MCP guard (assert when the template wires it; fail loud):** the template's github MCP entry (matcher
-`^mcp__github__.*$`: every tool of the github server) runs `/bin/bash -p '<checkout>/tools/github-mcp/guard.sh' || exit 2`
-(`-p` keeps the shell from reading startup files; `|| exit 2` makes a guard that cannot start block the call instead
-of letting it through). The guard is not a `hooks/*.sh` script and is never symlinked: it runs from the live checkout
-(`tools/github-mcp/README.md`) and denies every call unless that checkout is reviewed code: on `main`, no tracked file
-changed, `HEAD` on `origin/main`, and the guard and launcher equal to their committed versions. The template holds the placeholder `<checkout>`; resolve it
-as the physical path of this repo root (`../../../` from this file, `cd -P <root> && pwd -P`) and never write the
-placeholder to the live file. Skip the guard hook, with a note, when that root is not a plain path: only letters,
-digits and `/ . _ - +`, and not under a temp folder (`/tmp`, `/private/tmp`, `/var/folders`,
-`/private/var/folders`). A throwaway clone is not the live checkout, and a quote or glob character in the path would
-break the hook command. For a non-plain path that is not a temp folder, say plainly that the github MCP must not be
-registered from it (the launcher refuses to start there) and that the fix is to move the checkout to a plain path.
-Assert:
-
-- the live entry's matcher and command are byte-identical to the template's with `<checkout>` filled in. The additive
-  merge never updates a matcher or a command, so a live entry with an older template's `mcp__github__.*`, or with
-  another path (the old root-owned folder, another checkout), is `DRIFT: matcher differs` / `DRIFT: command
-  differs`: show the user the diff and change it on their go, replacing the entry in place (never add a second guard
-  entry beside it);
-- the github lines of `status` are all `ok`: the checkout is a clean main with `HEAD` on `origin/main`, the server
-  binary matches the hash in `tools/github-mcp/server.sha256`, the server is registered at this checkout with no
-  arguments or environment (and not also at project scope) and the guard hook points at it.
-
-```bash
-bash tools/install-copies.sh status
-```
-
-Any `STALE github` or `MISSING github` line is a failure. Report `DRIFT: github MCP guard missing` /
-`command differs`, and never edit or copy the guard yourself.
-
-The other hook commands reference `$HOME/.claude/hooks/<script>.sh` — these are the scripts installed in Step 3. The exceptions are the guards: `protected-paths-guard.sh`, `secret-detector.sh`, `destructive-blocker.sh`, `git-mcp-guard.sh`, `git-mcp-redirect.sh` and `gh-block.sh`, whose command is `/bin/bash -p "$HOME/.claude/hooks/<script>.sh" || exit 2` (same reason as the github guard: a guard that cannot start blocks the call). Claude Code blocks only on exit 2, so a bare command that fails to start (a missing link, a lost execute bit, a bash error) lets the call through.
-
-**`protected-paths-guard.sh` is the one control that also protects this skill's own work:** once it is wired, an unwired or stale entry is `DRIFT` like any other, and a checkout without its marker is reported under Step 3's **Protected checkout**.
-
-**The guards' commands are compared too (assert; fail loud):** for each of the six guards above, the live entry under `PreToolUse` that references it must have a `command` byte-identical to the template's, not only the same matcher. The additive merge keys on (event, matcher, script path), read as the `.claude/hooks/<name>.sh` text anywhere in the command (inside the wrapper's quotes too), so a live entry that still carries the older bare `$HOME/.claude/hooks/<name>.sh` command looks present and nothing replaces it, although that form lets a call through when the guard cannot start. Report `DRIFT: <script> command differs on PreToolUse — live: <live>, template: <template>`, show the user the before/after, and replace the command in the live entry on their go, in place (never add a second entry beside it). Like every settings change, it goes through the staged copy. `status` reports the bare form as `STALE`.
+**The other guards' commands are compared too.** `protected-paths-guard.sh`, `secret-detector.sh`, `destructive-blocker.sh`, `git-mcp-guard.sh`, `git-mcp-redirect.sh` and `gh-block.sh` use the command `/bin/bash -p "$HOME/.claude/hooks/<script>.sh" || exit 2` (Claude Code blocks only on exit 2, so a bare command that fails to start, a missing link or a lost execute bit, lets the call through). The live `PreToolUse` entry for each must have a `command` byte-identical to the template's, not only the same matcher: the merge reads the script path anywhere in the command, so a live entry with the older bare `$HOME/.claude/hooks/<name>.sh` looks present and nothing replaces it. Report `DRIFT: <script> command differs on PreToolUse — live: <live>, template: <template>`, replace the command in place in the staged file, and list old and new. `status` reports the bare form as `STALE`. `protected-paths-guard.sh` also protects this skill's own work: once wired, an unwired or stale entry is `DRIFT` like any other.
 
 ### Auto mode
 
-**Render the template's `autoMode` first.** Its entries carry the placeholders `<username>`, `<host>` and
-`<router.ip>`, which only `~/.claude/install.conf` fills (the optional `github_username`, `lan_host` and `router_ip`
-keys, Step 8b). Run `bash tools/install-copies.sh automode` (resolved as in Step 8b): it prints the template's
-`autoMode` lists as JSON with each placeholder filled and every entry whose key is unset dropped, and exits 1 on an
-invalid settings file (then stop this section and report it; Step 8b's settings sub-step fixes the file). A
-`<username>` entry is kept only while `github_username` is listed in `github_write_owners`; otherwise
-it prints why on stderr: pass that line on in the report. Those rendered lists stand in for the template's everywhere
-below: the exact-string merge, the superseded-entry report and the drift assertion with its `claude auto-mode config`
-check. Never write a placeholder to the live file, and never merge the raw template lists.
+`autoMode` is a security control (the classifier's rules), read only from user, managed or `--settings` scope, and it applies to every session on the machine. Read the template's `autoMode` lists (`environment`, `soft_deny`, and any `allow` or `hard_deny`) with the keys starting with `_` left out: they hold no placeholder and are merged as written. Each list is handled on its own and written list by list, never as a copy of the template object. Read `skillOverrides` too.
 
-**Entries filled from install.conf need the user's go.** They widen what the classifier trusts (the GitHub login's
-repositories and images, the LAN host, the router), and the settings file alone must not do that. Run
-`bash tools/install-copies.sh automode --valued`: it prints just those rendered entries. Before the merge, show the user
-every one of them that the live list does not hold yet, word for word with its list name, and add them only on the
-user's explicit go typed in this session. Without that go, merge the other rendered entries and leave these out:
-never add one silently, never add first and report after. An entry the user declined in this run is not missing for
-the drift assertion below; name it in the report.
+- **List absent from live `autoMode`:** add the template list (create `autoMode` if needed).
+- **Live list contains `"$defaults"`:** add each template entry not already present (exact string) after the live entries, and list each added entry's text in the change list: these change the classifier for every session. Never remove or reword a live entry; report the live-only ones. A template entry reworded since the last run leaves its old string live as one of those: name it as superseded in the report, and the person removes it by hand.
+- **Live list lacks `"$defaults"`:** it REPLACES the built-in list, which is what `/auto-mode-setup` writes when you accept its draft (it spells the defaults out, often pinned to the repo it ran in). Do not merge into it. Report `DRIFT: autoMode.<list> has no "$defaults"`; round 2 shows the live list beside the template list, offers to carry chosen live-only entries over, and asks: *Replace with the template's list, backup kept (Recommended)* or *Leave it, reported as DRIFT*. The settings backup above is the backup.
+- **`skillOverrides`:** add each template key that is absent (`auto-mode-setup: "off"` turns off the command and its end-of-turn offer, so a per-repo draft cannot replace the list again; the rest are in **Start context**). A live key with another value is the person's choice: report it, never overwrite. An added key disables a command, so name it in the report.
+- **Live `allow` or `hard_deny`** (not in the template): leave it, but report whether it has `"$defaults"`. A live `allow` without it replaces the built-in exceptions and can be far more permissive than intended; a `hard_deny` without it drops the built-in exfiltration rule.
 
-Read `autoMode` (rendered, above) and `skillOverrides` from `templates/safe-permissions.json`. `autoMode` is a security control
-(the auto mode classifier's rules), it is read only from user, managed or `--settings` scope, and it applies to
-every session on the machine. Each list in it (`environment`, `allow`, `soft_deny`, `hard_deny`) is handled on its
-own, and written list by list, never as a copy of the template object. Template keys starting with `_`
-(`_autoMode_comment`, `_migration`) are notes for this skill and are never written to the live file.
-
-- **List absent from live `autoMode`:** add the rendered list (create `autoMode` if needed).
-- **Live list contains `"$defaults"`:** add each rendered entry that is not already present (exact string), after
-  the live entries, and list each added entry's text in the report: these change the classifier for every session.
-  Never remove or reword a live entry; report the live-only ones. A template entry reworded since the last run
-  leaves its old string live as one of those: name it as superseded and remove it only on the user's go.
-- **Live list lacks `"$defaults"`:** it REPLACES the built-in list, which is what `/auto-mode-setup` writes for
-  `environment` when you accept its draft (it spells the defaults out, often pinned to the repo it ran in). Do not
-  merge into it. Report `DRIFT: autoMode.<list> has no "$defaults"`, show the live list beside the template list,
-  and offer to carry chosen live-only entries over, all BEFORE asking for the go. Replace it only on the user's
-  explicit go, after backing up `~/.claude/settings.json` with the command below: date and time in the name, mode
-  600, never over an existing backup (`cp -n`), checked with `ls -l` only.
-
-  ```bash
-  (umask 077; b="$HOME/.claude/settings.json.bak-$(date +%Y%m%d-%H%M%S)-automode"; cp -n "$HOME/.claude/settings.json" "$b" && chmod 600 "$b" && ls -l "$b")
-  ```
-- **`skillOverrides`:** add each template key that is absent (`auto-mode-setup: "off"` turns off the command and its
-  end-of-turn offer, so a per-repo draft cannot replace the list again; the rest are in **Start context**). A live key
-  with another value is the user's choice: report it, do not overwrite. An added key disables a command, so name it in
-  the report.
-- **Live `allow` or `hard_deny`** (not in the template): leave it as it is, but report whether it has `"$defaults"`.
-  A live `allow` without it replaces the built-in exceptions and can be far more permissive than intended; a
-  `hard_deny` without it drops the built-in exfiltration rule.
-
-**Drift assertion (run every time; fail loud):** for each list in the rendered `autoMode`, the live list exists,
-contains `"$defaults"` and holds every rendered entry (an install.conf-valued entry the user declined in this run
-excepted). After the user has run the copy, run `claude auto-mode config` and check that
-the effective lists hold the rendered entries.
-A `--settings` file that carries no `autoMode` inherits this
-user-scope block: entries from each scope are combined, per the auto mode docs ("Where the classifier reads
-configuration", code.claude.com/docs/en/auto-mode-config).
+**Drift assertion (every run; fail loud):** each template list exists live (staged) with `"$defaults"` and every template entry. After the person has run the copy, run `claude auto-mode config` and check the effective lists hold them. A `--settings` file with no `autoMode` inherits this user-scope block: entries from each scope are combined (code.claude.com/docs/en/auto-mode-config).
 
 ### Start context
 
-The template's `skillOverrides` (beyond `auto-mode-setup`), `syncClaudeAiSkills` and `syncClaudeAiPlugins` cut about
-5.1k tokens from every session start (42.6k to 37.4k, measured 2026-11-09). The overrides switch off built-in skills
-not used locally; the sync keys switch off every claude.ai-synced skill and plugin (today the engineering plugin).
-Trade-off: claude.ai skills, `skill-creator` included, no longer load locally.
+The template's `skillOverrides` (beyond `auto-mode-setup`), `syncClaudeAiSkills` and `syncClaudeAiPlugins` cut about 5.1k tokens from every session start (42.6k to 37.4k, measured 2026-11-09). The overrides switch off built-in skills not used locally; the sync keys switch off every claude.ai-synced skill and plugin (today the engineering plugin). Trade-off: claude.ai skills, `skill-creator` included, no longer load locally.
 
-- **Sync key absent from live settings:** add it with the template value (`false`).
-- **Sync key present, any value:** leave it, report it. It is the user's choice.
-- **`skillOverrides` keys:** merged per key, as under **Auto mode**.
+- Sync key absent: add it with the template value (`false`). Present, any value: leave it and report it.
+- `skillOverrides` keys: merged per key, as under **Auto mode**.
 
 ### Status line
 
-Read the `statusLine` object from `templates/safe-permissions.json`.
+Read the template's `statusLine` object (without its `_comment` key). No `statusLine` live: add it. Already present: skip, never overwrite a custom one. Its command references `$HOME/.claude/statusline.sh`, linked in Step 2.
 
-- **If `~/.claude/settings.json` has no `statusLine` key:** Add the `statusLine` object from the template, without its `_comment` key.
-- **If it already has `statusLine`:** Skip — do not overwrite custom status line configurations.
+### Stage the file
 
-The status line command references `$HOME/.claude/statusline.sh` — this is the script installed in Step 7.
+**Preserve all other fields** (`effortLevel`, `voiceEnabled`, custom keys) exactly. The file is put in one fixed order by `tools/install-copies.sh order <file>`, never by hand: it only reorders (no key, entry or value is added, dropped or changed, and an unknown key stays after the known ones), and the order is documented in the script header and tested.
 
-### Write settings.json
+Write the merged result to `~/.claude/settings.json.new-<YYYYMMDD-HHMMSS>` (the backup's date and time; the name does not end in `.json`, so the hook lets the agent write it) and `chmod 600` it (the Write tool creates it with the default mode). Then run `bash <root>/tools/install-copies.sh order ~/.claude/settings.json.new-<stamp>` with the output redirected to `~/.claude/settings.json.new-<stamp>.ordered`, `mv` that over the staged file once non-empty, and `chmod 600` again. `<root>` is the repo root. If `order` exits non-zero, stop and report it: never stage an unordered file. Last, `jq empty` the staged file. The `cp` is a line of the final block; the live file is unchanged until the person runs it, and nothing in this step has taken effect before that. A first run with no `settings.json` stages the same way, and the copy creates it.
 
-**Preserve all other fields** (`effortLevel`, `voiceEnabled`, custom keys, etc.) exactly as they are.
+**Change list (for the final message).** Every entry added, removed or changed between the live file and the staged one, not a chosen subset, so the person can see what the `cp` applies. Group it: hook entries added (event, matcher, command) and each command or matcher replaced (old, then new); each enforced key overwritten (old, then new) and each new `env` key; the text of each `autoMode` entry added; the `allow`, `deny` and `ask` entries added; every entry removed by the migration lists (the replaced `Read(//**/.env*)` deny named as such); `deniedMcpServers`, `skillOverrides`, `statusLine` command and plugin additions; the live-only `deny` and `ask` entries; and the path of the staged file, for anyone who wants to open it first. A reordered list is not a change.
 
-**Ordering when writing:** the file is written in one fixed order by `tools/install-copies.sh order <file>`, never by hand.
-It only reorders: no key, entry or value is added, dropped or changed, and a key it does not know stays, after the known
-ones in its original order. The order is documented in the script header and tested in `tools/test-install-copies.sh`.
-In short: the model and cache keys, then the display, notification and `skip*` keys, then `env`, `attribution`,
-`permissions`, `autoMode`, `hooks`, the MCP keys, the plugin and skill keys; `permissions` is `allow`, `ask`, `deny`,
-each grouped (Bash, git MCP, github MCP, other MCP; `ask` and `deny` have their own groups), with a user-added `Read(!…)`
-exception left after its rule; `hooks` events run SessionStart to SessionEnd, one entry per script, entries in
-their original order.
+## Step 7: Report and the final block
 
-**Stage, do not write.** Write the merged result to `~/.claude/settings.json.new-<YYYYMMDD-HHMMSS>` (the same date and time as the backup; the name does not end in `.json`, so the hook lets the agent write it), run `chmod 600` on it (the Write tool creates it with the default mode, and the file holds MCP server and env key names), then put it in order: run `bash <root>/tools/install-copies.sh order ~/.claude/settings.json.new-<stamp>`, with the
-output redirected to `~/.claude/settings.json.new-<stamp>.ordered` (a name the hook also lets the agent write), and `mv` that
-over the staged file once it is non-empty (the mode stays 600: `chmod 600` again). `<root>` is the repo root this skill runs from. If the
-command exits non-zero, stop and report it: never stage an unordered file. Then check it parses and show the user
-the diff against the live file (a reordered list shows as changed lines; the content is the same):
+The final message has three parts.
 
-```bash
-jq empty ~/.claude/settings.json.new-<stamp> && diff <(jq -S . ~/.claude/settings.json) <(jq -S . ~/.claude/settings.json.new-<stamp>)
+**1. The summary table.**
+
+```
+## Setup Summary
+
+Prerequisites: jq / node / brew / claude; Darwin arm64: yes / no; gh: "needs gh logged in" line (always)
+Roster: one row per artifact of `roster` (never a hardcoded list), per category, Status: Installed / Already installed / Conflict
+  Rules may be `Replaced file (byte-match)`; hooks may be `Linked, not executable (OFF)`
+Status line / tool scripts: Installed / Already installed / Conflict (+ the shell line when not in ~/.zshrc)
+Git MCP: Registered (in the block) / Already correct / Repaired (in the block); only `Already correct` when the config runs this checkout's server
+GitHub MCP: install.conf ok / MISSING (in the block) / STALE (<key>); github checkout, binary, server, guard hook: ok / the fix the `status` line prints
+Global CLAUDE.md: Created (starter) / Skipped / Up to date / evaluation: <sections present, missing, thin>
+Settings: backup <path> mode 600 / none; env keys enforced; autoCompactWindow Added / Overwritten (<old> → 500000) / Already configured, per-model overrides <list or none>; promptCacheTtl Added 1h / Already set (<value>) / Skipped (older Claude Code), overrides <NOTE list>; permissions added / removed (migration); deny and ask added, live-only ones; ask entries prompt (confirm by running one); hooks Added / Already configured / Merged; skipped hooks; Protected checkout: marker ok / MISSING; status line Added / Already configured; auto mode per list Added <n> / Already configured / DRIFT, live allow and hard_deny with or WITHOUT "$defaults", skillOverrides added; start context per key; plugins added; settings file: staged <path>, live unchanged until the copy
+DRIFT lines: every one, with its fix
 ```
 
-Then give the user one command to run themselves (a `!` line in this session works; the hook would deny the agent):
+**2. The staged settings changes** (Step 6, Change list), listed in full.
 
-```bash
+**3. One block of plain terminal commands**, values filled in, only the lines that apply, no comments, in this order. Explanation goes in prose around the block, and a slash command (`/plugin uninstall …`, `/setup-toolkit`) gets its own block. The lines:
+
+```
+brew install node
+touch '/abs/checkout/.protected-checkout'
+claude mcp add --scope user git-mcp -- node '/abs/checkout/tools/git-mcp/server.js'
+grep -qxF 'source ~/.claude/tools/shell-init.zsh' ~/.zshrc 2>/dev/null || printf '%s\n' 'source ~/.claude/tools/shell-init.zsh' >> ~/.zshrc
+(umask 077; d="$HOME/.claude"; f="$d/install.conf"; if [ -e "$f" ] || [ -L "$f" ]; then echo 'install.conf exists; edit it by hand'; else t=$(mktemp "$d/install.conf.XXXXXX") && printf '%s\n' 'github_write_owners=<owners, or *>' 'github_keychain_account=<id -un value>' > "$t" && chmod 600 "$t" && mv -n "$t" "$f" && ls -l "$f"; fi)
 cp ~/.claude/settings.json.new-<stamp> ~/.claude/settings.json && rm ~/.claude/settings.json.new-<stamp>
 ```
 
-Report the staged path and that the live file is unchanged until the user runs it. Nothing in Step 10 has taken effect before that: say so, and run the drift assertion again after the user confirms the copy. A first run with no `settings.json` stages the same way; the copy command creates it.
+A wrong git-mcp entry gets `claude mcp remove --scope user git-mcp` on the line before the add. The `*` stays inside single quotes (unquoted, zsh would glob it). The GitHub MCP chain (Step 4) is the block's last line and is joined to the `cp` line with `&&`, so nothing registers unless the settings, with the guard hook and the github denies, are in place first; the store link stays last. These denies bind only the agent's tool calls, not the person's terminal: the `Bash(*install.conf*)` ask, the `Edit` deny on install.conf, and the protected-paths guard on `settings*.json`.
 
-## Step 11: Report
-
-Output a summary:
-
-```
-## Claude Setup Summary
-
-### Prerequisites
-jq / node / gh: all present (or: stopped at Step 0, missing <list>); gh login: ok / WARNING not logged in
-
-### Agents / Hooks / Skills / Rules
-
-One table per category, **one row per artifact listed in Steps 2–5** — do not use a
-hardcoded roster; the `roster` output is the roster (see ADR 0009 / README install table).
-
-```
-### <Category>
-| <Artifact> | Status |
-|------------|--------|
-| <name>     | Installed / Already installed / Conflict |
-```
-
-Rules rows may additionally report `Replaced file (byte-match)`. Hooks rows may report `Linked, not executable (OFF)`.
-
-### MCP Servers
-
-One row for the config file repaired (`~/.claude.json`), not one per server.
-
-| Server | Config file | Command | Status |
-|--------|-------------|---------|--------|
-| git-mcp | `~/.claude.json` | `node <checkout>/tools/git-mcp/server.js` | Registered / Already correct / **Repaired** / Skipped (error) |
-
-`Already correct` requires the config to run this checkout's server. An entry
-that runs anything else is **Repaired**, never `Already installed`.
-
-If any file was changed, say so explicitly: **restart Claude Code**, since
-running sessions keep their existing server process.
-
-### Status Line
-| Tool | Status |
-|------|--------|
-| statusline.sh | Installed / Already installed / Conflict |
-
-### Tool Scripts
-| Script | Status |
-|--------|--------|
-| workspace-lock.sh | Installed / Already installed / Conflict |
-| shell-init.zsh | Installed / Already installed / Conflict (+ "add `source ~/.claude/tools/shell-init.zsh` to ~/.zshrc" when it is not there) |
-
-### GitHub MCP wiring
-| Piece | Status |
-|-------|--------|
-| install.conf | ok / MISSING / STALE (Step 8b's settings sub-step) |
-| github-mcp checkout, binary, server, guard hook | ok / the fix the `status` line prints |
-
-### Global CLAUDE.md
-Status: Created / Up to date / Updated (with user approval) / Skipped (user chose to keep)
-
-### Permissions, Hooks & Status Line Config
-Settings backup: <path> mode 600 / none (no settings.json, or nothing written)
-Env vars enforced: <list of keys set or overwritten, or "none — already up to date">
-Auto-compact window: Added / Overwritten (<old> → 500000) / Already configured; per-model overrides: <DRIFT list (removed on go | left), or "none">
-Prompt cache TTL: promptCacheTtl Added 1h / Already set (<value>, left as is) / Skipped (Claude Code older than 2.1.242); subagentPromptCacheTtl Already set (<value>, left as is) / none live (never written); overrides: <NOTE list, or "none">
-Permissions added: <list, or "none — already up to date">
-Permissions removed (migration): <list, or "none — already clean">
-Deny entries added: <list, or "none — already up to date"> (live-only deny entries: <list, or "none">)
-Ask entries added: <list, or "none — already up to date"> (live-only ask entries: <list, or "none">); user to confirm they prompt
-Hooks config: Added / Already configured / Merged
-Settings file: staged <path>, live file unchanged until the user ran the copy / applied (user confirmed) / nothing to write
-Protected checkout: marker ok / MISSING (the user runs the touch command from Step 3)
-Status line config: Added / Already configured / Skipped
-Auto mode, per list (environment, soft_deny): Added / Merged <entries added> / Already configured / DRIFT (replaced on go, backup <path> mode 600 | left as is); live allow / hard_deny: <absent | with "$defaults" | WITHOUT "$defaults">; skillOverrides: <keys added, or "none">
-Start context: syncClaudeAiSkills / syncClaudeAiPlugins, per key: Added false / Already set (<value>, left as is)
-
-### Plugins
-Added: <list, or "none — already up to date">
-Removed: <list, or "none — already clean">
-```
-
-If any changes were made, remind the user to restart Claude Code.
+Then one prose line: restart Claude Code and run `/setup-toolkit` once more, with that slash command in its own block. On a set-up machine that second run asks nothing. It does what `check` cannot: it asserts the git-mcp shape, checks the live file for drift, runs `claude auto-mode config` against the lists, and confirms the github lines of `status` are `ok`. If any file was changed, say to restart.
 
 ## Stop Conditions
 
 - Do not modify any project-level files — this skill only touches `~/.claude/`. It never runs `sudo`.
 - Do not overwrite `~/.claude/CLAUDE.md` without user confirmation.
-- If `~/.claude/settings.json` has unexpected structure, show it to the user and ask before modifying.
+- Stop on a missing `jq`, a non-plain or temp-folder checkout path, or (after round 2's *Stop and show it*) a `settings.json` of unexpected structure.

@@ -15,7 +15,7 @@ Alongside the docs, the repo ships the working setup they describe, and `/setup-
 
 ## Getting Started
 
-Prerequisites (`/setup-toolkit` checks them first and stops with these hints if one is missing):
+Prerequisites (`/setup-toolkit` checks them first; it stops only when `jq` is missing, and a missing `node` goes into its final block as `brew install node`):
 
 | Tool | Needed by | Install (macOS) |
 |------|-----------|-----------------|
@@ -23,7 +23,7 @@ Prerequisites (`/setup-toolkit` checks them first and stops with these hints if 
 | `node` | the git MCP server (`tools/git-mcp/server.js`) | `brew install node` |
 
 1. Clone this repo (https or ssh)
-2. Open it in Claude Code and run `/setup-toolkit`, which is idempotent, so safe to repeat
+2. Open it in Claude Code and run `/setup-toolkit`, which is idempotent, so safe to repeat; paste the final block it prints
 3. Restart Claude Code
 
 Then run `/audit-claude` in any project to evaluate its AI configuration.
@@ -41,7 +41,7 @@ Then run `/audit-claude` in any project to evaluate its AI configuration.
 | [Tool scripts](tools/README.md) | workspace-lock.sh; shell-init.zsh (loads the `ait` zsh helpers and the account launchers; your `~/.zshrc` sources it) | `~/.claude/tools/` |
 | [Permissions](docs/05-permissions-and-safety.md) | Safe defaults, hook wiring, plugin config | `~/.claude/settings.json` |
 
-The guarded GitHub MCP setup ([tools/github-mcp/](tools/github-mcp/README.md)) is optional and not installed by `/setup-toolkit`: it runs from the live checkout, so a merge and a fast-forward pull are the install.
+The guarded GitHub MCP setup ([tools/github-mcp/](tools/github-mcp/README.md)) is optional. On a fresh Apple-silicon Mac `/setup-toolkit` offers it in its one question dialog and puts its install commands in the final block you paste; it runs from the live checkout, so a merge and a fast-forward pull are the install.
 
 ## Where to Go Next
 

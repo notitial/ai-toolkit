@@ -149,7 +149,7 @@ Check the root `CLAUDE.md` against doc 01 criteria:
 |---|-------|---------------|
 | 7.1 | setup-toolkit discovery covers all artifact dirs | Its discovery steps (the `bash tools/install-copies.sh roster` lines) cover `agents/`, `hooks/`, `skills/` and `rules/` — no artifact directory is missed. Judge on those lines alone |
 | 7.2 | README install table matches filesystem | Compare the README "What Gets Installed" rows against `ls agents/ hooks/ skills/ rules/` (ignore `skills/README.md`) — the table is the repo's only enumerated roster (CLAUDE.md convention); FLAG any drift in either direction |
-| 7.3 | Report step stays discovery-based | setup-toolkit's Report step (Step 11) contains no hardcoded artifact rosters — one row per discovered artifact |
+| 7.3 | Report step stays discovery-based | setup-toolkit's Report step (Step 7) contains no hardcoded artifact rosters — one row per discovered artifact |
 
 ## Step 3: Produce the report
 
