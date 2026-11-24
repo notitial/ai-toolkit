@@ -77,15 +77,15 @@ pay for GitHub-hosted minutes.
 
 Three modes:
 
-| Trigger | Mode | What happens | Typical cost |
+| Trigger | Mode | What happens | Size of the run |
 |---|---|---|---|
-| A non-draft same-repo PR is opened, pushed to, reopened or marked ready, and has no review yet (Dependabot and forks skipped) | `initial` | Full review: seven review passes (defects in the change, interaction with the code around it, security, failure paths, written CLAUDE.md rules, private data, least code), then one verifier per candidate. Up to 8 findings, inline on their lines (else in the review body), REQUEST_CHANGES; or APPROVE with "No issues found". Up to 3 non-blocking suggestions ride inline on either | $0.5–2 on real feature PRs ($0.18–0.33 on small test PRs), measured before v3.1's sixth pass; one replay of a 4-file PR with the seventh pass cost $2.51 (12 agents, no baseline arm) |
-| A push to a PR that was already reviewed | none | `preflight` skips; Claude doesn't run. `publish` dismisses a stale APPROVE | $0 |
+| A non-draft same-repo PR is opened, pushed to, reopened or marked ready, and has no review yet (Dependabot and forks skipped) | `initial` | Full review: seven review passes (defects in the change, interaction with the code around it, security, failure paths, written CLAUDE.md rules, private data, least code), then one verifier per candidate. Up to 8 findings, inline on their lines (else in the review body), REQUEST_CHANGES; or APPROVE with "No issues found". Up to 3 non-blocking suggestions ride inline on either | A full review (the largest run); each run's job summary has a cost line |
+| A push to a PR that was already reviewed | none | `preflight` skips; Claude doesn't run. `publish` dismisses a stale APPROVE | none |
 | A comment starting `@claude review`, from someone with write access | `rereview` | Judges each open review thread, replies, resolves the fixed ones, then reviews the whole PR again (drafts too) without repeating the issue of a thread that is still open. A fixed issue that is back is a new finding in a new thread (resolved threads cover nothing). APPROVE when nothing is found and no thread is open | about `initial` |
-| A comment starting `@claude review --comments` | `followup` | The thread follow-up only: new code, and a fixed issue that came back, aren't seen. When every thread is resolved, the App dismisses its REQUEST_CHANGES and posts a COMMENT "Findings addressed; new code was not re-reviewed." | $0.04–0.25 |
-| `--comments` again with no push and no new thread reply | none | One follow-up per branch state; Claude doesn't run | $0 |
-| `--comments` with no open finding thread, only suggestion threads someone replied in | none | Claude doesn't run; `publish` replies in each and resolves it, and leaves the verdict and the overview as they were | $0 |
-| `@claude review` again with no push and no new thread reply | `rereview` or none | Skipped when every open thread already has a rereview reply for this head or, with no open thread, when this head already has a clean overview | $0 or about `initial` |
+| A comment starting `@claude review --comments` | `followup` | The thread follow-up only: new code, and a fixed issue that came back, aren't seen. When every thread is resolved, the App dismisses its REQUEST_CHANGES and posts a COMMENT "Findings addressed; new code was not re-reviewed." | small |
+| `--comments` again with no push and no new thread reply | none | One follow-up per branch state; Claude doesn't run | none |
+| `--comments` with no open finding thread, only suggestion threads someone replied in | none | Claude doesn't run; `publish` replies in each and resolves it, and leaves the verdict and the overview as they were | none |
+| `@claude review` again with no push and no new thread reply | `rereview` or none | Skipped when every open thread already has a rereview reply for this head or, with no open thread, when this head already has a clean overview | none or about `initial` |
 
 - **A stopped run:** an `initial` review of a PR that was closed or turned back to a draft after the run was queued
   stops at once; the overview says "Review stopped: the PR was closed or a draft when the review ran" and there is no
@@ -403,7 +403,8 @@ whitespace and picks the variable by prefix: `sk-ant-oat` becomes `CLAUDE_CODE_O
 `ANTHROPIC_API_KEY`, and only that one enters the pinned Claude Code CLI's environment. An empty value or a value
 that does not start with `sk-ant-` fails the job with a message that names the secret and the two kinds, never the
 value. The kit does not check an API key's prefix against a list: a mistyped `sk-ant-` value fails at the API with a 401. Switch between them by
-setting the secret to the other credential, with no workflow edit.
+setting the secret to the other credential, with no workflow edit. Only an API key bills per run; an OAuth token
+uses the account's subscription limits (below), so what a review costs depends on which one the secret holds.
 - **API key** (tested with `sk-ant-api...`): a Claude Console key. Any other `sk-ant-` prefix, such as `sk-ant-usr...`, is sent as the API key too.
 - **Subscription OAuth token** (tested): the token made by `claude setup-token` (`sk-ant-oat...`). The cost line still reports `total_cost_usd`, but
   on a subscription that figure is notional: usage counts against the account's limits, shared with its interactive
@@ -445,7 +446,8 @@ denies a post, give the user the `gh` command instead.
    the fixed ones. Wait for that run, handle any thread it keeps open, and report the findings and their outcome in
    the handover. A finding in the review body has no thread: fix it and say so in the handover (only a full review
    re-checks it).
-6. Ask the user before a full `@claude review`.
+6. How many `@claude` comments an agent may post, and when to stop and ask, is one rule: see the
+   [`claude-review-loop` skill](../../skills/claude-review-loop/SKILL.md), step 5.
 
 ## Test protocol
 
