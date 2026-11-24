@@ -36,14 +36,17 @@ denies a post, give the user the `gh` command in a markdown code block instead.
    **Suggestion (non-blocking)** is never judged: apply it or decline it, reply in its thread either way, and the next
    `--comments` run resolves it without judging it. Don't post `--comments` for a suggestion you haven't replied to.
 5. Pushes after the first review are skipped, so after pushing fixes or replies, comment
-   `@claude review --comments` on the PR (`add_issue_comment`, top level, cheap; the guard asks first because a
-   `@claude` comment starts a paid run): Claude judges each open thread against the new code, replies, and resolves
-   the fixed ones. Wait until no review is running before you post (GitHub keeps one waiting run per PR, so an early
-   request can replace another). The comment starts its own run, on the `issue_comment` event: wait for that run,
-   not the checks of the last push, then handle any thread it keeps open. List the findings and their outcome in the
-   handover. Extra paid runs (this comment, or a full `@claude review`) are two per PR on top of the automatic review,
-   which does not count; never post one before the guard's ask has been answered.
-6. A full `@claude review` (a whole re-review, about the cost of the first) only when the user asks. A PR that
+   `@claude review --comments` on the PR (`add_issue_comment`, top level): Claude judges each open thread against the
+   new code, replies, and resolves the fixed ones. Wait until no review is running before you post (GitHub keeps one
+   waiting run per PR, so an early request can replace another). The comment starts its own run, on the
+   `issue_comment` event: wait for that run, not the checks of the last push, then handle any thread it keeps open.
+   List the findings and their outcome in the handover.
+   **The `@claude` comment rule** (the one home; other docs link here): an agent may post up to 2 `@claude` comments
+   per PR without asking the person, and one of them may be a full `@claude review`. The automatic review on
+   mark-ready does not count. The guard's prompt on an `@claude` comment still appears; under this rule the answer is
+   allow for the first 2 on a PR (the asker's lead may answer it). After the 2, post no third: tell the person what is
+   open and ask what to do next.
+6. A full `@claude review` is a whole re-review, about the cost of the first, and is one of the 2. A PR that
    changes the caller runs its own copy: an install or upgrade PR goes without `[skip ci]`, its own first review is
    the live test, and a `@claude review` comment runs nothing on it until the merge (the README's Quirks).
 
