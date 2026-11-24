@@ -26,7 +26,7 @@ Adds the automatic Claude PR review to the current repo: writes the caller `.git
 
 ### [/claude-review-loop](claude-review-loop/SKILL.md)
 
-Answers the automatic Claude review on a PR in a repo that runs the kit (`.github/workflows/claude-review.yml`): wait for the checks, read the findings, fix each or reply in its thread, then ask for one `@claude review --comments` run. Loaded on demand so the always-on `workflow` rule keeps only the trigger; an agent loads it before opening a PR there, marking one ready or pushing review fixes.
+Answers the automatic Claude review on a PR in a repo that runs the kit (`.github/workflows/claude-review.yml`): wait for the checks, read the findings, fix each or reply in its thread, then ask for a `@claude review --comments` run, within its `@claude` comment limit. Loaded on demand so the always-on `workflow` rule keeps only the trigger; an agent loads it before opening a PR there, marking one ready or pushing review fixes.
 
 ### [/add-build-kit](add-build-kit/SKILL.md)
 

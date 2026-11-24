@@ -203,6 +203,7 @@ gh variable set SELF_HOSTED_REVIEW -R <owner/repo> --body '["<label>","<label>"]
    works once the caller is merged. A reconfiguration follows `/claude-review-loop` in full.
 7. (user) Merge.
 
-The README's test protocol, on a throwaway PR with a planted bug, opens a PR, pushes and posts billed `@claude review`
-comments: offer it after the merge and start only on the user's go. Closing the throwaway PR and deleting its branch
+The README's test protocol, on a throwaway PR with a planted bug, opens a PR, pushes and posts `@claude review`
+comments, more than `/claude-review-loop` lets an agent post on one PR: offer it after the merge and start
+only on the user's go. Closing the throwaway PR and deleting its branch
 is destructive: ask before doing either.
