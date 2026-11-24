@@ -165,18 +165,6 @@ fi
 
 # ---- 2. settings.json: toolkit-managed keys only
 echo "== settings"
-# /setup-toolkit wrote the template's autoMode lines rendered from ~/.claude/install.conf, so match against the same
-# render (tools/install-copies.sh automode --for-cleanup: every placeholder filled, for matching only). No settings
-# file, or an unusable one: the raw template.
-RTEMPLATE=$TEMPLATE
-if [ -f "$HOME_DIR/.claude/install.conf" ]; then
-  if AM=$(HOME="$HOME_DIR" bash "$ROOT/tools/install-copies.sh" automode --for-cleanup 2>/dev/null) &&
-    jq --argjson am "$AM" '.autoMode = ((.autoMode // {}) + $am)' "$TEMPLATE" > "$SCRATCH/template.json" 2>/dev/null; then
-    RTEMPLATE="$SCRATCH/template.json"
-  else
-    say SKIP "autoMode lines filled from install.conf (it is unusable): only the template's own lines are matched"
-  fi
-fi
 # The hook scripts the repo ships, minus any name that is a real (non-link) file in a config dir: that one is the user's.
 HOOK_NAMES=$({
   for f in "$ROOT"/hooks/*.sh; do [ -e "$f" ] && basename "$f"; done
@@ -301,7 +289,7 @@ while IFS= read -r cfg; do
     N_FAIL=$((N_FAIL + 1)); say FAIL "$rf (not valid JSON; left alone)"; keep_if_root_guard "$rf" "is left alone"; continue
   fi
   jq -S . "$rf" > "$SCRATCH/old.json"
-  jq -S --slurpfile t "$RTEMPLATE" --argjson names "$HOOK_NAMES" --argjson cfgs "$CFG_JSON" \
+  jq -S --slurpfile t "$TEMPLATE" --argjson names "$HOOK_NAMES" --argjson cfgs "$CFG_JSON" \
     --arg guard "$ROOT/tools/github-mcp/guard.sh" \
     --argjson amb $((1 - KEEP_AMB)) --argjson sec "$SEC" --argjson rmguard "$RMGUARD" "$JQ_CLEAN" "$rf" > "$SCRATCH/new.json" 2>/dev/null
   if [ ! -s "$SCRATCH/new.json" ]; then

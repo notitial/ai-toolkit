@@ -410,15 +410,15 @@ ln -s "$T/outside" "$H/.local"
 run --apply
 check "outside: a path whose folder is a link out of the home is skipped, not removed" '[ -f "$T/outside/state/claude-statusline/readings" ] && grep -q "SKIP .*outside the home" "$T/out"'
 
-# ---- install-time settings: removed (with keys another installer added), a symlink kept; rendered autoMode lines go
-conf_fixture() { printf '%s\n' 'github_write_owners=example-user' 'github_keychain_account=example-user' 'github_username=example-user' > "$C/install.conf"; chmod 600 "$C/install.conf"; }
+# ---- install-time settings: removed (with keys another installer added), a symlink kept; template autoMode lines go
+conf_fixture() { printf '%s\n' 'github_write_owners=example-user' 'github_keychain_account=example-user' > "$C/install.conf"; chmod 600 "$C/install.conf"; }
 mkhome
 conf_fixture
-AM_RENDERED=$(jq -r '.autoMode.environment[] | select(test("<username>"))' "$TEMPLATE" | head -n 1 | sed 's/<username>/example-user/g')
+AM_RENDERED=$(jq -r '.autoMode.environment[1]' "$TEMPLATE")
 jq --arg l "$AM_RENDERED" '.autoMode.environment += [$l]' "$C/settings.json" > "$C/s.tmp" && mv "$C/s.tmp" "$C/settings.json"
 run --apply
 check "install.conf: removed" '[ ! -e "$C/install.conf" ] && grep -q "REMOVE .*install.conf  (install-time settings)" "$T/out"'
-check "settings: an autoMode line rendered from install.conf is removed" '[ -n "$AM_RENDERED" ] && [ -f "$C/settings.json" ] && ! jq -e --arg l "$AM_RENDERED" ".autoMode.environment // [] | index(\$l)" "$C/settings.json" >/dev/null'
+check "settings: an autoMode line of the template is removed" '[ -n "$AM_RENDERED" ] && [ -f "$C/settings.json" ] && ! jq -e --arg l "$AM_RENDERED" ".autoMode.environment // [] | index(\$l)" "$C/settings.json" >/dev/null'
 mkhome
 conf_fixture
 printf '%s\n' 'other_tool_label=com.example' >> "$C/install.conf"

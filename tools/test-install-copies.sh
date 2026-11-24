@@ -481,7 +481,7 @@ case_start "usage: an unknown command"
 new_case
 ic install
 expect_rc "an unknown command exits 2" 2
-expect_has "usage names the commands" "$OUT" "usage: install-copies.sh status | roster | accounts | automode"
+expect_has "usage names the commands" "$OUT" "usage: install-copies.sh status | roster | accounts | order"
 
 # ---------------------------------------------------------------- install-time settings
 case_start "settings 1: no install.conf"
@@ -502,9 +502,6 @@ wire_mcp
 for bad_conf in 'github_write_owners=Not_An_Owner|github_write_owners: invalid value' \
   'github_keychain_account=a b|github_keychain_account: invalid value' \
   'github_keychain_account=a|b|github_keychain_account: invalid value' \
-  'github_username=$(id)|github_username: invalid value' \
-  'lan_host=nas.example.com|lan_host: invalid value' \
-  'router_ip=8.8.8.8|router_ip: invalid value' \
   'github_projects=example-org/07|github_projects: invalid value' \
   'github_projects=Example-Org/1|github_projects: invalid value' \
   'github_projects=example-org|github_projects: invalid value' \
@@ -531,7 +528,10 @@ expect_re "the optional keys may be left out, and an account may carry . and @" 
 seed_conf
 printf '%s\n' 'github_username=example-user' 'lan_host=nas.lan' 'router_ip=10.0.0.1' >> "$H/.claude/install.conf"
 ic status
-expect_re "valid optional keys are ok" "$OUT" '^ok +install\.conf$'
+expect_re "keys an older setup wrote are skipped, not read" "$OUT" '^ok +install\.conf \(skipped, not used here: github_username lan_host router_ip\)$'
+conf_with 'github_username=Bad_User'
+ic status
+expect_re "a skipped key is not checked, whatever its value" "$OUT" '^ok +install\.conf \(skipped, not used here: github_username\)$'
 seed_conf
 printf '%s\n' 'other_tool_label=com.example' 'other_tool_note=Any Value | $(id) & "quotes"' >> "$H/.claude/install.conf"
 ic status
@@ -540,12 +540,11 @@ expect_not "a skipped key is not STALE" "$OUT" "STALE    install.conf"
 printf '%s\n' 'other_tool_label=again' >> "$H/.claude/install.conf"
 ic status
 expect_re "a skipped key given twice is still STALE" "$OUT" '^STALE +install\.conf \(other_tool_label: given twice\)'
-conf_with 'github_username=Bad_User'
+conf_with 'github_projects=Bad/1'
 printf '%s\n' 'other_tool_label=x' >> "$H/.claude/install.conf"
 ic status
-expect_re "a known key's value is still checked when other keys are skipped" "$OUT" '^STALE +install\.conf \(github_username: invalid value\)'
-for good_conf in 'lan_host=nas.home.arpa' 'lan_host=box.local' 'router_ip=172.16.0.1' 'router_ip=192.168.0.254' \
-  'github_projects=example-org/1' 'github_projects=example-org/1 example-user/42'; do
+expect_re "a known key's value is still checked when other keys are skipped" "$OUT" '^STALE +install\.conf \(github_projects: invalid value\)'
+for good_conf in 'github_projects=example-org/1' 'github_projects=example-org/1 example-user/42'; do
   conf_with "$good_conf"
   ic status
   expect_re "valid setting $good_conf is ok" "$OUT" '^ok +install\.conf$'
@@ -566,57 +565,12 @@ for bad_star in '* notitial' 'notitial *' '**' '' "*$(printf '\r')"; do
   expect_re "github_write_owners=[$bad_star] is STALE" "$OUT" '^STALE +install\.conf \(github_write_owners: invalid value\)'
 done
 
-case_start "settings 3: automode follows the write owners in install.conf"
-new_case
-mkdir -p "$R/.claude/skills/setup-toolkit/templates"
-printf '%s\n' '{"autoMode": {"_note": "x <username>", "environment": ["$defaults", "User <username>", "Host <host>", "Router <router.ip>", "Plain"], "soft_deny": ["$defaults", "Deploys to <host> or <router.ip>"]}}' \
-  > "$R/.claude/skills/setup-toolkit/templates/safe-permissions.json"
-full_conf() {  # full_conf <owners> <github_username>
-  printf '%s\n' "github_write_owners=$1" 'github_keychain_account=example-user' "github_username=$2" 'lan_host=nas.lan' 'router_ip=10.0.0.1' > "$H/.claude/install.conf"
-}
-json_of() { printf '%s\n' "$OUT" | grep -v '^automode: ' | jq -c .; }
-NO_USER='{"environment":["$defaults","Host nas.lan","Router 10.0.0.1","Plain"],"soft_deny":["$defaults","Deploys to nas.lan or 10.0.0.1"]}'
-ALL='{"environment":["$defaults","User example-user","Host nas.lan","Router 10.0.0.1","Plain"],"soft_deny":["$defaults","Deploys to nas.lan or 10.0.0.1"]}'
-ic automode
-expect_rc "automode exits 0 with no optional key" 0
-expect_true "automode drops every entry whose setting is unset" test "$(printf '%s' "$OUT" | jq -c .)" = '{"environment":["$defaults","Plain"],"soft_deny":["$defaults"]}'
-full_conf 'notitial' example-user
-ic automode
-expect_rc "automode exits 0 when github_username is not a write owner" 0
-expect_true "github_username not in the write owners: the <username> entries are dropped, the host and router filled" test "$(json_of)" = "$NO_USER"
-expect_has "automode says why" "$OUT" "automode: the <username> entries are left out: github_username (example-user) is not in github_write_owners"
-full_conf 'notitial example-user2' example-user
-ic automode
-expect_has "an owner that only starts with github_username does not count" "$OUT" "is not in github_write_owners"
-full_conf 'notitial example-user' example-user
-ic automode
-expect_not "github_username a write owner: no reason printed" "$OUT" "automode: "
-expect_true "automode fills every placeholder" test "$(json_of)" = "$ALL"
-expect_not "automode leaves out the notes" "$OUT" "_note"
-ic automode --valued
-expect_true "automode --valued prints only the entries carrying an install.conf value" test "$(json_of)" = '{"environment":["User example-user","Host nas.lan","Router 10.0.0.1"],"soft_deny":["Deploys to nas.lan or 10.0.0.1"]}'
-full_conf 'notitial' example-user
-ic automode --valued
-expect_true "automode --valued follows the owner check" test "$(json_of)" = '{"environment":["Host nas.lan","Router 10.0.0.1"],"soft_deny":["Deploys to nas.lan or 10.0.0.1"]}'
-ic automode --for-cleanup
-expect_not "automode --for-cleanup skips the owner check, and says nothing" "$OUT" "automode: "
-expect_true "automode --for-cleanup fills every placeholder" test "$(json_of)" = "$ALL"
-ic automode --everything
-expect_rc "automode refuses an unknown option" 2
-rm "$H/.claude/install.conf"
-ic automode
-expect_rc "automode with no settings file exits 0" 0
-expect_not "automode with no settings file prints no placeholder" "$OUT" "<"
-conf_with 'router_ip=nope'
-ic automode
-expect_rc "automode refuses an invalid settings file" 1
-
-case_start "this repository: the autoMode template holds no unfillable placeholder"
+case_start "this repository: the autoMode template holds no placeholder"
 TPL="$(cd "$(dirname "$SCRIPT_SRC")/.." && pwd -P)/.claude/skills/setup-toolkit/templates/safe-permissions.json"
 ENTRIES=$(jq -r '.autoMode | to_entries[] | select(.key | startswith("_") | not) | .value[]? | strings' "$TPL" 2>&1)
 expect_true "the template lists autoMode entries" test -n "$ENTRIES"
-LEFT=$(printf '%s\n' "$ENTRIES" | sed -e 's/<username>//g' -e 's/<host>//g' -e 's/<router\.ip>//g' | grep -E -e '\[[A-Z ]+\]' -e '<[A-Za-z][^>]*>' -e '\[[^]]*[Ff][Ii][Ll][Ll][^]]*\]')
-expect_true "only <username>, <host> and <router.ip> are placeholders, nothing like [FILL IN]" test -z "$LEFT"
+LEFT=$(printf '%s\n' "$ENTRIES" | grep -E -e '\[[A-Z ]+\]' -e '<[A-Za-z][^>]*>' -e '\[[^]]*[Ff][Ii][Ll][Ll][^]]*\]')
+expect_true "no entry holds a <placeholder> or a [FILL IN]: the lists are merged as written" test -z "$LEFT"
 
 # The scripts that run by their path are committed executable in this repository: a hook without the bit fails open, and
 # the hook suites cannot see it, since they run each hook as `bash <file>`.

@@ -4,19 +4,18 @@
 #   bash tools/install-copies.sh status            one line per piece; exit 1 if any needs attention
 #   bash tools/install-copies.sh roster            what /setup-toolkit links: the agents, hooks, rules and skills
 #                                                  committed at HEAD, one repo path per line (never an untracked file)
-#   bash tools/install-copies.sh automode [--valued | --for-cleanup]   the setup template's autoMode lists, filled in
 #   bash tools/install-copies.sh order <file>      a settings.json in /setup-toolkit's fixed order (see cmd_order); prints
 #                                                  the JSON, writes nothing, drops no key and no entry
 #   bash tools/install-copies.sh accounts          the valid lines of ~/.claude/accounts.conf as name<TAB>kind<TAB>service,
 #                                                  one per line; tools/accounts.zsh reads the launchers' accounts from this
 #                                                  (the one parser), a bad line goes to stderr and is left out
 #
-# Pieces `status` checks (/setup-toolkit Step 8b, and the `ait-status` zsh helper):
-#   install.conf   ~/.claude/install.conf, the install-time settings /setup-toolkit writes, one key=value line each,
-#                  never sourced. Required: github_write_owners (owner names, or exactly * for any owner),
-#                  github_keychain_account; optional:
-#                  github_username, github_projects, lan_host, router_ip. Any other well-formed key (lowercase letters and _) is
-#                  skipped, so a file another installer added its own keys to still reads; `status` lists them.
+# Pieces `status` checks (/setup-toolkit Step 4, and the `ait-status` zsh helper):
+#   install.conf   ~/.claude/install.conf, the install-time settings, one key=value line each, never sourced. The
+#                  person writes it, from /setup-toolkit's pasted block or by hand. Required: github_write_owners
+#                  (owner names, or exactly * for any owner), github_keychain_account; optional: github_projects. Any
+#                  other well-formed key (lowercase letters and _) is skipped, so a file another installer added its
+#                  own keys to still reads; `status` lists them.
 #   github-mcp     the launcher and the guard run from this checkout: it is on a clean main, the pinned server binary
 #                  is in tools/github-mcp/bin/, the `github` MCP server and the guard hook point at this checkout.
 #   ~/.zshrc       sources ~/.claude/tools/shell-init.zsh, which loads the zsh helpers.
@@ -87,14 +86,14 @@ line() {  # line <ok|STALE|MISSING|UNLINKED|CONFLICT> <name> [fix]
   fi
 }
 
-# read_conf: 0 valid (CONF_OWNERS, CONF_ACCOUNT and the optional CONF_* set), 1 no file, 2 invalid (CONF_ERR is
+# read_conf: 0 valid (CONF_OWNERS and CONF_ACCOUNT set), 1 no file, 2 invalid (CONF_ERR is
 # "<key>: <reason>"). Every value of a known key is checked against its pattern; a well-formed key this script does
 # not use is skipped unread and named in CONF_SKIPPED; the file is never sourced. The account goes into a sed
 # replacement and a shell line, so its pattern keeps out | & \ and every space and quote.
 conf_ok() { printf '%s\n' "$1" | grep -Eqx -- "$2"; }
 read_conf() {
-  local line k v n=0 seen=" " oct='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
-  CONF_OWNERS="" CONF_ACCOUNT="" CONF_GITHUB_USERNAME="" CONF_LAN_HOST="" CONF_ROUTER_IP=""
+  local line k v n=0 seen=" "
+  CONF_OWNERS="" CONF_ACCOUNT=""
   CONF_ERR="" CONF_SKIPPED=""
   [ -f "$CONF" ] || return 1
   while IFS= read -r line || [ -n "$line" ]; do
@@ -108,10 +107,7 @@ read_conf() {
     case $k in
       github_write_owners) case $v in '*') CONF_OWNERS=$v ;; *) conf_ok "$v" '[a-z0-9][a-z0-9-]*( [a-z0-9][a-z0-9-]*)*' && CONF_OWNERS=$v ;; esac ;;
       github_keychain_account) conf_ok "$v" '[A-Za-z0-9._@-]+' && CONF_ACCOUNT=$v ;;
-      github_username) conf_ok "$v" '[a-z0-9][a-z0-9-]*' && CONF_GITHUB_USERNAME=$v ;;
       github_projects) conf_ok "$v" '[a-z0-9][a-z0-9-]*/[1-9][0-9]{0,8}( [a-z0-9][a-z0-9-]*/[1-9][0-9]{0,8})*' ;;
-      lan_host) conf_ok "$v" '[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*\.(lan|local|home\.arpa)' && CONF_LAN_HOST=$v ;;
-      router_ip) conf_ok "$v" "(10\\.$oct\\.$oct\\.$oct|172\\.(1[6-9]|2[0-9]|3[01])\\.$oct\\.$oct|192\\.168\\.$oct\\.$oct)" && CONF_ROUTER_IP=$v ;;
       *) CONF_SKIPPED="$CONF_SKIPPED${CONF_SKIPPED:+ }$k" ;;
     esac || { CONF_ERR="$k: invalid value"; return 2; }
   done < "$CONF"
@@ -434,39 +430,6 @@ cmd_status() {
   return 1
 }
 
-# automode [--valued | --for-cleanup]: the setup template's autoMode lists (keys starting with _ left out) as JSON, each
-# <username>, <host> and <router.ip> filled from the github_username, lan_host and router_ip settings; an entry naming
-# an unset one is dropped, so no placeholder is ever printed. No settings file: every such entry is dropped. A
-# <username> entry widens what the classifier trusts, so it is kept only while github_username is among the
-# github_write_owners of install.conf (what the guard reads); otherwise it is dropped and the reason goes to stderr.
-# --valued: only the entries that carry an install.conf value (the ones /setup-toolkit adds only on the user's go).
-# --for-cleanup: every placeholder filled without the guard check, to match lines for removal, never to add any.
-# Exit 1 on an invalid settings file, 2 on an unknown option.
-cmd_automode() {
-  local tpl="$ROOT/.claude/skills/setup-toolkit/templates/safe-permissions.json" mode=${1:-} u
-  case $mode in '' | --valued | --for-cleanup) ;; *) fail "automode: unknown option $mode"; return 2 ;; esac
-  read_conf
-  [ $? = 2 ] && { fail "install settings invalid ($CONF_ERR); run /setup-toolkit"; return 1; }
-  command -v jq >/dev/null 2>&1 || { fail "automode needs jq"; return 1; }
-  u=$CONF_GITHUB_USERNAME
-  if [ -n "$u" ] && [ "$mode" != --for-cleanup ]; then
-    case " $CONF_OWNERS " in
-      *" $u "*) ;;
-      *) echo "automode: the <username> entries are left out: github_username ($u) is not in github_write_owners in $CONF" >&2
-         u="" ;;
-    esac
-  fi
-  jq --arg u "$u" --arg h "$CONF_LAN_HOST" --arg r "$CONF_ROUTER_IP" --arg valued "$([ "$mode" = --valued ] && echo 1)" '
-    def ph: test("<username>|<host>|<router[.]ip>");
-    def unset_ref: (test("<username>") and $u == "") or (test("<host>") and $h == "") or (test("<router[.]ip>") and $r == "");
-    def fill: gsub("<username>"; $u) | gsub("<host>"; $h) | gsub("<router[.]ip>"; $r);
-    def keep: if type != "string" then $valued != "1" elif unset_ref then false elif $valued == "1" then ph else true end;
-    .autoMode | with_entries(select(.key | startswith("_") | not))
-    | map_values(if type == "array" then map(select(keep) | if type == "string" then fill else . end) else . end)
-    | if $valued == "1" then with_entries(select((.value | type) == "array" and (.value | length) > 0)) else . end
-  ' "$tpl" || { fail "cannot read autoMode from $tpl"; return 1; }
-}
-
 # order <file>: the settings file as JSON in one fixed order, so a merge never scrambles it. Only order changes: no key,
 # entry or value is added, dropped or edited. Top level: model, effortLevel, autoCompactWindow, promptCacheTtl,
 # subagentPromptCacheTtl; theme, tui, voiceEnabled, statusLine, the *Notif* keys, remoteControlAtStartup, the skip* keys;
@@ -525,8 +488,7 @@ cmd_order() {
 case "${1:-}" in
   status) cmd_status ;;
   roster) cmd_roster ;;
-  automode) shift; cmd_automode "$@" ;;
   order) shift; cmd_order "$@" ;;
   accounts) cmd_accounts ;;
-  *) fail "usage: install-copies.sh status | roster | accounts | automode [--valued | --for-cleanup] | order <file>"; exit 2 ;;
+  *) fail "usage: install-copies.sh status | roster | accounts | order <file>"; exit 2 ;;
 esac
