@@ -65,7 +65,7 @@ deliberately not in `hooks/`, which `/setup-toolkit` symlinks into `~/.claude/ho
    registering the launcher under another name would bypass every rule. These name-keyed denies are defence in depth,
    not a fence: Residuals lists the routes they miss. Bash denies on `security` and `gh` (which covers `gh auth token`;
    `gh` also has the gh-block hook) are defence in depth only too (a full path or another program gets past them). `Bash(security:*)` also blocks `security`'s
-   codesign and certificate subcommands; nothing in the toolkit uses them, and you run them with the `!` prefix.
+   codesign and certificate subcommands; nothing in the toolkit uses them, and you run them in your own terminal.
    - GitHub's hosted server (`https://api.githubcopilot.com/mcp/`, OAuth, every toolset including merge and push)
      ships in the official `github` plugin, and a plugin your organization syncs (such as `engineering`) can carry
      it too. The template blocks it by URL in `deniedMcpServers` ("nothing overrides a denylist match"), and denies
@@ -114,8 +114,7 @@ deliberately not in `hooks/`, which `/setup-toolkit` symlinks into `~/.claude/ho
      denies. Adding or updating one item and posting a status update are allowed in the Projects of the
      `github_projects` install setting (`<owner>/<number>` entries, space-separated, read from `~/.claude/install.conf`
      on every call like the owners; an entry counts only while its owner is a write owner, any owner name under `*`;
-     to add it to an install whose `install.conf` is already `ok`, ask `/setup-toolkit` to redo its install-time
-     settings step). A Project not
+     add the line to `install.conf` yourself). A Project not
      listed, a bulk update (`update_project_items`, the only method that takes an `items` list, each entry an item
      reference; the server caps it at 50), item and view deletes, view and iteration-field changes,
      creating a Project and `@claude` in the text ask. A missing or invalid setting lists no Project, so every Project
@@ -156,20 +155,31 @@ v2.0.3 has no tool for Actions variables or secret names; its `secret_protection
 
 ## Install (you, in your own terminal)
 
-Download, verify the checksum and the build attestation, and put the binary in the live checkout's `bin/` folder
-(`<checkout>` is the checkout `/setup-toolkit` links from; the folder is not tracked, and there is no `sudo`). Then
-record its hash, in a `/tmp` clone, through a PR like any other change:
+`/setup-toolkit` fills in these commands and pastes them as one block; this section is their one home. Every command
+runs in your own terminal, in this order, and the Keychain store comes last: a command that prompts for the token
+must not have anything pasted after it. `<checkout>` is the checkout `/setup-toolkit` links from; `bin/` is not
+tracked, and there is no `sudo`.
+
+Download, verify the checksum and the build attestation, and put the binary in the live checkout's `bin/` folder. It
+needs `gh` installed and logged in; the subshell keeps your terminal in its folder:
 
 ```
-D=$(mktemp -d) && cd "$D" && gh release download v2.0.3 -R github/github-mcp-server -p github-mcp-server_Darwin_arm64.tar.gz -p github-mcp-server_2.0.3_checksums.txt && shasum -a 256 -c --ignore-missing github-mcp-server_2.0.3_checksums.txt && gh attestation verify github-mcp-server_Darwin_arm64.tar.gz -R github/github-mcp-server && tar -xzf github-mcp-server_Darwin_arm64.tar.gz github-mcp-server && install -d -m 0755 <checkout>/tools/github-mcp/bin && install -m 0755 github-mcp-server <checkout>/tools/github-mcp/bin/github-mcp-server && <checkout>/tools/github-mcp/bin/github-mcp-server --version
+gh auth status >/dev/null && ( D=$(mktemp -d) && cd "$D" && gh release download v2.0.3 -R github/github-mcp-server -p github-mcp-server_Darwin_arm64.tar.gz -p github-mcp-server_2.0.3_checksums.txt && shasum -a 256 -c --ignore-missing github-mcp-server_2.0.3_checksums.txt && gh attestation verify github-mcp-server_Darwin_arm64.tar.gz -R github/github-mcp-server && tar -xzf github-mcp-server_Darwin_arm64.tar.gz github-mcp-server && install -d -m 0755 <checkout>/tools/github-mcp/bin && install -m 0755 github-mcp-server <checkout>/tools/github-mcp/bin/github-mcp-server && <checkout>/tools/github-mcp/bin/github-mcp-server --version )
 ```
+
+Check it against the committed pin, which names this tag:
+
+```
+(cd <checkout>/tools/github-mcp/bin && shasum -a 256 -c ../server.sha256)
+```
+
+The pin changes only with an upgrade (see Upgrades): then record the new hash in a `/tmp` clone through a PR like any
+other change, with the file name `github-mcp-server` as the second column, in the same PR that changes the tag. Until
+the pin and the binary agree, the launcher refuses to start.
 
 ```
 shasum -a 256 <checkout>/tools/github-mcp/bin/github-mcp-server
 ```
-
-Put that line into `tools/github-mcp/server.sha256` in the clone, with the file name `github-mcp-server` as the second
-column, and commit it. The pin takes effect once it is merged and pulled; until then the launcher refuses to start.
 
 The launcher and the guard need nothing more: they are in the checkout. Run `bash tools/github-mcp/test-guard.sh` in your `/tmp` clone before you
 merge; after the merge, `git -C <checkout> pull --ff-only` is the install. `ghm-status` shows, without changing
@@ -178,7 +188,7 @@ the guard hook point at the checkout.
 
 Wire it: merge the template's rules, the guard's hook entry (its path is filled in from the checkout),
 `deniedMcpServers` and `enableAllProjectMcpServers` into `~/.claude/settings.json` (`/setup-toolkit`). Then register the
-server for every session, from your own terminal (agents may not run `claude mcp add`):
+server for every session (agents may not run `claude mcp add`):
 
 ```
 claude mcp add --scope user github -- <checkout>/tools/github-mcp/launch
@@ -187,6 +197,15 @@ claude mcp add --scope user github -- <checkout>/tools/github-mcp/launch
 If `claude mcp list` already shows a `github` server in another scope, remove that one first (for a local one,
 `claude mcp remove --scope local github`), so one name doesn't point at two scopes. Never approve a project `.mcp.json` server named
 `github`: a project server outranks the user one, and it would inherit the read allow rules.
+
+Token: create a classic PAT at github.com/settings/tokens/new (scopes `repo` and `project`, nothing else; 180 days) and
+leave the page open. Copy it only when the next command prompts, since copying anything else would replace it. The
+command asks for the token at a hidden prompt, and nothing but you handles it; `-U` replaces an existing item, so it
+is also the rotation step:
+
+```
+security add-generic-password -U -s mcp-github -a <keychain-account> -w
+```
 
 Remove the hosted GitHub server at its sources: `/plugin uninstall github@claude-plugins-official`, and if your
 organization syncs a plugin that carries the GitHub connector, ask its admin to drop the connector there.
@@ -223,14 +242,8 @@ needs a `launch` and `guard.sh` change in the same PR, then the merge and the pu
 
 ## Token rotation
 
-The token expires 180 days after creation. Create the new classic PAT (scopes `repo` and `project`, nothing else),
-then store it (you type it at the prompt):
-
-```
-security add-generic-password -U -s mcp-github -a <keychain-account> -w
-```
-
-Restart the sessions that use the server, check one read, and revoke the old token on GitHub.
+The token expires 180 days after creation. Create the new classic PAT and store it with the Token step of Install (the
+same scopes, the same command), then restart the sessions that use the server, check one read, and revoke the old token on GitHub.
 
 To add a scope to the current token instead (`project` on a token made with `repo` only), edit the token on
 GitHub's token settings page: the token's value does not change, so the Keychain item stays as it is. Restart the

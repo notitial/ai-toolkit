@@ -2,7 +2,7 @@
 
 A good global CLAUDE.md defines **personal preferences** that apply across all projects. It should not contain project-specific details — those belong in each project's own CLAUDE.md.
 
-The global CLAUDE.md works together with the global rules installed by this skill's rules step (`~/.claude/rules/`, symlinked from this repo's `rules/`). Keep each concern in exactly one place: CLAUDE.md carries one-line pointers; the rule files carry the detailed protocols (workflow.md, communication.md, engineering-defaults.md, security.md), and workflow.md holds the canonical risk-topic list.
+The global CLAUDE.md works together with the global rules installed by this skill's Link step (`~/.claude/rules/`, symlinked from this repo's `rules/`). Keep each concern in exactly one place: CLAUDE.md carries one-line pointers; the rule files carry the detailed protocols (workflow.md, communication.md, engineering-defaults.md, security.md), and workflow.md holds the canonical risk-topic list.
 
 ## Required Sections
 
@@ -43,7 +43,7 @@ Target: **≤35 lines including the optional orchestration sections**; a minimal
 
 ## Starter Template
 
-If no global CLAUDE.md exists, offer this as a starting point for the user to customize:
+When no global CLAUDE.md exists and the person picks the starter, the setup writes this to `~/.claude/CLAUDE.md` for them to edit:
 
 ```markdown
 # User Preferences

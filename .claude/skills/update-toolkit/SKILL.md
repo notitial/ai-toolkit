@@ -22,11 +22,11 @@ Git calls go through the git MCP tools with `path` set to this checkout (the fol
 
 The last message is two or three lines and no more. Nothing follows it, not a summary and not an offer.
 
-If `/setup-toolkit` staged a settings file for the user to put live:
+If `/setup-toolkit` ended with a command block for the user to run (it always holds the settings copy when a settings file was staged):
 
 ```
 Updated ai-toolkit <old> -> <new>.
-Last step: run the copy command shown above to put your settings live.
+Last step: run the command block shown above.
 ```
 
 Otherwise:

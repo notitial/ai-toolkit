@@ -122,7 +122,7 @@ status_install_conf() {
   case $? in
     0) line ok "install.conf${CONF_SKIPPED:+ (skipped, not used here: $CONF_SKIPPED)}" ;;
     1) line MISSING "install.conf (the install-time settings)" "/setup-toolkit" ;;
-    *) line STALE "install.conf ($CONF_ERR)" "/setup-toolkit" ;;
+    *) line STALE "install.conf ($CONF_ERR)" "fix the named line by hand, or delete the file and run /setup-toolkit" ;;
   esac
 }
 
