@@ -5,7 +5,7 @@ stdio in every session (user scope). macOS on Apple silicon only: the launcher r
 the install fetches the Darwin arm64 build.
 
 It relies on the toolkit's tooling: the zsh helpers `ghm-status` and `ghm-test` (`tools/ait.zsh`) and the
-install-time settings file `~/.claude/install.conf`, which `/setup-toolkit` writes and the guard and launcher read when they
+install-time settings file `~/.claude/install.conf`, which the person writes and the guard and launcher read when they
 run (`github_write_owners`, `github_keychain_account`, and the optional `github_projects`).
 
 | File | What it is |
@@ -77,10 +77,15 @@ deliberately not in `hooks/`, which `/setup-toolkit` symlinks into `~/.claude/ho
    - limits every non-read tool to the write repos: every repo of the owners in the `github_write_owners` install
      setting, future ones included (an owner wildcard). The repo name must be a plain GitHub name (letters, digits,
      `.`, `_`, `-`; not empty, not only dots, 100 characters at most); any other owner is denied.
-     The owner list is read from the `github_write_owners` setting in `~/.claude/install.conf` (written by
-     `/setup-toolkit`) on every call: only plain lowercase owner names are accepted, and a missing or invalid setting
-     leaves no owner, so every write is denied. The template denies Edit and Write on that file and asks on any shell
-     command that names it; a shell write is not an Edit (see Residuals). The wildcard widens what an agent can open a PR in, comment on or re-run: a new repo under a write owner, private
+     The setting is read from `~/.claude/install.conf` (written by the person) on every call. Its value is plain
+     lowercase owner names, or exactly `*`: any owner whose name is a plain GitHub name (1 to 39 letters, digits and
+     `-`, not starting with `-`). With `*` the token's reach is the only owner limit: a draft PR, a comment, a PR
+     title or body edit (or marking a PR ready), an issue or label create or update and a sub-issue add go through
+     without a prompt in any repo the token can write or comment on, your own orgs, client orgs and a stranger's
+     public repo included, and text an agent posts there is not shown to you first. Every ask below stays.
+     Any other value (`all` is an owner named all) or a second `github_write_owners` line leaves no owner, so every
+     write is denied and `status` reads the file STALE. The template denies Edit and Write on that file and asks on any shell
+     command that names it; a shell write is not an Edit (see Residuals). Listing an owner widens what an agent can open a PR in, comment on or re-run: a new repo under a write owner, private
      ones included, is covered from its first day. Merge, repo settings and rulesets stay denied (they are not
      exposed);
    - lets `actions_run_trigger` through only for re-run, re-run failed jobs, cancel and dispatch (`run_workflow`), each
@@ -108,8 +113,9 @@ deliberately not in `hooks/`, which `/setup-toolkit` symlinks into `~/.claude/ho
      write owner, and any `item_owner`/`item_repo` (top level or in a bulk `items` list) a write repo; otherwise it
      denies. Adding or updating one item and posting a status update are allowed in the Projects of the
      `github_projects` install setting (`<owner>/<number>` entries, space-separated, read from `~/.claude/install.conf`
-     on every call like the owners; an entry counts only while its owner is a write owner; to add it to an install
-     whose `install.conf` is already `ok`, ask `/setup-toolkit` to redo its install-time settings step). A Project not
+     on every call like the owners; an entry counts only while its owner is a write owner, any owner name under `*`;
+     to add it to an install whose `install.conf` is already `ok`, ask `/setup-toolkit` to redo its install-time
+     settings step). A Project not
      listed, a bulk update (`update_project_items`, the only method that takes an `items` list, each entry an item
      reference; the server caps it at 50), item and view deletes, view and iteration-field changes,
      creating a Project and `@claude` in the text ask. A missing or invalid setting lists no Project, so every Project
@@ -253,7 +259,9 @@ you don't need (fewer scopes on the `gh` login, a passphrase on SSH keys).
   prompt-injection route toward the hook-allowed writes in write-owner repos: comments and PRs, and now issues,
   labels, sub-issues and items of the listed Projects, all without a prompt. What asks stays asking (a close or
   reopen, assignees, `@claude`, a sub-issue removed or moved, a label deletion, a Project bulk update or delete);
-  what an injected agent can do silently is noise: new or edited issues and labels, items added or updated.
+  what an injected agent can do silently is noise: new or edited issues and labels, items added or updated. Under
+  `github_write_owners=*` the route reaches every repo the token can write or comment on, a stranger's public repo
+  included.
 - `projects_write` can delete Project items and views and update up to 50 items in one call. The guard asks on those;
   without the hook they fall back to the default prompt.
 - Some targets can't be traced to a repo by the guard: a sub-issue is named by its global id (`sub_issue_id`), and a
@@ -310,7 +318,8 @@ you don't need (fewer scopes on the `gh` login, a passphrase on SSH keys).
   says so.
 - Every repo of a write owner is a write repo, including one that holds personal data or infrastructure config: a
   PR, comment or re-run there is one approved prompt away. Keep such repos under an owner that is not in
-  `github_write_owners`.
+  `github_write_owners`. Under `*` no owner is unlisted, so the token's reach is the only fence: to keep a repo safe,
+  use an owner list instead of `*`, or a token that cannot reach it.
 
 ## Sessions
 

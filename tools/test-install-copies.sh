@@ -550,6 +550,21 @@ for good_conf in 'lan_host=nas.home.arpa' 'lan_host=box.local' 'router_ip=172.16
   ic status
   expect_re "valid setting $good_conf is ok" "$OUT" '^ok +install\.conf$'
 done
+# github_write_owners accepts exactly *, the owner wildcard the guard reads; all is an owner named "all".
+conf_with 'github_write_owners=*'
+ic status
+expect_re "github_write_owners=* is ok" "$OUT" '^ok +install\.conf$'
+printf '%s\n' 'other_tool_label=x' 'github_projects=example-org/1' >> "$H/.claude/install.conf"
+ic status
+expect_re "github_write_owners=* is ok beside a skipped key and another known key" "$OUT" '^ok +install\.conf \(skipped, not used here: other_tool_label\)$'
+conf_with 'github_write_owners=all'
+ic status
+expect_re "github_write_owners=all is ok, an owner named all" "$OUT" '^ok +install\.conf$'
+for bad_star in '* notitial' 'notitial *' '**' '' "*$(printf '\r')"; do
+  conf_with "github_write_owners=$bad_star"
+  ic status
+  expect_re "github_write_owners=[$bad_star] is STALE" "$OUT" '^STALE +install\.conf \(github_write_owners: invalid value\)'
+done
 
 case_start "settings 3: automode follows the write owners in install.conf"
 new_case

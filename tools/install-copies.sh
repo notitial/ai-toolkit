@@ -13,7 +13,8 @@
 #
 # Pieces `status` checks (/setup-toolkit Step 8b, and the `ait-status` zsh helper):
 #   install.conf   ~/.claude/install.conf, the install-time settings /setup-toolkit writes, one key=value line each,
-#                  never sourced. Required: github_write_owners, github_keychain_account; optional:
+#                  never sourced. Required: github_write_owners (owner names, or exactly * for any owner),
+#                  github_keychain_account; optional:
 #                  github_username, github_projects, lan_host, router_ip. Any other well-formed key (lowercase letters and _) is
 #                  skipped, so a file another installer added its own keys to still reads; `status` lists them.
 #   github-mcp     the launcher and the guard run from this checkout: it is on a clean main, the pinned server binary
@@ -105,7 +106,7 @@ read_conf() {
     case $seen in *" $k "*) CONF_ERR="$k: given twice"; return 2 ;; esac
     seen="$seen$k "
     case $k in
-      github_write_owners) conf_ok "$v" '[a-z0-9][a-z0-9-]*( [a-z0-9][a-z0-9-]*)*' && CONF_OWNERS=$v ;;
+      github_write_owners) case $v in '*') CONF_OWNERS=$v ;; *) conf_ok "$v" '[a-z0-9][a-z0-9-]*( [a-z0-9][a-z0-9-]*)*' && CONF_OWNERS=$v ;; esac ;;
       github_keychain_account) conf_ok "$v" '[A-Za-z0-9._@-]+' && CONF_ACCOUNT=$v ;;
       github_username) conf_ok "$v" '[a-z0-9][a-z0-9-]*' && CONF_GITHUB_USERNAME=$v ;;
       github_projects) conf_ok "$v" '[a-z0-9][a-z0-9-]*/[1-9][0-9]{0,8}( [a-z0-9][a-z0-9-]*/[1-9][0-9]{0,8})*' ;;
