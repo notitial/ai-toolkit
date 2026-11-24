@@ -302,6 +302,13 @@ while IFS= read -r cfg; do
     jq -e '[.. | objects | .command? | strings | select(. == "/usr/local/libexec/mcp-github/guard.sh")] | length > 0' \
       "$SCRATCH/new.json" >/dev/null 2>&1 && KEPT_ROOT_GUARD=1
   fi
+  # An older setup merged autoMode environment entries filled in from install.conf (the GitHub login, the LAN host, the
+  # router). The template no longer has them, so none can match and they stay: say so, since they widen what the
+  # auto mode classifier trusts. The person removes them by hand.
+  if jq -e '[.autoMode.environment? // [] | .[]? | strings | select(test("^(Organization|Source control|Key internal services|Home router|Container registry): "))] | length > 0' \
+    "$SCRATCH/new.json" >/dev/null 2>&1; then
+    say KEEP "$rf: autoMode environment entries an older setup filled in from install.conf (Organization, Source control, Key internal services, Home router, Container registry); they trust that account, host and router, remove them by hand"
+  fi
   if cmp -s "$SCRATCH/old.json" "$SCRATCH/new.json"; then say OK "$rf (nothing of the toolkit's in it)"; continue; fi
   N_EDIT=$((N_EDIT + 1))
   say EDIT "$rf  (toolkit keys; a backup is written first)"

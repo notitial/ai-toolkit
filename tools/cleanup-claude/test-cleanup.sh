@@ -420,6 +420,14 @@ run --apply
 check "install.conf: removed" '[ ! -e "$C/install.conf" ] && grep -q "REMOVE .*install.conf  (install-time settings)" "$T/out"'
 check "settings: an autoMode line of the template is removed" '[ -n "$AM_RENDERED" ] && [ -f "$C/settings.json" ] && ! jq -e --arg l "$AM_RENDERED" ".autoMode.environment // [] | index(\$l)" "$C/settings.json" >/dev/null'
 mkhome
+OLD_AM='Source control: github.com/example-user (the user'"'"'s personal account), and every repository under it, forks included'
+jq --arg l "$OLD_AM" '.autoMode.environment += [$l]' "$C/settings.json" > "$C/s.tmp" && mv "$C/s.tmp" "$C/settings.json"
+run --apply
+check "settings: an autoMode line an older setup filled in stays, and is reported KEEP" 'jq -e --arg l "$OLD_AM" ".autoMode.environment // [] | index(\$l)" "$C/settings.json" >/dev/null && grep -q "^KEEP .*autoMode environment entries an older setup filled in" "$T/out"'
+mkhome
+run --apply
+check "settings: no such line, no such KEEP" '! grep -q "autoMode environment entries an older setup" "$T/out"'
+mkhome
 conf_fixture
 printf '%s\n' 'other_tool_label=com.example' >> "$C/install.conf"
 mkdir -p "$C/repos/other-tool"
