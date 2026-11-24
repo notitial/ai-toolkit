@@ -532,7 +532,7 @@ rm -f "$TMP/.claude/install.conf"
 check deny "no install.conf: an owner-bearing write is denied" "$WRITE_CALL"
 check pass "no install.conf: a read still passes" "$READ_CALL"
 write_conf 'github_write_owners=evil-owner' 'github_write_owners=notitial'
-check deny "only the first owners line counts" "$WRITE_CALL"
+check deny "a second owners line leaves no owners" "$WRITE_CALL"
 # The Projects come from the optional github_projects setting; a missing or invalid one leaves no Project (ask).
 PROJECT_CALL=$(pcall '{"method":"update_project_item","item_id":99,"updated_field":{"name":"Status","value":"Done"}}')
 write_conf 'github_write_owners=notitial example-user' 'github_projects=notitial/3 example-user/7'
@@ -548,6 +548,55 @@ write_conf 'github_write_owners=notitial' 'github_projects=example-user/7'
 check deny "a listed Project whose owner is not a write owner is denied" "$PROJECT_CALL"
 write_conf 'github_write_owners=notitial example-user' 'github_projects=notitial/7' 'github_projects=example-user/7'
 check ask "only the first github_projects line counts" "$PROJECT_CALL"
+write_conf 'github_write_owners=notitial example-user' 'github_keychain_account=test-account' 'github_projects=example-user/7'
+
+# The owner wildcard: github_write_owners=* lets a write target any owner whose name is a plain GitHub name. Everything
+# else the guard asks about or denies stays as it is, and a value that is not exactly * (or a name list) denies.
+star_call() { call create_pull_request "$(jq -n -c --argjson o "$1" '{owner: $o, repo: "r", title: "t", head: "b", base: "main", draft: true}')"; }
+star_pcall() { jq -n -c --argjson i "$1" '{tool_name: "mcp__github__projects_write", tool_input: ({owner: "example-user", project_number: 7, method: "update_project_item", item_id: 99, updated_field: {name: "Status", value: "Done"}} + $i)}'; }
+write_conf 'github_write_owners=*' 'github_keychain_account=test-account'
+check allow "wildcard: a draft PR on an owner never listed" "$(call create_pull_request '{"owner":"github","repo":"github-mcp-server","title":"t","head":"b","base":"main","draft":true}')"
+check allow "wildcard: a comment on an owner never listed" "$(call add_issue_comment '{"owner":"someone-else","repo":"r","issue_number":1,"body":"hi"}')"
+check allow "wildcard: an uppercase owner" "$(star_call '"Example-User"')"
+check allow "wildcard: a 39-character owner" "$(star_call "\"$(printf 'a%.0s' $(seq 1 39))\"")"
+check ask "wildcard: a comment with @claude stays ask" "$(call add_issue_comment '{"owner":"someone-else","repo":"r","issue_number":1,"body":"@claude hi"}')"
+check ask "wildcard: a non-draft PR stays ask" "$(call create_pull_request '{"owner":"someone-else","repo":"r","title":"t","head":"b","base":"main","draft":false}')"
+check ask "wildcard: a re-run stays ask" "$(call actions_run_trigger '{"owner":"someone-else","repo":"r","method":"rerun_workflow_run","run_id":1}')"
+check ask "wildcard: a Project not listed stays ask" "$(star_pcall '{"owner":"never-listed","project_number":8}')"
+check deny "wildcard: a bad repo name stays deny" "$(call create_pull_request '{"owner":"someone-else","repo":"a/b","title":"t","head":"b","base":"main","draft":true}')"
+check deny "wildcard: an unknown tool stays deny" "$(call merge_pull_request '{"owner":"someone-else","repo":"r","pullNumber":1}')"
+check deny "wildcard: update_pull_request with state stays deny" "$(call update_pull_request '{"owner":"someone-else","repo":"r","pullNumber":1,"state":"closed"}')"
+# * is not an owner name: it is denied at every site that takes an owner.
+check deny "wildcard: owner * on create_pull_request" "$(star_call '"*"')"
+check deny "wildcard: owner * on projects_write" "$(star_pcall '{"owner":"*"}')"
+check deny "wildcard: item_owner * on projects_write" "$(star_pcall '{"method":"add_project_item","item_type":"issue","item_owner":"*","item_repo":"r","issue_number":3}')"
+check deny "wildcard: parent_owner * on issue_write" "$(acall issue_write '{"method":"create","title":"t","parent_issue_number":1,"parent_owner":"*","parent_repo":"r"}')"
+# An owner that is not a plain GitHub name is denied at the PR site and at the projects_write owner.
+for bad_owner in '"example-user\n"' '"example-user\r"' '"-x"' '""' '"../x"' '"a b"' '"a/b"' "\"$(printf 'a%.0s' $(seq 1 40))\"" '5' 'null'; do
+  check deny "wildcard: owner $bad_owner on create_pull_request" "$(star_call "$bad_owner")"
+  check deny "wildcard: owner $bad_owner on projects_write" "$(star_pcall "{\"owner\":$bad_owner}")"
+done
+# github_projects under *: an entry under a never-listed owner counts.
+write_conf 'github_write_owners=*' 'github_projects=never-listed/7'
+check allow "wildcard: a github_projects entry under a never-listed owner counts" "$(star_pcall '{"owner":"never-listed"}')"
+# A value that is not exactly * (or a name list) leaves no owners: a write denies, a read passes.
+for bad in '* notitial' 'notitial *' '**' ' *' '* ' '"*"' "'*'" '*/x' '.*' '' "*$(printf '\r')"; do
+  write_conf "github_write_owners=$bad"
+  check deny "wildcard: github_write_owners=[$bad] denies a write" "$WRITE_CALL"
+  check pass "wildcard: github_write_owners=[$bad] lets a read pass" "$READ_CALL"
+done
+write_conf 'github_write_owners=*' 'github_write_owners=notitial'
+check deny "wildcard: * then a second owners line denies" "$WRITE_CALL"
+write_conf 'github_write_owners=notitial' 'github_write_owners=*'
+check deny "wildcard: a list then a second * line denies" "$WRITE_CALL"
+write_conf 'github_write_owners=*' 'github_write_owners='
+check deny "wildcard: * then an empty second owners line denies" "$WRITE_CALL"
+# A list is unchanged: the name test applies there too.
+write_conf 'github_write_owners=notitial'
+check deny "list: an owner with a trailing newline stays denied" "$(call create_pull_request '{"owner":"notitial\n","repo":"r","title":"t","head":"b","base":"main","draft":true}')"
+LONG_OWNER=$(printf 'a%.0s' $(seq 1 40))
+write_conf "github_write_owners=$LONG_OWNER"
+check deny "list: a listed owner of 40 characters is denied (the name test applies in list mode)" "$(star_call "\"$LONG_OWNER\"")"
 write_conf 'github_write_owners=notitial example-user' 'github_keychain_account=test-account' 'github_projects=example-user/7'
 
 # Launcher: run a copy inside a throwaway checkout, with stand-ins for security and the server, under a hostile

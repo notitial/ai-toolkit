@@ -8,7 +8,8 @@
 #   commit of the guard would otherwise go live.
 # - Reads pass. A tool in neither READ_TOOLS nor WRITE_TOOLS is denied, so a server upgrade stays shut until reviewed.
 # - Every write must target a repo of WRITE_OWNERS; projects_write, which names a Project owner and no repo, must name
-#   an owner of WRITE_OWNERS, and every item repo it names must be a repo of one.
+#   an owner of WRITE_OWNERS, and every item repo it names must be a repo of one. WRITE_OWNERS is a list of owner names or
+#   the single entry "*" (any owner whose name is a plain GitHub name): then the token's reach is the only owner limit.
 # - actions_run_trigger: re-run, re-run failed jobs, cancel and dispatch ask; log deletion is denied.
 # - update_pull_request may set only title, body and draft; its reason shows the new text.
 # - create_pull_request, add_issue_comment, add_reply_to_pull_request_comment and update_pull_request are allowed,
@@ -134,36 +135,47 @@ fi
 READ_TOOLS=" get_me pull_request_read list_pull_requests search_pull_requests issue_read list_issues search_issues get_file_contents get_commit list_commits list_branches actions_get actions_list get_job_logs list_label projects_list projects_get "
 WRITE_TOOLS=" create_pull_request add_issue_comment add_reply_to_pull_request_comment actions_run_trigger update_pull_request issue_write sub_issue_write label_write projects_write "
 # Owners whose repos the write tools may target (lowercase JSON array): the github_write_owners install setting,
-# read from ~/.claude/install.conf at call time (/setup-toolkit writes it; the template denies edits of that file and
-# asks on a shell command that names it). Only plain lowercase owner names are accepted. A missing or invalid
-# setting leaves an empty list, so every owner-bearing write is denied. The repo name must be a plain GitHub name.
+# read from ~/.claude/install.conf at call time (the person writes it; the template denies edits of that file and
+# asks on a shell command that names it). The value is exactly `*` (any owner) or plain lowercase owner names. A
+# missing or invalid value, or a second owners line, leaves an empty list, so every owner-bearing write is denied. The
+# repo name must be a plain GitHub name.
 WRITE_OWNERS='[]'
-OWNERS_LINE=$(/usr/bin/sed -n 's/^github_write_owners=//p' "$HOME/.claude/install.conf" </dev/null 2>/dev/null | /usr/bin/head -n 1)
+# Each owners line gets a leading @, so a second line (even an empty one) leaves a newline in the value and denies.
+OWNERS_LINE=$(/usr/bin/sed -n 's/^github_write_owners=/@/p' "$HOME/.claude/install.conf" </dev/null 2>/dev/null)
+OWNERS_LINE=${OWNERS_LINE#@}
 OWNERS_RE='^[abcdefghijklmnopqrstuvwxyz0123456789][abcdefghijklmnopqrstuvwxyz0123456789-]*( [abcdefghijklmnopqrstuvwxyz0123456789][abcdefghijklmnopqrstuvwxyz0123456789-]*)*$'
-if [[ "$OWNERS_LINE" =~ $OWNERS_RE ]]; then
+if [ "$OWNERS_LINE" = '*' ]; then
+  WRITE_OWNERS='["*"]'
+elif [[ "$OWNERS_LINE" =~ $OWNERS_RE ]]; then
   WRITE_OWNERS=$(printf '%s\n' "$OWNERS_LINE" | "$JQ" -R -c 'split(" ")' 2>/dev/null) || WRITE_OWNERS='[]'
 fi
+# jq def owner_ok($o) (prepended to a jq program, needs --argjson owners): $o is a plain GitHub owner name (1 to 39 of
+# a-z 0-9 -, not starting with -, any case) that WRITE_OWNERS lists or that the wildcard "*" covers. The name test is
+# the gsub idiom, since a ^...$ regex would let a trailing newline through; it applies in list mode too.
+OWNER_OK='def owner_ok($o): ($o | type == "string")
+  and (($o | ascii_downcase) as $lo
+    | ($lo | length > 0 and length <= 39 and (gsub("[^a-z0-9-]"; "") == .) and (startswith("-") | not))
+      and any($owners[]; . == "*" or . == $lo));'
 # The Projects projects_write may change without a prompt (JSON array of {owner, number}): the optional
 # github_projects install setting, space-separated <owner>/<number> entries, read from the same file at call time. An
-# entry counts only while its owner is a write owner. A missing or invalid setting leaves no Project, so every
+# entry counts only while its owner is a write owner (under "*", any owner name). A missing or invalid setting leaves no Project, so every
 # projects_write asks (or denies, outside the write owners).
 PROJECTS='[]'
 PROJECTS_LINE=$(/usr/bin/sed -n 's/^github_projects=//p' "$HOME/.claude/install.conf" </dev/null 2>/dev/null | /usr/bin/head -n 1)
 PROJECT_RE='[abcdefghijklmnopqrstuvwxyz0123456789][abcdefghijklmnopqrstuvwxyz0123456789-]*/[123456789][0123456789]{0,8}'
 PROJECTS_RE="^$PROJECT_RE( $PROJECT_RE)*\$"
 if [[ "$PROJECTS_LINE" =~ $PROJECTS_RE ]]; then
-  PROJECTS=$(printf '%s\n' "$PROJECTS_LINE" | "$JQ" -R -c --argjson owners "$WRITE_OWNERS" '
+  PROJECTS=$(printf '%s\n' "$PROJECTS_LINE" | "$JQ" -R -c --argjson owners "$WRITE_OWNERS" "$OWNER_OK"'
     split(" ") | map(split("/") | {owner: .[0], number: (.[1] | tonumber)})
-    | map(select(.owner as $o | any($owners[]; . == $o)))' 2>/dev/null) || PROJECTS='[]'
+    | map(select(owner_ok(.owner)))' 2>/dev/null) || PROJECTS='[]'
 fi
 
-# jq helpers for the write checks (prepended to a jq program). repo_ok: $o/$r is a repo of a write owner, with a
-# plain GitHub repo name (needs --argjson owners). cut: a JSON-quoted value, its middle cut when long, for prompts.
+# jq helpers for the write checks (prepended to a jq program). repo_ok: $o/$r is a repo of a write owner (owner_ok),
+# with a plain GitHub repo name (needs --argjson owners). cut: a JSON-quoted value, its middle cut when long, for prompts.
 # whole: a whole number above zero. opt(keys; f): each of the keys that is present (null included) passes f.
-REPO_OK='def repo_ok($o; $r): ($o | type == "string") and ($r | type == "string")
-  and (($o | ascii_downcase) as $lo | ($r | ascii_downcase) as $lr
-    | any($owners[]; . == $lo)
-      and ($lr | length > 0 and length <= 100 and (gsub("[^a-z0-9._-]"; "") == .) and (test("^[.]+$") | not)));'
+REPO_OK="$OWNER_OK"'def repo_ok($o; $r): owner_ok($o) and ($r | type == "string")
+  and (($r | ascii_downcase) as $lr
+    | $lr | length > 0 and length <= 100 and (gsub("[^a-z0-9._-]"; "") == .) and (test("^[.]+$") | not));'
 CUT='def cut: tojson | if length > 600 then .[0:300] + "...(truncated)..." + .[-300:] + " [" + (length | tostring) + " characters of JSON in all]" else . end;'
 WHOLE='def whole: type == "number" and . == floor and . > 0;
   def opt($ks; f): . as $o | all($ks[]; . as $k | ($o | has($k) | not) or ($o[$k] | f));'
@@ -198,7 +210,7 @@ if [ "$TOOL" = projects_write ]; then
       and all(.[]; type == "object" and ((keys - ["node_id", "item_id", "item_owner", "item_repo", "issue_number"]) | length == 0)))))
     and opt(["title", "body"]; type == "string")' \
     || decide deny "projects_write needs a reviewed method, only the arguments the guard knows, a whole-number project_number above zero, items only on update_project_items (a list of item references), and text for title and body; blocked."
-  jqtest --argjson owners "$WRITE_OWNERS" '.tool_input.owner | type == "string" and (ascii_downcase as $o | any($owners[]; . == $o))' \
+  jqtest --argjson owners "$WRITE_OWNERS" "$OWNER_OK"'owner_ok(.tool_input.owner)' \
     || decide deny "projects_write on the Project owner $(show '.tool_input.owner') is outside the github MCP write owners ($WRITE_OWNERS); blocked."
   jqtest --argjson owners "$WRITE_OWNERS" "$REPO_OK"'
     .tool_input | [., .items[]?] | all(.[]; ((has("item_owner") or has("item_repo")) | not) or repo_ok(.item_owner; .item_repo))' \

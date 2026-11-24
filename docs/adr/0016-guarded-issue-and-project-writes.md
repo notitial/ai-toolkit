@@ -45,9 +45,16 @@ stands. The token is a classic PAT with the `repo` scope; Projects need the `pro
   are allowed there. A Project not listed, a bulk update, deletes, view and field changes, and a new Project ask. An
   owner outside the write owners denies.
 - The token is a classic PAT with the `repo` and `project` scopes.
+- Amended 2026-11-24: `github_write_owners` may be exactly `*`, any owner whose name is a plain GitHub name. Any other
+  value, or a second owners line, leaves no owner and denies every owner-bearing write. Every ask above stays.
 
 ## Consequences
 
+- Under `github_write_owners=*` the token's reach is the only owner limit: a draft PR, a comment, a PR title or body
+  edit (or marking a PR ready), an issue or label create or update and a sub-issue add go through without a prompt in
+  any repo the token can write or comment on (the person's orgs, client orgs, a stranger's public repo), and text an
+  agent posts there is not shown first. A prompt-injected agent could post outside the person's own
+  repos. Keeping a repo safe then means an owner list instead of `*`, or a token that cannot reach it.
 - Agents can keep issues, labels and the listed Projects up to date without a prompt. The prompts that remain are
   the changes that close, delete, notify, cost money or touch many items at once.
 - Issue, label and Project item text from any GitHub user reaches the agent, and now leads to silent writes. What an

@@ -74,7 +74,7 @@ if [ -z "$pin" ] || [ "$got" != "$pin" ]; then
   echo "mcp-github: $DIR/bin/github-mcp-server does not match tools/github-mcp/server.sha256 (or is missing); refusing to start" >&2
   exit 1
 fi
-# The keychain account comes from the install-time settings file /setup-toolkit writes. Only a plain account name is
+# The keychain account comes from the install-time settings file the person writes. Only a plain account name is
 # accepted: it goes onto a command line.
 acct=$(/usr/bin/sed -n 's/^github_keychain_account=//p' "$HOME/.claude/install.conf" </dev/null 2>/dev/null | /usr/bin/head -n 1) || acct=
 case $acct in
