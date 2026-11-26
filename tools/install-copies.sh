@@ -25,7 +25,7 @@
 #                  refused whole) and one line per account saying whether its Keychain item exists. Existence is asked
 #                  without -w or -g, so a secret is never read.
 #   links          every agent, hook, rule, global skill and tool script with no link under ~/.claude, or a wrong one;
-#                  a hook or the lock script that is not executable, since those run by their path; a hook no entry
+#                  a hook, the lock script or the claude wrapper that is not executable, since those run by their path; a hook no entry
 #                  in ~/.claude/settings.json runs (presence only: /setup-toolkit compares events and matchers).
 # Tests: bash tools/test-install-copies.sh. The ICOPIES_* overrides are honoured only when ICOPIES_TESTING=1.
 
