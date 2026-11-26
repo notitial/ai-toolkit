@@ -411,6 +411,8 @@ EOF
   check_link tools/statusline.sh "$CLAUDE_DIR/statusline.sh"
   check_link tools/workspace-lock/workspace-lock.sh "$CLAUDE_DIR/tools/workspace-lock.sh"
   check_exec tools/workspace-lock/workspace-lock.sh
+  check_link tools/claude-wrapper/claude-wrapper.sh "$CLAUDE_DIR/tools/claude-wrapper.sh"
+  check_exec tools/claude-wrapper/claude-wrapper.sh
   check_link tools/shell-init.zsh "$CLAUDE_DIR/tools/shell-init.zsh"
   note "links     $LINK_OK linked, $LINK_NEW unlinked, $LINK_CONFLICT conflicting"
 }
