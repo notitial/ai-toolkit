@@ -12,7 +12,7 @@ Configure the global Claude Code environment from this repo's templates and skil
 
 - `env`: the session-quality survey and the `/feedback` upload off, and claude.ai's cloud MCP connectors off;
 - `attribution`: no commit trailer, PR footer or session link;
-- `autoCompactWindow`: 500000;
+- `autoCompactWindow`: 533000;
 - `enableAllProjectMcpServers`: `false`.
 
 Read Step 6 before the first run if you rely on other values for any of them.
@@ -154,7 +154,7 @@ Template keys that start with `_` (`_comment`, `_env_comment`, `_migration` and 
 
 - **`env`:** a key absent from the live `env` is added with the template value (create `env` if needed); present with the same value: skip; a different value: overwrite and report old and new. Never remove or alter a live `env` key that is not in the template (e.g. `CLAUDE_CODE_NO_FLICKER`).
 - **`attribution`:** the mechanical form of the global CLAUDE.md no-attribution rule (the harness re-applies `Co-Authored-By` / "Generated with Claude Code" by default, and only this setting stops it). Absent: add; identical: skip; different: overwrite, report old and new. `commit` and `pr` are **strings** (`""` suppresses the trailer or footer), `sessionUrl` a **boolean**.
-- **`autoCompactWindow`** (500000): enforced like `env`. It sets when every model compacts; without it 1M-window models (Opus 5.x, Fable, Sonnet 5) compact near 967k and every turn re-sends that context. **Per-model override check (every run; fail loud):** a live `modelSettings.<model>.autoCompactWindow`, which is what `/autocompact` writes, beats the top-level key for that model. Report each as `DRIFT: modelSettings.<model>.autoCompactWindow = <value> overrides autoCompactWindow`; round 2 asks whether to remove it (keeping the model's other keys such as `effortLevel`, and deleting an emptied `modelSettings.<model>`). Not touched: the `CLAUDE_CODE_AUTO_COMPACT_WINDOW` env var beats this key.
+- **`autoCompactWindow`** (533000): enforced like `env`. It sets when every model compacts; without it 1M-window models (Opus 5.x, Fable, Sonnet 5) compact near 967k and every turn re-sends that context. **Per-model override check (every run; fail loud):** a live `modelSettings.<model>.autoCompactWindow`, which is what `/autocompact` writes, beats the top-level key for that model. Report each as `DRIFT: modelSettings.<model>.autoCompactWindow = <value> overrides autoCompactWindow`; round 2 asks whether to remove it (keeping the model's other keys such as `effortLevel`, and deleting an emptied `modelSettings.<model>`). Not touched: the `CLAUDE_CODE_AUTO_COMPACT_WINDOW` env var beats this key.
 
 ### Prompt cache TTL
 
@@ -247,7 +247,7 @@ Status line / tool scripts: Installed / Already installed / Conflict (+ the shel
 Git MCP: Registered (in the block) / Already correct / Repaired (in the block); only `Already correct` when the config runs this checkout's server
 GitHub MCP: install.conf ok / MISSING (in the block) / STALE (<key>); github checkout, binary, server, guard hook: ok / the fix the `status` line prints
 Global CLAUDE.md: Created (starter) / Skipped / Up to date / evaluation: <sections present, missing, thin>
-Settings: backup <path> mode 600 / none; env keys enforced; autoCompactWindow Added / Overwritten (<old> → 500000) / Already configured, per-model overrides <list or none>; promptCacheTtl Added 1h / Already set (<value>) / Skipped (older Claude Code), overrides <NOTE list>; permissions added / removed (migration); deny and ask added, live-only ones; ask entries prompt (confirm by running one); hooks Added / Already configured / Merged; skipped hooks; Protected checkout: marker ok / MISSING; status line Added / Already configured; auto mode per list Added <n> / Already configured / DRIFT, live allow and hard_deny with or WITHOUT "$defaults", skillOverrides added; start context per key; plugins added; settings file: staged <path>, live unchanged until the copy
+Settings: backup <path> mode 600 / none; env keys enforced; autoCompactWindow Added / Overwritten (<old> → 533000) / Already configured, per-model overrides <list or none>; promptCacheTtl Added 1h / Already set (<value>) / Skipped (older Claude Code), overrides <NOTE list>; permissions added / removed (migration); deny and ask added, live-only ones; ask entries prompt (confirm by running one); hooks Added / Already configured / Merged; skipped hooks; Protected checkout: marker ok / MISSING; status line Added / Already configured; auto mode per list Added <n> / Already configured / DRIFT, live allow and hard_deny with or WITHOUT "$defaults", skillOverrides added; start context per key; plugins added; settings file: staged <path>, live unchanged until the copy
 DRIFT lines: every one, with its fix
 ```
 
