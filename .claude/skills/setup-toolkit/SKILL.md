@@ -53,7 +53,7 @@ Read these to understand what is already configured:
 
 - `~/.claude/CLAUDE.md`, `~/.claude/settings.json` and `~/.claude.json` (each may not exist; `~/.claude.json` is the user-scope MCP config)
 - This skill's `templates/` (`global-claude-md.md`: the checklist and the starter; `safe-permissions.json`: permissions, plugins, hooks config and migration rules)
-- Repo root artifacts, resolved from this skill's location via `../../../`: `agents/*.md`, `hooks/*.sh`, `rules/*.md`, `tools/statusline.sh`, `tools/workspace-lock/workspace-lock.sh`, `tools/shell-init.zsh`, `tools/install-copies.sh`
+- Repo root artifacts, resolved from this skill's location via `../../../`: `agents/*.md`, `hooks/*.sh`, `rules/*.md`, `tools/statusline.sh`, `tools/workspace-lock/workspace-lock.sh`, `tools/claude-wrapper/claude-wrapper.sh`, `tools/shell-init.zsh`, `tools/install-copies.sh`
 - `bash tools/install-copies.sh roster` (the agents, hooks, rules and skills committed at `HEAD`; an untracked file is never linked) and `bash tools/install-copies.sh status`; keep both outputs for the report
 
 ## Step 2: Link
@@ -68,6 +68,7 @@ Link every roster entry and the tool scripts, with no question asked:
 | each `rules/<name>.md` of the roster | `rules/<name>.md` | no |
 | `tools/statusline.sh` | `statusline.sh` | no (run as `bash <path>`) |
 | `tools/workspace-lock/workspace-lock.sh` | `tools/workspace-lock.sh` | yes |
+| `tools/claude-wrapper/claude-wrapper.sh` | `tools/claude-wrapper.sh` | yes |
 | `tools/shell-init.zsh` | `tools/shell-init.zsh` | no (sourced; it loads the `ait` zsh helpers) |
 
 **The one rule.** For each row: nothing at the link path: `mkdir -p` its folder and `ln -s <absolute source> <link>`; a symlink to the right target: skip; anything else: report a conflict and do not overwrite. The exception is Rules ([ADR 0009](../../../docs/adr/0009-global-rules-distribution.md): always-on rules, no frontmatter; do not add any): a plain file whose bytes equal the repo copy (`cmp -s`) is replaced by the symlink, since nothing divergent can be lost. A different plain file, a symlink elsewhere, a broken symlink or a directory is a conflict. There is no prune: a rule removed from `rules/` leaves its link, which is reported as a conflict, never deleted.

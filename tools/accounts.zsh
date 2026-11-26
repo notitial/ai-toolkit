@@ -23,9 +23,10 @@
 #                          Limit: the same folder open in two VS Code apps at once means the last window closed wins, and
 #                          an app left running (windowless) restores its own last state, not a newer one from the other
 #                          app: quit it (Cmd+Q) before reopening the folder elsewhere.
+#                          It also sets AIT_RC_OFF=1, which tools/claude-wrapper/claude-wrapper.sh turns into Remote Control off.
 # Arguments pass straight through. The secret is read in a subshell, goes into that one variable and then `exec`
 # replaces the subshell: your shell never holds it and nothing prints it. The program and everything it starts (the
-# Bash tool, hooks, MCP servers, extensions) inherit it, as with any environment variable. Only that variable is set:
+# Bash tool, hooks, MCP servers, extensions) inherit it, as with any environment variable. Only that one secret variable is set (code-<name> also sets AIT_RC_OFF=1):
 # an ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN already exported in your shell is inherited too and may outrank it, so
 # keep both out of the shell these run in. A command, function or alias that already has the name is never replaced:
 # that one launcher is skipped, with the reason on stderr.
@@ -91,7 +92,7 @@ _ait_acct_code() {
     return 1
   fi
   _ait_acct_prep_code "$dir" || return 1
-  _ait_acct_run "$name" code --user-data-dir "$dir" "$@"
+  _ait_acct_run "$name" env AIT_RC_OFF=1 code --user-data-dir "$dir" "$@"
 }
 
 # _ait_acct_define <function name> <body>: never replaces something this loader did not define itself.

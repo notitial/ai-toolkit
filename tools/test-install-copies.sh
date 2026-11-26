@@ -107,6 +107,7 @@ make_links() {
   ln -s "$R/skills/s" "$cd/skills/s"
   ln -s "$R/tools/statusline.sh" "$cd/statusline.sh"
   ln -s "$R/tools/workspace-lock/workspace-lock.sh" "$cd/tools/workspace-lock.sh"
+  ln -s "$R/tools/claude-wrapper/claude-wrapper.sh" "$cd/tools/claude-wrapper.sh"
   ln -s "$R/tools/shell-init.zsh" "$cd/tools/shell-init.zsh"
 }
 # wire_mcp: the github MCP wired at the checkout: the server binary beside the launcher, the `github` server
@@ -126,7 +127,7 @@ setup_current() {
 }
 # Seed: the files the script reads, committed on main and pushed to a bare base origin.
 SEED="$T/seed"
-mkdir -p "$SEED/tools/github-mcp" "$SEED/agents" "$SEED/hooks" "$SEED/rules" "$SEED/skills/s" "$SEED/tools/workspace-lock"
+mkdir -p "$SEED/tools/github-mcp" "$SEED/agents" "$SEED/hooks" "$SEED/rules" "$SEED/skills/s" "$SEED/tools/workspace-lock" "$SEED/tools/claude-wrapper"
 cp "$SCRIPT_SRC" "$SEED/tools/install-copies.sh"
 printf 'launcher v1\n' > "$SEED/tools/github-mcp/launch"
 printf 'guard v1\n' > "$SEED/tools/github-mcp/guard.sh"
@@ -138,8 +139,9 @@ printf '# rule\n' > "$SEED/rules/r.md"
 printf '# skill\n' > "$SEED/skills/s/SKILL.md"
 printf '#!/bin/sh\n' > "$SEED/tools/statusline.sh"
 printf '#!/bin/sh\n' > "$SEED/tools/workspace-lock/workspace-lock.sh"
+printf '#!/bin/sh\n' > "$SEED/tools/claude-wrapper/claude-wrapper.sh"
 printf '# init\n' > "$SEED/tools/shell-init.zsh"
-chmod 755 "$SEED/hooks/h.sh" "$SEED/tools/workspace-lock/workspace-lock.sh"
+chmod 755 "$SEED/hooks/h.sh" "$SEED/tools/workspace-lock/workspace-lock.sh" "$SEED/tools/claude-wrapper/claude-wrapper.sh"
 git init -q -b main "$SEED"
 git init -q --bare -b main "$T/base.git"
 git -C "$SEED" remote add origin "$T/base.git"
@@ -160,9 +162,10 @@ expect_re "github MCP guard hook MISSING" "$OUT" '^MISSING +github MCP guard hoo
 expect_re "a .zshrc that does not load the helpers is MISSING" "$OUT" '^MISSING +~/\.zshrc does not load the zsh helpers  -> add: source ~/\.claude/tools/shell-init\.zsh$'
 expect_re "UNLINKED agent" "$OUT" '^UNLINKED +\.claude/agents/a\.md'
 expect_re "UNLINKED shell-init.zsh" "$OUT" '^UNLINKED +\.claude/tools/shell-init\.zsh'
-expect_has "links summary" "$OUT" "links     0 linked, 7 unlinked, 0 conflicting"
+expect_re "UNLINKED claude-wrapper.sh" "$OUT" '^UNLINKED +\.claude/tools/claude-wrapper\.sh'
+expect_has "links summary" "$OUT" "links     0 linked, 8 unlinked, 0 conflicting"
 expect_re "a hook no settings file runs is MISSING" "$OUT" '^MISSING +hooks/h\.sh is not wired in ~/\.claude/settings\.json, so it does not run  -> /setup-toolkit$'
-expect_has "count of items needing attention" "$OUT" "12 need attention"
+expect_has "count of items needing attention" "$OUT" "13 need attention"
 expect_not "no root-owned folder is mentioned" "$OUT" "libexec"
 
 case_start "status 2: everything installed and linked"
@@ -175,7 +178,7 @@ expect_re "the binary is ok" "$OUT" '^ok +github-mcp server binary$'
 expect_re "the server registration is ok" "$OUT" '^ok +github MCP server registered at this checkout$'
 expect_re "the guard hook is ok" "$OUT" '^ok +github MCP guard hook points at this checkout$'
 expect_re "the .zshrc line is ok" "$OUT" '^ok +~/\.zshrc loads the zsh helpers$'
-expect_has "links summary" "$OUT" "links     7 linked, 0 unlinked, 0 conflicting"
+expect_has "links summary" "$OUT" "links     8 linked, 0 unlinked, 0 conflicting"
 
 case_start "roster: only committed files are linked"
 new_case
@@ -192,7 +195,7 @@ expect_not "an untracked skill is not in the roster" "$OUT" "skills/new"
 ic status
 expect_not "an untracked rule is not reported for linking" "$OUT" "stray.md"
 expect_not "an untracked skill is not reported for linking" "$OUT" "skills/new"
-expect_has "the committed links are still all linked" "$OUT" "links     7 linked, 0 unlinked, 0 conflicting"
+expect_has "the committed links are still all linked" "$OUT" "links     8 linked, 0 unlinked, 0 conflicting"
 
 case_start "roster: a checkout whose HEAD cannot be read fails loudly"
 new_case
@@ -224,7 +227,7 @@ chmod 644 "$R/hooks/h.sh"
 ic status
 expect_rc "status exits 1 for a hook that is not executable" 1
 expect_re "a committed bit lost on disk is STALE, and takes a chmod" "$OUT" '^STALE +hooks/h\.sh is not executable in this checkout, so it does not run  -> chmod 755 hooks/h\.sh$'
-expect_has "its link still counts as linked" "$OUT" "links     7 linked, 0 unlinked, 0 conflicting"
+expect_has "its link still counts as linked" "$OUT" "links     8 linked, 0 unlinked, 0 conflicting"
 chmod 755 "$R/hooks/h.sh"
 gc update-index --chmod=-x hooks/h.sh
 chmod 644 "$R/hooks/h.sh"
@@ -256,7 +259,7 @@ jq -n --arg c "/bin/bash -p '$R/tools/github-mcp/guard.sh' || exit 2" '{hooks: {
 ic status
 expect_rc "status exits 1 for a hook no entry runs" 1
 expect_re "an unwired hook is MISSING" "$OUT" '^MISSING +hooks/h\.sh is not wired in ~/\.claude/settings\.json, so it does not run  -> /setup-toolkit$'
-expect_has "its link still counts as linked" "$OUT" "links     7 linked, 0 unlinked, 0 conflicting"
+expect_has "its link still counts as linked" "$OUT" "links     8 linked, 0 unlinked, 0 conflicting"
 expect_not "an unwired hook is not all current" "$OUT" "all current"
 jq -n '{hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: "/old/place/hooks/h.sh"}]}]}}' > "$H/.claude/settings.json"
 ic status
@@ -410,7 +413,7 @@ ic status
 expect_rc "status exits 1" 1
 expect_re "CONFLICT for the link pointing elsewhere" "$OUT" '^CONFLICT +\.claude/agents/a\.md \(not a link to agents/a\.md\)'
 expect_re "UNLINKED for the new hook" "$OUT" '^UNLINKED +\.claude/hooks/new\.sh'
-expect_has "links summary" "$OUT" "links     6 linked, 1 unlinked, 1 conflicting"
+expect_has "links summary" "$OUT" "links     7 linked, 1 unlinked, 1 conflicting"
 
 case_start "status 6b: each guard is wired only by its fail-closed command"
 new_case
@@ -438,7 +441,7 @@ ln -s "$C/does-not-exist" "$H/.claude/hooks/h.sh"
 ic status
 expect_re "regular file is a CONFLICT" "$OUT" '^CONFLICT +\.claude/rules/r\.md'
 expect_re "dangling link is a CONFLICT" "$OUT" '^CONFLICT +\.claude/hooks/h\.sh'
-expect_has "links summary" "$OUT" "links     5 linked, 0 unlinked, 2 conflicting"
+expect_has "links summary" "$OUT" "links     6 linked, 0 unlinked, 2 conflicting"
 
 case_start "status 8: missing ref"
 new_case
@@ -576,9 +579,10 @@ expect_true "no entry holds a <placeholder> or a [FILL IN]: the lists are merged
 # the hook suites cannot see it, since they run each hook as `bash <file>`.
 case_start "this repository: scripts run by their path are committed 100755"
 REPO=$(cd "$(dirname "$SCRIPT_SRC")/.." && pwd -P)
-MODES=$(git -C "$REPO" ls-files -s -- ':(glob)hooks/*.sh' tools/workspace-lock/workspace-lock.sh tools/github-mcp/launch)
+MODES=$(git -C "$REPO" ls-files -s -- ':(glob)hooks/*.sh' tools/workspace-lock/workspace-lock.sh tools/claude-wrapper/claude-wrapper.sh tools/github-mcp/launch)
 expect_has "the hooks are listed" "$MODES" "hooks/secret-detector.sh"
 expect_has "the lock script is listed" "$MODES" "tools/workspace-lock/workspace-lock.sh"
+expect_has "the claude wrapper is listed" "$MODES" "tools/claude-wrapper/claude-wrapper.sh"
 expect_has "the launcher is listed" "$MODES" "tools/github-mcp/launch"
 expect_not "none of them is committed without the executable bit" "$MODES" "100644 "
 

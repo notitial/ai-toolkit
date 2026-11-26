@@ -131,6 +131,7 @@ for prog in claude code; do
   for a in "\$@"; do echo "arg=\$a"; done
   echo "oauth=\${CLAUDE_CODE_OAUTH_TOKEN-UNSET}"
   echo "apikey=\${ANTHROPIC_API_KEY-UNSET}"
+  echo "rcoff=\${AIT_RC_OFF-UNSET}"
 } > "\$FAKE_REC.$prog"
 echo "fake $prog ran"
 EOF
@@ -197,7 +198,7 @@ out=$(za 'claude-work --resume ABC "two  words" "$HOME" ""; echo "rc=$?"; echo "
 rec=$(cat "$T/rec.claude" 2>/dev/null)
 expect_has "claude-work ran claude" "$out" "fake claude ran"
 expect_has "claude-work exits with the program's status" "$out" "rc=0"
-want=$(printf 'prog=claude\narg=--resume\narg=ABC\narg=two  words\narg=%s\narg=\noauth=SECRET-svc-work-VALUE\napikey=UNSET' "$T/home")
+want=$(printf 'prog=claude\narg=--resume\narg=ABC\narg=two  words\narg=%s\narg=\noauth=SECRET-svc-work-VALUE\napikey=UNSET\nrcoff=UNSET' "$T/home")
 [ "$rec" = "$want" ] && ok || bad "claude-work: arguments and variables: got: $rec"
 expect_has "the secret is in the shell afterwards: not at all" "$out" "after=unset/unset"
 expect_has "the Keychain is asked by service, for the value, with no account" "$(cat "$FAKE_SEC_LOG")" "find-generic-password -s svc-work -w"
@@ -255,7 +256,7 @@ out=$(za 'code-work /some/dir; echo "rc=$?"')
 rec=$(cat "$T/rec.code" 2>/dev/null)
 UD="$T/home/.vscode-accounts/work"
 expect_has "code-work ran code" "$out" "fake code ran"
-want=$(printf 'prog=code\narg=--user-data-dir\narg=%s\narg=/some/dir\noauth=SECRET-svc-work-VALUE\napikey=UNSET' "$UD")
+want=$(printf 'prog=code\narg=--user-data-dir\narg=%s\narg=/some/dir\noauth=SECRET-svc-work-VALUE\napikey=UNSET\nrcoff=1' "$UD")
 [ "$rec" = "$want" ] && ok || bad "code-work: arguments and variables: got: $rec"
 [ -d "$UD/User" ] && ok || bad "code-work: no User folder"
 for f in settings.json keybindings.json snippets tasks.json prompts workspaceStorage History; do
