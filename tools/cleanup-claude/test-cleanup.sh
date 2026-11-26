@@ -48,7 +48,7 @@ mkhome() {  # mkhome -> sets H to a fresh fake home with a toolkit install and s
   jq -n --arg allow "$ALLOW1" --arg ask "$ASK1" --arg deny "$DENY1" --arg plugin "$PLUGIN1" --arg url "$DENIED_URL" --arg sl "$SL_CMD" --arg ame "$AM_ENV" --arg ams "$AM_SOFT" --arg root "$ROOT" '{
     model: "sonnet", theme: "dark",
     env: {CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY: "1", DISABLE_FEEDBACK_COMMAND: "1", ENABLE_CLAUDEAI_MCP_SERVERS: "false", MY_VAR: "x"},
-    attribution: {commit: "", pr: "", sessionUrl: false}, autoCompactWindow: 500000, promptCacheTtl: "1h", subagentPromptCacheTtl: "1h", enableAllProjectMcpServers: false,
+    attribution: {commit: "", pr: "", sessionUrl: false}, autoCompactWindow: 533000, promptCacheTtl: "1h", subagentPromptCacheTtl: "1h", enableAllProjectMcpServers: false,
     deniedMcpServers: [{serverUrl: $url}, {serverUrl: "https://mine.example/*"}],
     skillOverrides: {"auto-mode-setup": "off", "dataviz": "off", "claude-api": "off", "schedule": "off", "run": "off", "keybindings-help": "on", "other-skill": "on"},
     syncClaudeAiSkills: false, syncClaudeAiPlugins: true,

@@ -12,8 +12,8 @@
     "pr": "",
     "sessionUrl": false
   },
-  "_autoCompactWindow_comment": "ENFORCED like env. Compact at 500k tokens, not the ~967k default of 1M-window models (Opus 5.x, Fable, Sonnet 5): every turn re-sends the context, so a full window costs money, speed and accuracy. A settings key, not the CLAUDE_CODE_AUTO_COMPACT_WINDOW env var, which is ignored in a settings.json env block on some versions (anthropics/claude-code#63186); where that env var IS set (for example by a session's own --settings file) it still wins. A modelSettings.<model>.autoCompactWindow (what /autocompact writes) beats this key for that model: see SKILL.md Step 6, Auto-compact window.",
-  "autoCompactWindow": 500000,
+  "_autoCompactWindow_comment": "ENFORCED like env. Compact at 533k tokens, not the ~967k default of 1M-window models (Opus 5.x, Fable, Sonnet 5): every turn re-sends the context, so a full window costs money, speed and accuracy. A settings key, not the CLAUDE_CODE_AUTO_COMPACT_WINDOW env var, which is ignored in a settings.json env block on some versions (anthropics/claude-code#63186); where that env var IS set (for example by a session's own --settings file) it still wins. A modelSettings.<model>.autoCompactWindow (what /autocompact writes) beats this key for that model: see SKILL.md Step 6, Auto-compact window.",
+  "autoCompactWindow": 533000,
   "_promptCacheTtl_comment": "ADD-ONLY, unlike autoCompactWindow: added when the live settings lack the key, a live value (a deliberate 5m on an API key, say) is kept and reported, never overwritten. 1h keeps the main conversation's prompt cache warm across idle gaps of up to an hour; it costs more to write on an API key, so a user may choose 5m. Needs Claude Code v2.1.242. subagentPromptCacheTtl is deliberately not here and /setup-toolkit never writes it: see SKILL.md Step 6, Prompt cache TTL.",
   "promptCacheTtl": "1h",
   "_enableAllProjectMcpServers_comment": "ENFORCED like env. A project's .mcp.json servers each need an explicit approval: the github MCP rules key on the server name, so an auto-approved project server could expose the same tools under another name.",
